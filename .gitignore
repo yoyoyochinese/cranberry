@@ -11,3 +11,6 @@ wheels/
 
 # project-specific
 refs
+
+# blind validation targets (DECISIONS.md D04)
+blind/
