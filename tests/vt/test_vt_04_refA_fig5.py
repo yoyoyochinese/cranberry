@@ -9,12 +9,21 @@ Excluded (D48): the right end (1200 mW) of the "previous work" dashed curve — 
 
 Runner part (WP-I1): the four curves through the full time-loop simulation, presets/reference/refA.yaml
 with the overlays presets/axes/refA_curve/{previous_work, blue, green}.yaml, pump power set on the
-offline OPA (lock-2 gain ∝ A+(P) follows, as with fixed electronics). Tolerance ±0.10 dB (D48, as VT-02)
-for P ≤ 1000 mW; at 1200 mW ±0.20 dB: the simulated θ is not constant in P — lock 2's loop gain grows
-with A+ and a delayed loop raises the variance of the flat laser/filter-cavity noise it acts on (Bode
-sensitivity integral), +1 % (9 mrad) / +3.4 % (14 mrad) at 1.2 W, which the constant-θ curves of the
-figure do not contain (finding for Phase 5). The optimum of the simulated 9 mrad curve lies between
-400 and 800 mW (P_opt = 612 mW analytically).
+offline OPA. Two lock-2 gain settings (M1-A-07, D63-7):
+
+* ``fixed`` — the electronics are fixed, so lock 2's loop gain ∝ A+(P) (the [AE] assumption of refA). The
+  simulated θ is then not constant in P: a delayed loop raises the variance of the flat laser/filter-
+  cavity noise it acts on (Bode sensitivity integral ∫(|S|² − 1) df > 0), θ(1200 mW)/θ(640 mW) − 1 =
+  +1.2 % (9 mrad) / +3.4 % (14 mrad), independent linear model +1.4 % / +3.6 % (review m1_lock2_bode.py).
+  This is a property of the fixed-gain model, not of Ref A: the constant-θ curves of the figure do not
+  contain it, so above 800 mW only the θ growth is checked (after the M1-A-01 ledger fix the 14 mrad
+  curve with fixed gain misses the curve at 1000 mW by 0.104 dB: −7.956 vs −8.06 dB).
+* ``const_ugf`` — the lock-2 integrator gain is rescaled ∝ 1/A+(P) (unity-gain frequency 20 kHz at every
+  P, as if the gain were re-adjusted per pump power): θ stays constant (±1 %) and every point, 1200 mW
+  included, meets the curves.
+
+Tolerance ±0.10 dB (D48, as VT-02). The optimum of the simulated 9 mrad curve lies between 400 and
+800 mW (P_opt = 612 mW analytically).
 
 Digitised data points (WP-I1): Fig. 5 is an embedded 891 × 484 px raster (200 ppi) on PDF page 7,
 extracted with ``pdfimages``. Axes calibrated on the gridlines (5 dB = 43.0 px, 200 mW = 86.4 px;
@@ -80,8 +89,13 @@ DATA_ANTI = [(40, 4.89), (124, 8.90), (198, 11.29), (277, 13.44), (379, 15.65), 
              (853, 23.67), (986, 25.59)]
 
 
-def sim_db(p_mw, overlay=None, duration_s=0.03):
-    """(R′− dB, R′+ dB, θ) of the refA time-loop simulation at pump power P (offline OPA, output reference)."""
+#: refA's lock-2 integrator gain (pid2.ki_per_s: unity gain 20 kHz at 640 mW, T14 §3.4)
+KI2_640 = 2 * np.pi * 2.0e4 / (1.0e4 * 2 * 1.2338 * np.sqrt(0.0154 * 1.6e-9) * np.pi / 3.5)
+
+
+def sim_db(p_mw, overlay=None, duration_s=0.03, gain="fixed"):
+    """(R′− dB, R′+ dB, θ) of the refA time-loop simulation at pump power P (offline OPA, output reference).
+    gain: ``fixed`` (lock-2 loop gain ∝ A+(P)) or ``const_ugf`` (ki ∝ 1/A+(P), module docstring)."""
     from cranberry import config
     from cranberry.config.yaml_io import load_yaml
     from cranberry.runner.run import run
@@ -92,25 +106,39 @@ def sim_db(p_mw, overlay=None, duration_s=0.03):
     for b in t["offline"]["blocks"]:
         if b["name"] == "sqz_opa":
             b["params"]["pump_w"] = p_mw * 1e-3
+    if gain == "const_ugf":
+        for b in t["pipeline"]:
+            if b.get("name") == "pid2":  # A+(640 mW)/A+(P), A+ = e^{√(αP)}
+                b["params"]["ki_per_s"] = KI2_640 * np.exp(np.sqrt(9.06 * 0.64) - np.sqrt(9.06 * p_mw * 1e-3))
     r = run(config.load(copy.deepcopy(t), overlays=[overlay] if overlay else []), keep_state=False)
     nl = r.metrics.noise_levels["i.port0"]
     return nl["r_minus_db"], nl["r_plus_db"], nl["sigma_total_rad"]
 
 
+#: θ(1200 mW)/θ(640 mW) − 1 with fixed lock-2 electronics (module docstring)
+THETA_GROWTH_FIXED = {"this_work": (0.005, 0.025), "previous_work": (0.02, 0.05), "green": (0.02, 0.05)}
+
+
 @pytest.mark.numba
 @pytest.mark.integration
+@pytest.mark.parametrize("gain", ["fixed", "const_ugf"])
 @pytest.mark.parametrize("name", list(CURVES))
-def test_fig5_curves_through_runner(name):
+def test_fig5_curves_through_runner(name, gain):
     theta, _, pts = CURVES[name]
-    sims = [sim_db(p, OVERLAY[name]) for p in P_MW]
+    if theta == 0 and gain == "const_ugf":
+        pytest.skip("blue curve: no phase noise, the lock gain does not matter")
+    sims = [sim_db(p, OVERLAY[name], gain=gain) for p in P_MW]
     for p_mw, target, (rm, rp, th) in zip(P_MW, pts, sims, strict=True):
-        if target is None:
-            continue  # D48: right end of the dashed curve excluded
-        tol = 0.10 if p_mw <= 1000 else 0.20
-        assert rm == pytest.approx(target[0], abs=tol), (name, p_mw)
-        assert rp == pytest.approx(target[1], abs=tol), (name, p_mw)
         if theta > 0 and p_mw >= 400:
             assert th == pytest.approx(theta, rel=0.05), (name, p_mw)
+        if target is None or (p_mw > 800 and gain == "fixed" and theta > 0):
+            continue  # D48 dashed right end; fixed gain: θ(P) not constant (θ growth checked below)
+        assert rm == pytest.approx(target[0], abs=0.10), (name, p_mw)
+        assert rp == pytest.approx(target[1], abs=0.10), (name, p_mw)
+    if theta > 0:
+        growth = sims[P_MW.index(1200)][2] / sims[P_MW.index(640)][2] - 1
+        lo, hi = THETA_GROWTH_FIXED[name] if gain == "fixed" else (-0.01, 0.01)
+        assert lo <= growth <= hi, (name, gain, growth)
     if name == "this_work":
         rms = [s[0] for s in sims]
         assert min(rms) == rms[P_MW.index(640)] and rms[P_MW.index(400)] > rms[P_MW.index(640)]

@@ -10,7 +10,9 @@ signal averaged by a VBW ≪ RBW video filter the exact ratio is ∫Li₂(|ρ|²
 / 1.341 (Gaussian), so log scatter is 0.083–0.089 dB (rect, ENBW factor 1.128–1.0); B3's radiometer MC
 found the same 1.32 (``blocks/err/qnl.py``). The power-average range 0.072–0.077 dB holds for a
 rectangular RBW (B_stat = ENBW); a Gaussian RBW has B_stat = √2·ENBW (0.0647 dB). The tests check the
-Monte Carlo against the exact expressions and the power range against T04.
+Monte Carlo against the exact expressions and the power range against T04. Phase 5 (D65-2, M1-A-06):
+targets per RBW shape — rect power 0.0725–0.0770 / log 0.0834–0.0886 dB, Gaussian (refA's shape) power
+0.0609–0.0647 / log 0.0706–0.0750 dB (ENBW factor 1.128–1.0).
 """
 
 import math
@@ -59,6 +61,34 @@ def test_v7_radiometer_scatter_gaussian_rbw():
     want = esa.radiometer_std_db(1e6, 100.0, 1.0, "gaussian", "power")
     assert want == pytest.approx(0.0770 / 2**0.25, rel=1e-3)
     assert _pooled_std(blk, 16, 12) == pytest.approx(want, rel=0.05)
+
+
+#: D65-2 / M1-A-06 targets per RBW shape, RBW 1 MHz, VBW 100 Hz; the range is ENBW factor 1.128 → 1.0 (dB)
+SCATTER_TARGETS = {("rect", "power"): (0.0725, 0.0770), ("rect", "log"): (0.0834, 0.0886),
+                   ("gaussian", "power"): (0.0609, 0.0647), ("gaussian", "log"): (0.0706, 0.0750)}
+
+
+@pytest.mark.parametrize("shape, avg", list(SCATTER_TARGETS))
+def test_v7_scatter_targets_per_rbw_shape(shape, avg):
+    """D58-4 as corrected by D65-2: the targets differ by RBW shape (refA uses the Gaussian one); the
+    log-average range 0.083–0.089 dB is the rectangular value only. Gaussian with −3 dB width = RBW
+    (ENBW = 1.0645·RBW, refA, M1-A-05): power 0.0627 dB, log 0.0727 dB."""
+    lo, hi = SCATTER_TARGETS[shape, avg]
+    assert esa.radiometer_std_db(1e6, 100.0, 1.128, shape, avg) == pytest.approx(lo, abs=5e-5)
+    assert esa.radiometer_std_db(1e6, 100.0, 1.0, shape, avg) == pytest.approx(hi, abs=5e-5)
+    if shape == "gaussian":
+        k3db = math.sqrt(math.pi / (4 * math.log(2)))
+        assert esa.radiometer_std_db(1e6, 100.0, k3db, shape, avg) == pytest.approx(
+            {"power": 0.0627, "log": 0.0727}[avg], abs=5e-5)
+
+
+def test_v7_radiometer_scatter_gaussian_rbw_log():
+    """Gaussian-RBW log-average scatter: MC = exact expression (0.0750 dB at ENBW = RBW). Oversample 8:
+    at 4 the coarse sampling of the Li₂ cusp biases the log variance by +1.3 % (D65-2)."""
+    blk = mk(rbw_shape="gaussian", average="log", oversample=8, sweep_time_s=0.5, n_points=20000)
+    want = esa.radiometer_std_db(1e6, 100.0, 1.0, "gaussian", "log")
+    assert want == pytest.approx(0.0750, abs=5e-5)
+    assert _pooled_std(blk, 16, 13) == pytest.approx(want, rel=0.05)
 
 
 def test_v7_log_bias_and_ratio_independent_of_average():

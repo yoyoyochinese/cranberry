@@ -21,15 +21,19 @@ Sensor noise (T14 §2.2)
     √(S_v f_b)); RF rate and DC outputs: PSD S_v (std √(S_v f_b / 2)); f_b = f_sim / rate_div.
     In a dither lock S_v depends on the instantaneous phase, i.e. the noise is cyclostationary at
     f_m; demodulation then weights it: a gets 2⟨2cos²θ S_v(θ)⟩, b gets 2⟨2sin²θ S_v(θ)⟩ (θ = 2π f_m t).
-    The baseband mode uses these weights (computed in the same quadrature), so it equals the RF-rate
-    mode. (For Ref C at the squeezing point the weight on b is 1.23 × S_v(Δ0): T14 §6.3's S_Δ,sens,
-    evaluated at Δ0, is low by that factor.)
+    The baseband mode uses these weights (computed in the same quadrature, with S_v = law′(p)²·2Q for
+    the detector law in use), so it equals the RF-rate mode for every law. The size of the weight
+    depends on the law (D65-1, M1-A-04): for Ref C at the squeezing point it is 1.2257 × S_v(Δ0) for
+    the SQUARE law only (sensor-limited residual 3.24 → 3.58 mrad, continuous first-order loop with
+    b_loop = 10 kHz); for the LOG law S_v ∝ 2Q/P² is constant over a flat band, the weight is exactly 1
+    and the change enters through the slope instead (0.905 × the stationary T14 slope, 1.222 in PSD):
+    4.11 mrad with κ_det = 1.32 (T14 §6.3's 4.2 multiplied the rms by κ_det; stationary value 3.72).
     Above the block's Nyquist frequency sensor noise is not represented; it never reaches the lock
     (filtered by the loop), so each generator declares a zero-outside sensor band to the
     ``BandLedger`` (G05) and adds nothing out of band itself.
 
 Dither harmonics (T14 §4–§6)
-    For v(θ) = law(k, (d + c1 cos(x1 + β sinθ) + c2 cos(x2 + β sinθ))·(1 + a_RAM sin(θ + φ_a))),
+    For v(θ) = law(k, (d + c1 cos(x1 + β sinθ) + c2 cos(x2 + β sinθ))·(1 + a_RAM sin(θ + φ_a)) + d_un),
     θ = 2π f_m t, the DC and first-harmonic coefficients are computed by the trapezoid rule over
     one dither period with :data:`N_QUAD` points. The integrand is periodic and analytic, so this is
     exact to rounding for |β| ≲ 3 (Fourier content beyond harmonic N ~ J_N(β)); it reproduces the
@@ -105,10 +109,11 @@ def helpers(jit: bool) -> SimpleNamespace:
         return s
 
     @dec
-    def harmonic(code, k, d, c1, x1, c2, x2, beta, ram_a, ram_phi, n0, n1, nq0, nq1, nq2):
-        """Over one dither period θ of p(θ) = (d + c1 cos(x1 + β sinθ) + c2 cos(x2 + β sinθ))(1 + a sin(θ + φ_a)),
-        v = law(k, p): returns (dc, a, b, s_a, s_b) with v ≈ dc + a cosθ + b sinθ and the cyclostationary
-        noise weights s_a = ⟨2cos²θ S_v(θ)⟩, s_b = ⟨2sin²θ S_v(θ)⟩ (S_v from :func:`noise`, cx = cos(x1 + β sinθ))."""
+    def harmonic(code, k, d, c1, x1, c2, x2, beta, ram_a, ram_phi, n0, n1, nq0, nq1, nq2, d_un):
+        """Over one dither period θ of p(θ) = (d + c1 cos(x1 + β sinθ) + c2 cos(x2 + β sinθ))(1 + a sin(θ + φ_a))
+        + d_un (d_un: part not modulated by RAM, e.g. the detector's dark noise), v = law(k, p): returns
+        (dc, a, b, s_a, s_b) with v ≈ dc + a cosθ + b sinθ and the cyclostationary noise weights
+        s_a = ⟨2cos²θ S_v(θ)⟩, s_b = ⟨2sin²θ S_v(θ)⟩ (S_v from :func:`noise`, cx = cos(x1 + β sinθ))."""
         dc = 0.0
         a = 0.0
         b = 0.0
@@ -119,7 +124,7 @@ def helpers(jit: bool) -> SimpleNamespace:
             s = math.sin(th)
             co = math.cos(th)
             cx = math.cos(x1 + beta * s)
-            p = (d + c1 * cx + c2 * math.cos(x2 + beta * s)) * (1.0 + ram_a * math.sin(th + ram_phi))
+            p = (d + c1 * cx + c2 * math.cos(x2 + beta * s)) * (1.0 + ram_a * math.sin(th + ram_phi)) + d_un
             v = law(code, k, p)
             dc += v
             a += v * co

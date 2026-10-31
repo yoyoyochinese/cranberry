@@ -23,10 +23,19 @@ Model (each term toggled independently; off ⇒ zero contribution; T05 §2.1)::
 Band ledger (G05, F3 contract): the loop represents [0, f_N], f_N = f_b/2. For every entry of
 ``oob_pairs`` ({target, tau_s}: a beam pair whose laser phases differ by the delay τ) the block
 declares a ``freq`` band on ``target`` with psd_outside = 4 sin²(πfτ)·S_ν(f) (the decorrelation folded
-in; the ledger converts with S_φ = S_ν/f²). An entry {target, dnu_fc_hz} instead folds in
-|1 − H_FC(f)|² = (2f/Δν)²/(1 + (2f/Δν)²): one beam passes a filter cavity of FWHM Δν (``filter_cavity``
-with ``laser_lowpass``), the other not (T05 §6; WP-I1 addition). RIN above f_N is declared as ``rin`` on ``rin_targets``.
+in; the ledger converts with S_φ = S_ν/f²). RIN above f_N is declared as ``rin`` on ``rin_targets``.
 :func:`laser_oob_variance` integrates the same quantity accurately (offline table, T05 §3.5 item 3).
+
+Filter-cavity pair {target, dnu_fc_hz, tau_fc_s, tau_ref_s} (T05 §6; WP-I1, corrected per D65 / M1-A-01):
+one beam passes ``filter_cavity`` (``laser_lowpass``, FWHM Δν, fed with φ_L(t − tau_fc_s), tau_fc_s =
+that beam's τ_b = the cavity's ``in_delay_s``), the other beam reads φ_L(t − tau_ref_s); both delays
+default to 0. The white-FM random walk is an exact sample of the continuous Brownian phase, so the
+loop's discrete chain (linear interpolation at both delays, the cavity's low pass) already contains
+the aliased part above f_N; it differs from the continuous truth by O(h) terms of either sign (cavity
+discretisation +, interpolation loss −, D57-7 / D65-4). The pair therefore declares, for white FM, a
+``phase`` row with variance_outside = (continuous total − expected value of the discrete model)
+(:func:`fc_pair_white_variances`), not the PSD above f_N. The other S_ν terms (flicker, peaks: band-
+limited generators) keep the ``freq`` row |H_FC e^{−i2πfδ} − 1|²·S_ν above f_N, δ = tau_fc_s − tau_ref_s.
 
 Slots: writes ``laser.<s>.phi`` [rad], ``.dnu`` [Hz], ``.dp`` [1], ``.power`` [W], ``.acc`` [rad]
 (random-phase accumulator), plus the generator states / draw buffers under ``rng.<name>.*``.
@@ -43,12 +52,14 @@ Params (D34: required when the toggle using them is on)::
 from __future__ import annotations
 
 import math
+import warnings
 from collections import namedtuple
 from collections.abc import Callable, Mapping
 from typing import Any
 
 import numba
 import numpy as np
+import scipy.signal
 
 from cranberry.blocks.noise._lgs import EMPTY_BANK, Bank, bank_step, bank_step_nb, flicker, resonance
 from cranberry.core.block import BaseBlock, Block, MissingParameterError, require
@@ -58,7 +69,7 @@ from cranberry.core.rng import DrawBuffer, substream
 from cranberry.offline.band_ledger import BandDecl, integrate_psd
 
 __all__ = ["LaserSource", "make_laser_source", "s_nu_model", "s_rin_model", "laser_oob_variance", "rin_cmrr_excess",
-           "resonance_psd", "TOGGLES"]
+           "resonance_psd", "fc_pair_white_variances", "TOGGLES"]
 
 TOGGLES = ("fm_white", "fm_flicker", "peaks", "drift", "dither", "sbs", "rin")
 _NEED = {"fm_white": ("h0_hz2_per_hz",), "fm_flicker": ("h_m1_hz2", "flicker_f_min_hz", "flicker_per_decade"),
@@ -122,8 +133,8 @@ def s_rin_model(params: Mapping[str, Any]) -> Callable[[np.ndarray], np.ndarray]
 
 def _pair_psd(pair: Mapping[str, Any], s_nu: Callable[[np.ndarray], np.ndarray], block: str):
     """Decorrelated S_ν of one ``oob_pairs`` entry: ``tau_s`` → 4 sin²(πfτ)·S_ν (delay, T05 §3.1);
-    ``dnu_fc_hz`` → |1 − H_FC|²·S_ν = (2f/Δν)²/(1 + (2f/Δν)²)·S_ν (one beam through a filter cavity of
-    FWHM Δν, the other not, T05 §6; WP-I1 addition, matches ``filter_cavity``'s ``laser_lowpass``)."""
+    ``dnu_fc_hz`` → |H_FC(f) e^{−i2πfδ} − 1|²·S_ν, H_FC = 1/(1 + 2if/Δν), δ = tau_fc_s − tau_ref_s (one
+    beam through a filter cavity of FWHM Δν, the other not, T05 §6; module docstring)."""
     given = [k for k in ("tau_s", "dnu_fc_hz") if k in pair]
     if len(given) != 1:
         raise MissingParameterError(f"block {block!r}: each oob_pairs entry needs exactly one of tau_s / dnu_fc_hz, "
@@ -131,15 +142,65 @@ def _pair_psd(pair: Mapping[str, Any], s_nu: Callable[[np.ndarray], np.ndarray],
     if given[0] == "tau_s":
         tau = float(pair["tau_s"])
         return lambda f: 4.0 * np.sin(np.pi * np.asarray(f) * tau) ** 2 * s_nu(f)
-    dnu = float(pair["dnu_fc_hz"])
-    if not dnu > 0.0:
-        raise ValueError(f"block {block!r}: oob_pairs dnu_fc_hz must be > 0")
+    dnu, tau_fc, tau_ref = _fc_pair(pair, block)
+    delta = tau_fc - tau_ref
 
     def psd(f):
-        x2 = (2.0 * np.asarray(f, dtype=float) / dnu) ** 2
-        return x2 / (1.0 + x2) * s_nu(f)
+        f = np.asarray(f, dtype=float)
+        h = np.exp(-2j * np.pi * f * delta) / (1.0 + 2j * f / dnu)
+        return np.abs(h - 1.0) ** 2 * s_nu(f)
 
     return psd
+
+
+def _fc_pair(pair: Mapping[str, Any], block: str) -> tuple[float, float, float]:
+    dnu = float(pair["dnu_fc_hz"])
+    tau_fc, tau_ref = float(pair.get("tau_fc_s", 0.0)), float(pair.get("tau_ref_s", 0.0))
+    if not dnu > 0.0:
+        raise ValueError(f"block {block!r}: oob_pairs dnu_fc_hz must be > 0")
+    if tau_fc < 0.0 or tau_ref < 0.0:
+        raise ValueError(f"block {block!r}: oob_pairs tau_fc_s / tau_ref_s must be >= 0")
+    return dnu, tau_fc, tau_ref
+
+
+def fc_pair_white_variances(h0: float, dnu_fc_hz: float, tau_fc_s: float, tau_ref_s: float,
+                            h_s: float) -> tuple[float, float]:
+    """(continuous, discrete) variance [rad²] of Δ = (H_FC φ_L)(t − τ_fc) − φ_L(t − τ_ref) for white FM h0.
+
+    Continuous (all f): Var = 2π²h0 ∫K(t)² dt with K the response to a unit phase step, p = πΔν:
+    δ = τ_fc − τ_ref ≥ 0 → δ + 1/(2p); δ = −u < 0 → u − 2(1 − e^{−pu})/p + 1/(2p) (δ = 0: πh0/Δν).
+    Discrete (expected value of the loop's chain at step h, no lock): φ_n is an exact random walk with
+    increments of variance 2π²h0h; LO = low pass (y_n = a y_{n−1} + (1 − a)(x_n + x_{n−1})/2, a = e^{−ph},
+    ``filter_cavity``) of the linear interpolation at τ_fc, reference = linear interpolation at τ_ref
+    (``core.delay`` / ``beam_assembler``). Var = 2π²h0h Σ K_n², K = step response; once both inputs are
+    past, K_n decays geometrically with ratio a, so the tail is summed in closed form.
+    """
+    from cranberry.path.segments import frac_delay
+
+    p = math.pi * dnu_fc_hz
+    d = tau_fc_s - tau_ref_s
+    if d >= 0.0:
+        k_int = d + 0.5 / p
+    else:
+        u = -d
+        k_int = u - 2.0 * (-math.expm1(-p * u)) / p + 0.5 / p
+    v_cont = 2.0 * math.pi**2 * h0 * k_int
+
+    a = math.exp(-p * h_s)
+    kf, mf = frac_delay(tau_fc_s, h_s)
+    kr, mr = frac_delay(tau_ref_s, h_s)
+    n0 = max(kf, kr) + 3
+    x = np.zeros(n0)
+    r = np.zeros(n0)
+    x[kf] += 1.0 - mf
+    x[kf + 1] += mf
+    r[kr] += 1.0 - mr
+    r[kr + 1] += mr
+    b = 0.5 * (1.0 - a)
+    y = scipy.signal.lfilter([b, b], [1.0, -a], x)
+    k = np.cumsum(y - r)
+    v_disc = 2.0 * math.pi**2 * h0 * h_s * (float(np.sum(k * k)) + k[-1] ** 2 * a * a / (1.0 - a * a))
+    return v_cont, v_disc
 
 
 def laser_oob_variance(s_nu: Callable[[np.ndarray], np.ndarray], tau_s: float, f_lo_hz: float, f_hi_hz: float,
@@ -311,14 +372,39 @@ class LaserSource(BaseBlock):
             raise RuntimeError(f"block {self.name!r}: bands() needs init (block rate unknown)")
         f_n = 0.5 * self._fb
         out = []
-        s_nu = s_nu_model(self.params)
+        p, tg = self.params, self.toggles
+        s_nu = s_nu_model(p)
+        # S_ν without white FM: the band-limited generators (flicker, peaks) of the FC pairs' freq row
+        s_nw = s_nu_model({**p, "toggles": {**tg, "fm_white": False}})
         if s_nu is not None:
-            for pair in self.params["oob_pairs"]:
-                out.append(BandDecl(source=self.name, quantity="freq", targets=(str(pair["target"]),), f_lo_hz=0.0,
-                                    f_hi_hz=f_n, unit="Hz", psd_outside=_pair_psd(pair, s_nu, self.name)))
-        s_rin = s_rin_model(self.params)
-        if s_rin is not None and self.params["rin_targets"]:
-            out.append(BandDecl(source=self.name, quantity="rin", targets=tuple(self.params["rin_targets"]),
+            for pair in p["oob_pairs"]:
+                tgt = (str(pair["target"]),)
+                if "dnu_fc_hz" not in pair:
+                    out.append(BandDecl(source=self.name, quantity="freq", targets=tgt, f_lo_hz=0.0, f_hi_hz=f_n,
+                                        unit="Hz", psd_outside=_pair_psd(pair, s_nu, self.name)))
+                    continue
+                if s_nw is not None:
+                    out.append(BandDecl(source=self.name, quantity="freq", targets=tgt, f_lo_hz=0.0, f_hi_hz=f_n,
+                                        unit="Hz", psd_outside=_pair_psd(pair, s_nw, self.name)))
+                if tg["fm_white"]:
+                    dnu, tau_fc, tau_ref = _fc_pair(pair, self.name)
+                    v_cont, v_disc = fc_pair_white_variances(float(p["h0_hz2_per_hz"]), dnu, tau_fc, tau_ref,
+                                                             1.0 / self._fb)
+                    corr = v_cont - v_disc
+                    if corr < 0.0:
+                        # ponytail: the ledger has no negative rows (phase_to_quadrature needs σ²_HF ≥ 0), so a
+                        # discrete chain that over-represents the continuous variance (cavity discretisation
+                        # ≈ ε²/12 of πh0/Δν, ε = πΔν h, when the delays do not dominate) is left as is; upgrade:
+                        # signed correction rows in BandLedger + phase_to_quadrature.
+                        warnings.warn(f"block {self.name!r}: FC pair on {tgt[0]!r}: the discrete loop exceeds the "
+                                      f"continuous white-FM variance by {-corr:.3e} rad² ({-corr / v_cont:.2%}); "
+                                      "ledger row set to 0", stacklevel=2)
+                        corr = 0.0
+                    out.append(BandDecl(source=self.name, quantity="phase", targets=tgt, f_lo_hz=0.0, f_hi_hz=f_n,
+                                        unit="rad", variance_outside=corr))
+        s_rin = s_rin_model(p)
+        if s_rin is not None and p["rin_targets"]:
+            out.append(BandDecl(source=self.name, quantity="rin", targets=tuple(p["rin_targets"]),
                                 f_lo_hz=0.0, f_hi_hz=f_n, unit="1", psd_outside=s_rin))
         return out
 

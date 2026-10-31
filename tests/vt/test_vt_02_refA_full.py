@@ -62,8 +62,9 @@ def test_esa_zero_span_traces(res):
     assert sq["mean_db"] == pytest.approx(-10.15, abs=0.10)
     assert anti["mean_db"] == pytest.approx(20.56, abs=0.10)
     # trace scatter is radiometer noise (T04 §5.3; Ref A §3.2 reports 0.07 dB), not phase noise
-    sd = radiometer_std_db(1e6, 100.0, 1.0, "gaussian", "power")
+    sd = radiometer_std_db(1e6, 100.0, math.sqrt(math.pi / (4 * math.log(2))), "gaussian", "power")  # M1-A-05
     assert sq["std_db"] == pytest.approx(sd, rel=0.25)
+    assert sd == pytest.approx(0.0627, abs=5e-4)  # D65-2: Gaussian RBW with −3 dB width 1 MHz
     assert sd == pytest.approx(0.07, abs=0.01)
 
 

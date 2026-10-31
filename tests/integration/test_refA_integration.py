@@ -11,7 +11,13 @@ records for presets/reference/refA.yaml.
   ±0.1 dB on 10-bin means); (b) with subtraction it stays flat at R (±0.1 dB); anti-squeezing is flat in
   both (≈ R′+). The 1 MHz probe peak of Fig. 4(a) is not emulated (line spectra are not in the hook).
 * Convergence (PLAN §6.4, prompt §8; ``runner.convergence``): f_sim × 2, × 4 change R′∓ by ≤ 1/3 of
-  ±0.10 dB; chunk length bit-identical; 10 seeds: spread of R′− ≪ 0.10 dB.
+  ±0.10 dB, and R′− by ≤ 0.005 dB (statistical scale of a 0.05 s record) — the laser × FC ledger pair
+  adds continuous − discrete expectation (M1-A-01), so the expected total does not depend on f_sim (the
+  earlier "0.006 dB at × 2" of D63-1 was two O(h) errors cancelling); chunk length bit-identical;
+  10 seeds: spread of R′− ≪ 0.10 dB.
+* Single source (M1-A-02): the laser's FC pair (Δν_FC, τ_fc, τ_ref) equals ``fc.dnu_fc_hz``,
+  ``fc.in_delay_s`` and ``Topology.timing`` of the beams lo / sqz, for refA, refA_tap and the Fig. 5
+  overlays; the relaxation-oscillation peak option runs. ESA RBW (M1-A-05): −3 dB width = RBW.
 * Run record with ``--out`` (CLI): config, seeds, git, env, metrics, loss registry, band ledger and the
   measurement arrays in results.npz; YAML round trip of the preset (VT-F1 form).
 """
@@ -111,6 +117,8 @@ def test_convergence_fsim_chunk_seeds():
     q = {"i.port0.r_minus_db": 0.10, "i.port0.r_plus_db": 0.10}
     rep = convergence(spec, ("f_sim", "seed"), quantities=q, seeds=list(range(1, 11)), f_sim_factors=(2, 4))
     assert rep.checks["f_sim"]["passed"], rep.checks["f_sim"]
+    for k in ("x2", "x4"):  # M1-A-01: no O(h) bias left (statistical scale only)
+        assert abs(rep.checks["f_sim"]["values"][k]["i.port0.r_minus_db"]["change"]) <= 0.005, rep.checks["f_sim"]
     # chunk length: bit-identical series and final physical state. Checked here rather than with
     # convergence("chunk"), which also compares the DrawBuffer bookkeeping slots rng.<block>.buf/.idx —
     # they differ with the refill pattern although every drawn number is the same (false negative of
@@ -129,6 +137,50 @@ def test_convergence_fsim_chunk_seeds():
     assert seed["passed"]
     assert seed["values"]["i.port0.r_minus_db"]["std"] < 0.01
     assert seed["values"]["i.port0.r_minus_db"]["mean"] == pytest.approx(-10.15, abs=0.10)
+
+
+@pytest.mark.parametrize("preset, overlay", [(PRESET, None), (PRESET, "refA_curve/green"),
+                                             (PRESET, "refA_curve/previous_work"),
+                                             ("presets/reference/refA_tap.yaml", None)])
+def test_fc_pair_single_source(preset, overlay):
+    from cranberry.path.topology import Topology
+
+    spec = config.load(preset, overlays=[overlay] if overlay else [])
+    blocks = {c.name: c for c in spec.pipeline.children}
+    (pair,) = blocks["koheras"].params["oob_pairs"]
+    fc = blocks["fc"].params
+    topo = Topology.from_spec(spec.topology)
+    assert pair["target"] == fc["segment"] and fc["beam"] == "lo"
+    assert pair["dnu_fc_hz"] == fc["dnu_fc_hz"] == (1.175e6 if overlay else 3.3e6)
+    assert pair["tau_fc_s"] == fc["in_delay_s"] == pytest.approx(topo.timing("lo").tau_s, rel=1e-12)
+    assert pair["tau_ref_s"] == pytest.approx(topo.timing("sqz").tau_s, rel=1e-12)
+
+
+def test_relaxation_oscillation_peak_option():
+    """`koheras.peaks` (UNVERIFIED stand-in, off in refA) adds S_ν in the 0.1–3 MHz band that sets θ."""
+    t = refa_tree()
+    t["run"]["duration_s"] = 0.02
+    t["measure"].pop("esa")
+    th = {}
+    for on in (False, True):
+        t["toggles"] = {"koheras.peaks": on}
+        th[on] = run(config.load(copy.deepcopy(t)), keep_state=False).metrics.noise_levels["i.port0"]["sigma_total_rad"]
+    assert th[True] > th[False] * 1.02  # ≈ +3.5 % (|1 − H_FC(0.7 MHz)|² · area / f0²)
+
+
+def test_esa_gaussian_rbw_3db_width():
+    """M1-A-05: refA's Gaussian RBW has −3 dB full width = RBW (enbw_factor = √(π/(4 ln 2)) = 1.0645)."""
+    from cranberry.core.block import BlockSpec
+    from cranberry.core.registry import make_block
+
+    spec = config.load(PRESET)
+    for b in spec.offline["blocks"]:
+        if b["name"] in ("esa_zs", "esa_spec"):
+            assert b["params"]["enbw_factor"] == pytest.approx(1.0645, abs=1e-4)
+            blk = make_block(BlockSpec.from_obj(b))
+            f = np.linspace(0, 1e6, 200_001)
+            half = f[np.argmin(np.abs(blk._rbw_power(f) - 0.5))]
+            assert 2 * half == pytest.approx(b["params"]["rbw_hz"], rel=1e-4)
 
 
 # -------------------------------------------------------------------------------------- records
