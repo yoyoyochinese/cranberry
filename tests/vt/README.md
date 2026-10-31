@@ -31,13 +31,13 @@ Rules (PLAN §6.1, §6.3):
 | [ ] | VT-12 | 6 | `gawbs_table` | unit | B10 | M5 | `test_vt_12_gawbs.py` |
 | [ ] | VT-13 | 7 | generic linear loop (M0, `SimController.measure_transfer_function`), Ref D z-domain (M1) | integ | F1, F5, B4, I2 | M0, M1 | `test_vt_13_closed_loop_tf.py` |
 | [ ] | VT-14 | 7 | feedback off → free-running (Ref D) | integ | I2, F6 | M1 | `test_vt_14_refD_free_running.py` |
-| [ ] | VT-15 | 7 | integrator loop residual, lock-2 reduction (A−/A+) | integ | B4, I1 | M1 | `test_vt_15_integrator_residual.py` |
+| [~] | VT-15 | 7 | integrator loop residual, lock-2 reduction (A−/A+) | integ | B4, I1 | M1 | `test_vt_15_integrator_residual.py` |
 | [ ] | VT-16 | 8 | tap trade-off, both definitions (a)(b) (D51-4) | integ | I1 | M1 | `test_vt_16_tap_tradeoff.py` |
 | [ ] | VT-17 | 9 | Ref B Fig. 3 (x = √(P/P_th), Ω_B = 2πf/γ_B, T02 V-B3 table) | unit + integ | B6, I4 | M3 | `test_vt_17_refB_fig3.py` |
 | [ ] | VT-18 | 9 | Ref B definition discrimination | unit + integ | B6, I4 | M3 | `test_vt_18_refB_definitions.py` |
 | [~] | VT-19 | 10 | dither contribution | unit + integ | F4, B3, I3 | M2 | `test_vt_19_dither_contribution.py` |
 | [ ] | VT-20 | 10 | total ≈ 0.1 rad, insensitive to controller model (10 %) | integ | I3 | M2 | `test_vt_20_refC_total_residual.py` |
-| [ ] | VT-21 | 10 | lock duration set by slow-actuator range | integ | B4, I2, I3, I5 | M1, M2, M6 | `test_vt_21_lock_duration.py` |
+| [~] | VT-21 | 10 | lock duration set by slow-actuator range | integ | B4, I2, I3, I5 | M1, M2, M6 | `test_vt_21_lock_duration.py` |
 | [~] | VT-22 | 11 | shared-segment cancellation (equal coefficients), passes with polarization off | integ | F6 (M0), I4 (M3), B7 | M0, M3, M4 | `test_vt_22_shared_segment_cancellation.py` |
 | [ ] | VT-23 | 11 (added) | no cancellation on OPO segment with unequal coefficients | integ | B6, I4, B11 | M3, M5 | `test_vt_23_unequal_coef_no_cancellation.py` |
 | [ ] | VT-24 | D04 | Ref D pre-blind analytic checks | unit + integ | I2, B3, B4, B2, B7 | M1 | `test_vt_24_refD_analytic.py` |
@@ -55,7 +55,7 @@ Rules (PLAN §6.1, §6.3):
 | [ ] | VT-41 | — | losses (Ref B / C budgets, 32-port budget, GBS vs BHD separation) | unit | F3, I3, I4, I5 | M2–M6 | `test_vt_41_loss_budgets.py` |
 | [ ] | VT-42 | — | detection | unit | B5 | M1 | `test_vt_42_detection.py` |
 | [x] | VT-43 | — | error signals (incl. baseband ↔ RF-rate equivalence) | unit | B3 | M1–M4 | `test_vt_43_error_signals.py` |
-| [ ] | VT-44 | — | actuators, delay buffer, stack = parallel, compiled = pure Python (1e−12), f_sim convergence | unit | F1, B4 | M0, M1 | `test_vt_44_delay_stack_compile.py` |
+| [~] | VT-44 | — | actuators, delay buffer, stack = parallel, compiled = pure Python (1e−12), f_sim convergence | unit | F1, B4 | M0, M1 | `test_vt_44_delay_stack_compile.py` |
 | [ ] | VT-45 | — | pulsed OPO | unit | B11 | M5 | `test_vt_45_pulsed_opo.py` |
 | [ ] | VT-F1 | — | YAML ↔ Python round trip (`spec == load(dump(spec))`, bit-identical results at equal seed) | integ | F2 | M0 | `test_vt_f1_yaml_round_trip.py` |
 | [ ] | VT-F2 | — | chunk-length invariance (bit-identical, G11), f_sim doubling (§6.4) | integ | F1, B2 | M0, each M | `test_vt_f2_chunk_invariance.py` |

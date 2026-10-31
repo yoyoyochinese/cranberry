@@ -31,7 +31,7 @@ from cranberry.offline.tables import Table
 __all__ = ["DRIVERS", "EFFECTS", "CoefKey", "CoefValue", "evaluate_coef"]
 
 #: Drivers written into ``drv.<segment>.<driver>`` (PLAN §2.3.1–§2.3.2).
-DRIVERS: tuple[str, ...] = ("dT", "strain", "detuning", "tec", "stretcher", "eom")
+DRIVERS: tuple[str, ...] = ("dT", "strain", "detuning", "tec", "stretcher", "eom", "dither")
 #: What a coefficient produces.
 EFFECTS: tuple[str, ...] = ("phase", "group_delay")
 
