@@ -383,6 +383,16 @@
   7. 未解決（Phase 5 のレビューで）: 光路のブロックの線形の端数遅延の補間は、ナイキスト付近の白色雑音の分散を 2μ(1−μ) だけ減らす（8 MHz・1 m の区間で約 4%）。f_sim の収束の問題として F6 のレビュー担当が確認する。
 - 日付: 2026-10-31 / Phase 4
 
+### D58 wave 3–5 の途中で決まった規則と、レビュー待ちの発見（Phase 4）
+- 決定:
+  1. 検出器: `detector_efficiency`（オフライン）が量子効率・回路雑音・不平衡を BHD の観測点の損失として登録する。`bhd_frontend` はそれより前の R を受け取る（二重に数えない）。PDB450C の値は `devices/pdb450c.yaml`（マニュアルのページ付き。印刷ページ = PDF ページ − 2）。
+  2. GNLSE（WP-B9）のトグル名: `kerr`（SPM）、`beta2`・`beta3`・`beta_higher`（分散）、`raman`（モデルは `raman_model`）、`self_steepening`、`loss`、`xpm_external`、`cw_shortcut`。量子雑音層は B9 の接線（`propagate(..., dat0)`）を使う。
+  3. CW の OPO（WP-B6）: 離調の係数表は `<seg>.detuning.{squeezed,probe}`。プリセット（WP-I4）は `opo_cw_spectrum.coef_entries` から組み立て時に作るか `!expr` の定数で書く。
+  4. **物理レビュー待ち（Phase 5）:** ESA のログ平均のトレースのばらつきは、T04 の π²/6 = 1.645 ではなく、連続した RBW フィルタの信号では ∫Li₂(|ρ|²)/∫|ρ|² ≈ 1.325（矩形）・1.341（Gaussian）なので、0.083–0.089 dB（T04 は 0.093–0.099 dB）。Gaussian の RBW では統計的な帯域が √2·ENBW。WP-B3 の radiometer の結果（1.32）と独立に一致（WP-B5）。レビューで確認したら T04・00_summary の VT-33 の目標を更新する。
+  5. T02 §2.4 の周波数に依る回転の推定値（−0.369 / −0.360 / −0.252°）は、ρ = 0.970 で −0.3685 / −0.3621 / −0.2560° になる（V-B の目標ではない推定値。WP-B6）。
+  6. 測定段のブロック（ESA、パルスの標本）をループの後で走らせるランナーのフック `measure.esa`・`measure.pulse_sample` は WP-I1 で加える。
+- 日付: 2026-10-31 / Phase 4
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）
