@@ -36,7 +36,7 @@ Rules (PLAN §6.1, §6.3):
 | [~] | VT-17 | 9 | Ref B Fig. 3 (x = √(P/P_th), Ω_B = 2πf/γ_B, T02 V-B3 table) | unit + integ | B6, I4 | M3 | `test_vt_17_refB_fig3.py` |
 | [~] | VT-18 | 9 | Ref B definition discrimination | unit + integ | B6, I4 | M3 | `test_vt_18_refB_definitions.py` |
 | [x] | VT-19 | 10 | dither contribution | unit + integ | F4, B3, I3 | M2 | `test_vt_19_dither_contribution.py`; Ref C preset `test_vt_19_refC_dither.py` (WP-I3) |
-| [x] | VT-20 | 10 | total ≈ 0.1 rad, insensitive to controller model (10 %) | integ | I3 | M2 | `test_vt_20_refC_total_residual.py` |
+| [x] | VT-20 | 10 | total ≈ 0.1 rad, insensitive to controller model (10 %); (d) free-running phase vs Ref C Fig. 2 right (M2C-04) | integ | I3 | M2 | `test_vt_20_refC_total_residual.py`, `test_vt_20_refC_fig2_free_running.py` |
 | [~] | VT-21 | 10 | lock duration set by slow-actuator range | integ | B4, I2, I3, I5 | M1, M2, M6 | `test_vt_21_lock_duration.py`; Ref D thermal ramp `test_vt_21_refD_thermal_ramp.py` (WP-I2); Ref C stack `test_vt_21_refC_lock_duration.py` (WP-I3) |
 | [~] | VT-22 | 11 | shared-segment cancellation (equal coefficients), passes with polarization off | integ | F6 (M0), I4 (M3), B7 | M0, M3, M4 | `test_vt_22_shared_segment_cancellation.py` |
 | [~] | VT-23 | 11 (added) | no cancellation on OPO segment with unequal coefficients | integ | B6, I4, B11 | M3, M5 | `test_vt_23_unequal_coef_no_cancellation.py` |

@@ -62,10 +62,15 @@ Measurement-stage hooks (WP-I1, D58-6; :func:`evaluate_measurements`, after the 
     π/2: the same jitter around the orthogonal one, prompt §7-1). The variance uses the metric's loss-
     applied V∓ and its χ_HF, χ_dither (``phase_to_quadrature``; nothing is added twice):
 
-    * zero span: V′(t) = (V− + V+)/2 − (V+ − V−)/2 · cos 2Δ(t) · χ_HF χ_dither, Δ(t) from the recorded
-      (decimated) metric series, sampled every ``decim/f_sim``; the record must cover ``sweep_time_s``
-      (T04 §5.1). A phase-scanned trace is the same entry on a run with the lock off and a ramp
-      (Ref A Fig. 3).
+    * zero span: V′(t) = (V− + V+)/2 − (V+ − V−)/2 · cos 2Δ(t) · χ_HF χ_dither with
+      cos 2Δ = cos 2a · cos 2δ − sin 2a · sin 2δ (a = Δ_set − θ_off + ``quadrature_rad``). cos 2δ and
+      sin 2δ are formed at the FULL rate by the recorder (``Recorder(cos_sin2=...)``: the runner adds them
+      for every metric slot when ``measure.esa`` has a zero span) and only then decimated, i.e. filtered by
+      ``antialias`` like any series (Phase 5 M2C-01: smoothing δ itself before the cosine would drop the
+      phase jitter above f_rec/2, e.g. Ref C's time-series 1 MHz dither, and bias V′ low by 0.46 dB). The
+      record (series ``<metric slot>.cos2`` / ``.sin2``, every ``decim/f_sim``, from ``t_settle_s``) must
+      cover ``sweep_time_s`` (T04 §5.1). A phase-scanned trace is the same entry on a run with the lock off
+      and a ramp (Ref A Fig. 3).
     * swept spectrum: R = V′/V_SN with ⟨cos 2Δ⟩ from the full-rate metric moments and η recomputed without
       the LossRegistry elements listed in ``exclude_losses`` (the detector's electronic / imbalance
       elements: ``bhd_frontend`` adds them itself, D58-1); ``frontend.psd(f, R)`` gives the signal /
@@ -84,6 +89,7 @@ Recording (``RunSpec.measure["record"]``, optional; without it no series are rec
 
     measure:
       record: {slots: [<slot name>, ...], decim: <int >= 1>, antialias: none | boxcar | fir}
+      validity: [{slot: <slot>, abs_max: <number>}, ...]   # optional (Phase 5 M2C-03, D57-4)
 
 Slot values are recorded at the end of every sample n with ``n % decim == 0`` (after all blocks
 ran), at time t = n / f_sim. float64, int64 and complex128 slots of any (non-ring) shape are
@@ -100,6 +106,15 @@ zero history before n = 0 (the first records carry the start-up transient), and 
 t = n / f_sim (the filter delay is not removed). The key is optional for backward compatibility: if it
 is absent the recorder point-samples as before and, when decim > 1, warns once per process
 (:class:`RecordAliasWarning`). With decim = 1 every mode is the identity.
+
+Validity slots (``measure.validity``, optional; Phase 5 M2C-03, D57-4 for metric (i) runs): the listed
+slots (controller outputs at their clamp, e.g. ``ctrl.pid1.u`` with ``abs_max`` just inside ``u_max_v``,
+or saturation / lock-loss flags) are added to the record and ``RunResult.validity[slot]`` = fraction of the
+recorded samples from the largest metric ``t_settle_s`` on with |slot| ≥ abs_max (the clamp fraction,
+estimated from every ``decim``-th recorded value; float slots carry the ``antialias`` filter, int slots
+are point-sampled). ``RunResult.summary()`` reports it as ``validity.<slot>.frac``, ``results.npz`` as
+the same key, and ``RunResult.valid`` is False when any fraction is > 0 (the metric then
+describes a clamped loop, not the linear one).
 """
 
 from __future__ import annotations
@@ -174,6 +189,7 @@ class RunResult:
         offline: the offline stage (source outputs, LossRegistry, BandLedger; WP-F4 addition).
         measurements: {hook: {entry: result}} of the measurement-stage hooks (``measure.esa``,
             ``measure.pulse_sample``; WP-I1 addition, :func:`evaluate_measurements`).
+        validity: {slot: clamp fraction} of ``measure.validity`` (module docstring; M2C-03 addition).
     """
 
     spec: RunSpec
@@ -189,11 +205,18 @@ class RunResult:
     mode: str = ""
     offline: OfflineStage | None = None
     measurements: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    validity: Mapping[str, float] = field(default_factory=dict)
+
+    @property
+    def valid(self) -> bool:
+        """False when a ``measure.validity`` slot was at its limit (clamp fraction > 0; M2C-03, D57-4)."""
+        return not any(v > 0.0 for v in self.validity.values())
 
     def summary(self) -> dict[str, float]:
         """Flat {name: scalar} for ablation / convergence tables (WP-F4): ``MetricsResult.summary()``
-        plus ``<slot>.mean`` / ``<slot>.std`` / ``<slot>.rms`` of every recorded real scalar series."""
-        out: dict[str, float] = {}
+        plus ``<slot>.mean`` / ``<slot>.std`` / ``<slot>.rms`` of every recorded real scalar series and
+        ``validity.<slot>.frac`` (clamp fraction of each ``measure.validity`` slot)."""
+        out: dict[str, float] = {f"validity.{k}.frac": float(v) for k, v in self.validity.items()}
         for name, x in self.series.items():
             x = np.asarray(x)
             if x.ndim == 1 and x.size and np.isrealobj(x):
@@ -371,20 +394,29 @@ class Recorder(BaseBlock):
     written since the last :meth:`harvest`). ``capacity = ceil(chunk_samples / decim)``; the runner
     harvests after every chunk.
 
+    Derived series (``cos_sin2``, Phase 5 M2C-01): for each listed scalar float slot x the recorder forms
+    cos 2x and sin 2x every base sample and records them like a slot (filtered by ``antialias`` AFTER the
+    nonlinearity), as series ``<x>.cos2`` / ``<x>.sin2``. The ESA zero span reads these instead of
+    the decimated δ, so the anti-alias filter cannot average fast phase jitter out of ⟨cos 2δ⟩.
+
     Args:
         slots: slot names to record.
         decim: record every ``decim``-th base sample.
         chunk_samples: maximum samples between two harvests.
         name: instance name.
         antialias: ``none`` | ``boxcar`` | ``fir`` (:data:`RECORD_ANTIALIAS`).
+        cos_sin2: slots (a subset of ``slots``, scalar float) whose cos 2x / sin 2x are recorded too.
     """
 
     def __init__(self, slots: Sequence[str], decim: int, chunk_samples: int, name: str = "recorder",
-                 antialias: str = "none"):
+                 antialias: str = "none", cos_sin2: Sequence[str] = ()):
         if isinstance(decim, bool) or int(decim) != decim or decim < 1:
             raise ValueError(f"measure.record.decim must be an int >= 1, got {decim!r}")
         if not slots or len(set(slots)) != len(slots):
             raise ValueError(f"measure.record.slots must be a non-empty list of distinct names, got {slots!r}")
+        self.cos_sin2 = list(dict.fromkeys(cos_sin2))
+        if set(self.cos_sin2) - set(slots):
+            raise ValueError(f"recorder: cos_sin2 slots {sorted(set(self.cos_sin2) - set(slots))} are not recorded")
         self.taps = antialias_taps(antialias, int(decim))
         self.decim = int(decim)
         self.antialias = antialias
@@ -411,6 +443,10 @@ class Recorder(BaseBlock):
             if sl.ring_len:
                 raise ValueError(f"recorder: ring slot {s!r} cannot be recorded")
             cols += sl.size * (2 if sl.array == "Z" else 1)
+        for s in self.cos_sin2:
+            if s in layout and (layout.slot(s).array != "S" or layout.slot(s).size != 1):
+                raise ValueError(f"recorder: cos_sin2 slot {s!r} must be a scalar float slot")
+        cols += 2 * len(self.cos_sin2)
         self.n_cols = cols
         layout.add(self.buf_name, (self.capacity, max(cols, 1)), np.float64, "1")
         layout.add(self.idx_name, (), np.int64, "1")
@@ -432,10 +468,12 @@ class Recorder(BaseBlock):
                 self.columns.append((s, col, ncols))
                 src[arr].extend(range(sl.offset, sl.stop))
                 col += ncols
+        self.derived_columns = [(s, col + 2 * j) for j, s in enumerate(self.cos_sin2)]  # after S, I, Z
         s_src, i_src, z_src = (np.array(src[a], dtype=np.int64) for a in ("S", "I", "Z"))
-        self._src = (s_src, i_src, z_src)
+        d_src = np.array([layout.slot(s).offset for s in self.cos_sin2], dtype=np.int64)
+        self._src = (s_src, i_src, z_src, d_src)
         buf, idx, width, cap = layout.slot(self.buf_name).offset, layout.slot(self.idx_name).offset, max(self.n_cols, 1), self.capacity
-        ns, ni, nz = len(s_src), len(i_src), len(z_src)
+        ns, ni, nz, nd = len(s_src), len(i_src), len(z_src), len(d_src)
         self._off = (buf, idx, width, cap)
         if self.taps is not None:
             self.kernel = self._filtered_kernel(layout)
@@ -454,14 +492,17 @@ class Recorder(BaseBlock):
             for j in range(nz):
                 S[base + ns + ni + 2 * j] = Z[z_src[j]].real
                 S[base + ns + ni + 2 * j + 1] = Z[z_src[j]].imag
+            for j in range(nd):
+                S[base + ns + ni + 2 * nz + 2 * j] = math.cos(2.0 * S[d_src[j]])
+                S[base + ns + ni + 2 * nz + 2 * j + 1] = math.sin(2.0 * S[d_src[j]])
             I[idx] = row + 1
 
         self.kernel = kernel
 
     def _filtered_kernel(self, layout):
         buf, idx, width, cap = self._off
-        s_src, i_src, z_src = self._src
-        ns, ni, nz = len(s_src), len(i_src), len(z_src)
+        s_src, i_src, z_src, d_src = self._src
+        ns, ni, nz, nd = len(s_src), len(i_src), len(z_src), len(d_src)
         hs = layout.slot(self.hist_name)
         hoff, hlen, hhead, hw = hs.offset, hs.ring_len, hs.head, hs.shape[0]  # hw: row width (size = hlen·hw)
         n_off, decim, taps = layout.slot("n").offset, self.decim, np.ascontiguousarray(self.taps)
@@ -479,13 +520,16 @@ class Recorder(BaseBlock):
             for j in range(nz):
                 S[r + ns + 2 * j] = Z[z_src[j]].real
                 S[r + ns + 2 * j + 1] = Z[z_src[j]].imag
+            for j in range(nd):
+                S[r + ns + 2 * nz + 2 * j] = math.cos(2.0 * S[d_src[j]])
+                S[r + ns + 2 * nz + 2 * j + 1] = math.sin(2.0 * S[d_src[j]])
             if I[n_off] % decim != 0:
                 return
             row = I[idx]
             if row >= cap:
                 raise IndexError("recorder buffer overflow (harvest after every chunk)")
             base = buf + row * width
-            for c in range(ns + 2 * nz):
+            for c in range(ns + 2 * nz + 2 * nd):
                 acc = 0.0
                 for m in range(M):
                     a = h - m
@@ -501,8 +545,8 @@ class Recorder(BaseBlock):
 
     def _filtered_call(self, state):
         buf, idx, width, cap = self._off
-        s_src, i_src, z_src = self._src
-        ns, ni = len(s_src), len(i_src)
+        s_src, i_src, z_src, d_src = self._src
+        ns, ni, nz = len(s_src), len(i_src), len(z_src)
         S = state.S
         hs = state.layout.slot(self.hist_name)
         h = (int(state.I[hs.head]) + 1) % hs.ring_len
@@ -510,8 +554,10 @@ class Recorder(BaseBlock):
         hist = state[self.hist_name]  # (ring_len, width) view
         z = state.Z[z_src]
         hist[h, :ns] = S[s_src]
-        hist[h, ns::2] = z.real
-        hist[h, ns + 1::2] = z.imag
+        hist[h, ns : ns + 2 * nz : 2] = z.real
+        hist[h, ns + 1 : ns + 2 * nz : 2] = z.imag
+        hist[h, ns + 2 * nz :: 2] = np.cos(2.0 * S[d_src])
+        hist[h, ns + 2 * nz + 1 :: 2] = np.sin(2.0 * S[d_src])
         if state.n % self.decim != 0:
             return state
         row = int(state.I[idx])
@@ -522,7 +568,7 @@ class Recorder(BaseBlock):
         base = buf + row * width
         S[base : base + ns] = y[:ns]
         S[base + ns : base + ns + ni] = state.I[i_src]
-        S[base + ns + ni : base + ns + ni + 2 * len(z_src)] = y[ns:]
+        S[base + ns + ni : base + ns + ni + len(y) - ns] = y[ns:]
         state.I[idx] = row + 1
         return state
 
@@ -530,7 +576,7 @@ class Recorder(BaseBlock):
         if self.taps is not None:
             return self._filtered_call(state)
         buf, idx, width, cap = self._off
-        s_src, i_src, z_src = self._src
+        s_src, i_src, z_src, d_src = self._src
         row = int(state.I[idx])
         if row >= cap:
             raise IndexError("recorder buffer overflow (harvest after every chunk)")
@@ -542,6 +588,9 @@ class Recorder(BaseBlock):
         z = state.Z[z_src]
         S[base + ns + ni : base + ns + ni + 2 * len(z_src) : 2] = z.real
         S[base + ns + ni + 1 : base + ns + ni + 2 * len(z_src) : 2] = z.imag
+        d0 = base + ns + ni + 2 * len(z_src)
+        S[d0 : d0 + 2 * len(d_src) : 2] = np.cos(2.0 * S[d_src])
+        S[d0 + 1 : d0 + 2 * len(d_src) : 2] = np.sin(2.0 * S[d_src])
         state.I[idx] = row + 1
         return state
 
@@ -565,6 +614,8 @@ class Recorder(BaseBlock):
             else:
                 arr = block
             out[s] = arr.reshape((table.shape[0], *sl.shape))
+        for s, c0 in self.derived_columns:
+            out[f"{s}.cos2"], out[f"{s}.sin2"] = table[:, c0].copy(), table[:, c0 + 1].copy()
         return out
 
 
@@ -625,22 +676,26 @@ def _need(entry: Any, keys: Sequence[str], what: str) -> None:
         raise KeyError(f"{what} needs {missing} (D34: no defaults)")
 
 
-def _zero_span(blk: Any, cfg: Mapping[str, Any], metrics: Any, f_record_hz: float | None, rng, what: str) -> dict:
+def _zero_span(blk: Any, cfg: Mapping[str, Any], metrics: Any, f_record_hz: float | None, rng, what: str,
+               cos_sin2: tuple[np.ndarray, np.ndarray] | None) -> dict:
+    """``cos_sin2``: the recorded full-rate-then-decimated (cos 2δ, sin 2δ) of the metric from its
+    ``t_settle_s`` on (module docstring, M2C-01), None when not recorded."""
     from cranberry.core.units import V_SN
 
     _need(cfg, ("block", "metric", "quadrature_rad"), what)
-    nl, m = _metric_entry(metrics, cfg["metric"], what)
+    nl, _ = _metric_entry(metrics, cfg["metric"], what)
     nl = _at_fs(nl, float(blk.params["f_s_hz"]), what)
-    delta = np.asarray(getattr(m, "delta_rad", np.zeros(0)), dtype=float)
-    if f_record_hz is None or delta.size < 2:
+    if f_record_hz is None or cos_sin2 is None or cos_sin2[0].size < 2:
         raise ValueError(f"{what}: the zero span reads the recorded metric series (needs measure.record)")
+    c2, s2 = cos_sin2
     dt = 1.0 / f_record_hz
-    if (delta.size - 1) * dt < float(blk.params["sweep_time_s"]):
-        raise ValueError(f"{what}: record of {(delta.size - 1) * dt:.4g} s is shorter than sweep_time_s "
+    if (c2.size - 1) * dt < float(blk.params["sweep_time_s"]):
+        raise ValueError(f"{what}: record of {(c2.size - 1) * dt:.4g} s is shorter than sweep_time_s "
                          f"{blk.params['sweep_time_s']} s")
-    big = float(nl["setpoint_rad"]) + delta - float(nl["theta_off_rad"]) + float(cfg["quadrature_rad"])
+    a = float(nl["setpoint_rad"]) - float(nl["theta_off_rad"]) + float(cfg["quadrature_rad"])
+    cos_big = math.cos(2.0 * a) * c2 - math.sin(2.0 * a) * s2   # cos 2(a + δ)
     vm, vp = float(nl["v_minus"]), float(nl["v_plus"])
-    v_t = 0.5 * (vm + vp) - 0.5 * (vp - vm) * np.cos(2.0 * big) * float(nl["chi_hf"]) * float(nl["chi_dither"])
+    v_t = 0.5 * (vm + vp) - 0.5 * (vp - vm) * cos_big * float(nl["chi_hf"]) * float(nl["chi_dither"])
     r = dict(blk.evaluate(v_t, dt_s=dt, rng=rng))
     r["v_prime"] = float(np.mean(v_t))
     r["r_lin"] = r["v_prime"] / V_SN
@@ -715,6 +770,8 @@ def evaluate_measurements(
     loss_registry: Any,
     f_record_hz: float | None,
     seed: int,
+    series: Mapping[str, np.ndarray] | None = None,
+    t_s: np.ndarray | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Run the measurement-stage hooks of ``measure`` after the loop (module docstring).
 
@@ -725,8 +782,27 @@ def evaluate_measurements(
         loss_registry: the offline stage's LossRegistry (``exclude_losses``).
         f_record_hz: sample rate of the recorded series (f_sim / decim); None without recording.
         seed: run seed (RNG streams ``measure.<hook>.<entry>``).
+        series, t_s: the recorded series and their time axis (the zero span reads the derived
+            ``<metric slot>.cos2`` / ``.sin2`` series, :class:`Recorder` ``cos_sin2``).
     """
+    from cranberry.blocks.meas.metrics import MetricProbe, metric_name
     from cranberry.core.rng import stream
+
+    series = series or {}
+    t_rec = np.zeros(0) if t_s is None else np.asarray(t_s, dtype=float)
+
+    def cos_sin2(metric: str) -> tuple[np.ndarray, np.ndarray] | None:
+        for b in blocks.values():
+            if isinstance(b, MetricProbe):
+                for p in b.pairs:
+                    if metric_name(b.kind, p.port) == metric:
+                        slot = b.slot(p.port)
+                        if f"{slot}.cos2" not in series:
+                            return None
+                        c2, s2 = (np.asarray(series[f"{slot}.{k}"], dtype=float) for k in ("cos2", "sin2"))
+                        keep = t_rec[: c2.size] >= b.t_settle_s
+                        return c2[keep], s2[keep]
+        return None
 
     out: dict[str, dict[str, Any]] = {}
     for hook, kinds in MEASUREMENT_HOOKS.items():
@@ -744,7 +820,7 @@ def evaluate_measurements(
                 raise KeyError(f"{what}.block: no block {cfg['block']!r} of kind {kinds} in offline.blocks / pipeline")
             rng = stream(seed, what)
             if blk.kind == "esa_zero_span":
-                res[str(entry)] = _zero_span(blk, cfg, metrics, f_record_hz, rng, what)
+                res[str(entry)] = _zero_span(blk, cfg, metrics, f_record_hz, rng, what, cos_sin2(str(cfg["metric"])))
             elif blk.kind == "esa_swept_spectrum":
                 res[str(entry)] = _swept(blk, cfg, blocks, metrics, loss_registry, rng, what)
             else:
@@ -782,7 +858,8 @@ def _write_results(run_dir: Path, result: RunResult) -> None:
     from cranberry.runner.record import write_record
 
     parts: dict[str, Any] = {"results": {**result.series, "t_s": result.t_s,
-                                         **_measurement_arrays(result.measurements)}}
+                                         **_measurement_arrays(result.measurements),
+                                         **{f"validity.{k}.frac": np.float64(v) for k, v in result.validity.items()}}}
     # Hooks for later WPs: they fill RunResult (or pass the objects here) and the parts follow.
     if result.metrics is not None:  # WP-F4: metrics (i)/(ii), PSDs
         parts["metrics"] = result.metrics
@@ -819,6 +896,7 @@ def run(
     from cranberry import config
     from cranberry.blocks.meas.metrics import evaluate_metrics, metric_blocks
     from cranberry.config.spec import ConfigError, RunSpec, apply_toggles, iter_block_specs
+    from cranberry.core.checks import ChkLog
     from cranberry.core.compile import compile_loop, is_compilable, run_compiled, run_reference
     from cranberry.core.layout import SlotLayout
     from cranberry.core.pipeline import Seq, SeqSpec, build, from_spec, iter_leaves
@@ -856,6 +934,13 @@ def run(
     leaves = list(iter_leaves(root))
     probes = metric_blocks(leaves)
     rec_cfg = (rs.measure or {}).get("record")
+    validity = list((rs.measure or {}).get("validity") or [])
+    for v in validity:
+        if not isinstance(v, Mapping) or set(v) != {"slot", "abs_max"}:
+            raise ValueError(f"measure.validity entries are {{slot, abs_max}}, got {v!r}")
+    validity_slots = [str(v["slot"]) for v in validity]
+    if validity and rec_cfg is None:
+        raise KeyError("measure.validity needs measure.record (the clamp fraction is read from the record)")
     recorder = None
     if rec_cfg is not None:
         missing = [k for k in ("slots", "decim") if k not in rec_cfg]
@@ -863,6 +948,7 @@ def run(
             raise KeyError(f"measure.record needs {missing} (D34: no defaults)")
         slots = list(rec_cfg["slots"])
         slots += [s for b in probes for p in b.pairs if (s := b.slot(p.port)) not in slots]
+        slots += [s for s in validity_slots if s not in slots]
         if "antialias" not in rec_cfg and int(rec_cfg["decim"]) > 1:
             global _ALIAS_WARNED
             if not _ALIAS_WARNED:
@@ -872,8 +958,13 @@ def run(
                 warnings.warn("measure.record decimates (decim > 1) without 'antialias': point sampling, content "
                               "above f_sim/(2 decim) aliases into the recorded PSD; set antialias: none | boxcar | fir "
                               "(runner.run docstring, Phase 5 F1-7)", RecordAliasWarning, stacklevel=2)
+        # zero spans read cos 2δ / sin 2δ formed at the full rate (M2C-01)
+        all_named = {b.name: b for b in (*offline_blocks, *leaves)}
+        zero_span = any(isinstance(c, Mapping) and getattr(all_named.get(c.get("block")), "kind", None) == "esa_zero_span"
+                        for c in ((rs.measure or {}).get("esa") or {}).values())
         recorder = Recorder(slots, rec_cfg["decim"], settings.chunk_samples,
-                            antialias=rec_cfg.get("antialias", "none"))
+                            antialias=rec_cfg.get("antialias", "none"),
+                            cos_sin2=[b.slot(p.port) for b in probes for p in b.pairs] if zero_span else ())
         root = Seq([root, recorder])
 
     layout = SlotLayout(settings.f_sim_hz)
@@ -930,7 +1021,12 @@ def run(
         named = {b.name: b for b in (*offline_blocks, *leaves)}
         f_rec = settings.f_sim_hz / recorder.decim if recorder is not None else None
         measurements = evaluate_measurements(rs.measure, named, metrics=metrics, loss_registry=offline.loss_registry,
-                                             f_record_hz=f_rec, seed=settings.seed)
+                                             f_record_hz=f_rec, seed=settings.seed, series=series, t_s=t_s)
+    t_valid = max((b.t_settle_s for b in probes), default=0.0)
+    validity_frac = {}
+    for v in validity:
+        x = np.abs(np.asarray(series[str(v["slot"])], dtype=float))[t_s >= t_valid]
+        validity_frac[str(v["slot"])] = float(np.mean(x >= float(v["abs_max"]))) if x.size else 0.0
     result = RunResult(
         spec=rs,
         run_dir=run_dir,
@@ -943,6 +1039,9 @@ def run(
         mode="compiled" if compiled else "reference",
         offline=offline,
         measurements=measurements,
+        validity=validity_frac,
+        # CHK events of the offline checks (e.g. loop_stability_check, M2C-02): warned, never pruned (D34)
+        events=[e for b in offline_blocks if isinstance(getattr(b, "chk_log", None), ChkLog) for e in b.chk_log.to_json()],
     )
     if run_dir is not None:
         _write_results(run_dir, result)

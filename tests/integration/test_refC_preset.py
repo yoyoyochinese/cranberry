@@ -9,11 +9,17 @@ PLAN §5.3, 00_summary §2.1 `refC` / `L-C`).
 * spectra vs [Ref C Fig. 4 / Fig. 5] through the runner's ESA hooks (cw_sideband metric read at each
   zero-span centre / swept bin): anti-squeezing 10.0 / 8.7 / 5.0 / 2.6 dB at 30 MHz / 0.25 / 0.69 / 1.21 GHz
   (T02 V-C1 ±0.1 dB; Fig. 4 read values 10.0 / 8.5 / 5.2 / 2.8 ±0.5 dB); squeezing monotonic in f and within
-  ±0.7 dB of Fig. 4 (−4.7 / −4.7 / −3.0 / −2.2 dB; the model's −3.66 dB at 0.69 GHz is the largest gap,
-  T02 §6.2 reports the same ≤ 0.5 dB class with θ̃ = 0.1 rad); the dark-noise-corrected swept spectrum
+  per-frequency tolerances of Fig. 4 (−4.7 / −4.7 / −3.0 / −2.2 dB): ±0.5 dB at 30 MHz, 0.25 and 1.21 GHz,
+  ±0.7 dB at 0.69 GHz only. The 0.69 GHz gap (model ≈ −3.7 dB) is a MEASUREMENT-SPECIFIC deviation (D69-2):
+  no phase noise, loss, excess noise or dark-noise subtraction error fits both quadratures there, the point
+  sits next to BHD_B's 0.83 GHz interference with the lowest clearance (5 dB) of the four, and 1.21 GHz
+  agrees; the dark-noise-corrected swept spectrum
   equals R(f) of the metric, while the raw BHD_B output shows the interference dip at 0.83 GHz [Fig. 5];
-* convergence (PLAN §6.4): f_sim × 2 and × 4 change the non-dither residual by ≤ 1/3 of 3 mrad, the chunk
-  length is bit-identical, 10 seeds give a spread ≪ the 0.083 rad budget of VT-20;
+* convergence (PLAN §6.4): f_sim × 2 and × 4 change the non-dither residual by ≤ 1/3 of 3 mrad (0.32 s: with
+  the 1.73 kHz EOM loop of D69-1(a) the residual is set by kHz fibre noise, whose 0.08 s estimate scatters by
+  0.4 mrad from seed to seed — a different f_sim is a different realisation, so the run must be long enough for
+  1 mrad to be ≥ 3σ of the difference), the chunk length is bit-identical, 10 seeds (0.08 s) give a spread ≪
+  the 0.083 rad budget of VT-20;
 * YAML round trip (VT-F1 form) of refC / refC_nominal and a recorded CLI run.
 """
 
@@ -43,7 +49,10 @@ AXES = {"x", "eta_fiber_link", "dL_m", "k_T_rad_per_m_K", "r_T_conduit_k_per_s",
         "dr_T_spool_k_per_s", "tau_th_conduit_s", "tau_th_spool_s", "h_ref_conduit_rad2_hz", "h_ref_spool_rad2_hz",
         "mech_gamma", "mech_f_c_hz", "rho_conduit", "rho_spool", "f_rho_hz", "h0_hz2_per_hz", "latency_s",
         "dac_bits", "f_u1_hz", "f_12_hz", "f_23_hz", "mirror_range_rad", "mirror_f_res_hz", "mirror_q",
-        "stretcher_range_rad", "dip_r"}
+        "stretcher_range_rad", "dip_r",
+        # Phase 5 M2 review fixes (D69): EOM drive range (M2C-03), Fig. 2-constrained fibre-noise shape (M2C-04),
+        # demodulator LPF corner (M2C-07)
+        "eom_range_v", "mech_f_lo_hz", "mech_peak_f_hz", "mech_peak_area_rad2", "demod_lpf_hz"}
 
 
 @pytest.fixture(scope="module")
@@ -85,7 +94,10 @@ def test_refC_qnl_integrals_and_stack_gains():
     assert blocks["pid1"]["ki_per_s"] == pytest.approx(-2 * math.pi * p["f_u1_hz"] / (p["qnl_slope_v_per_rad"] * k1))
     assert k2 * blocks["pid2"]["ki_per_s"] == pytest.approx(2 * math.pi * p["f_12_hz"] * k1)
     assert k3 * blocks["pid3"]["ki_per_s"] == pytest.approx(2 * math.pi * p["f_23_hz"] * k2)
-    assert p["f_u1_hz"] > 10 * p["f_12_hz"] > 100 * p["f_23_hz"]
+    # band order of [Ref C §2] (EOM kHz > mirror > stretcher Hz–sub-Hz); with f_u1 = 1.73 kHz (D69-1(a)) the
+    # EOM/mirror separation is 5.8×, its linear stability is checked by chk.lockC_stability (M2C-02)
+    assert p["f_u1_hz"] > 5 * p["f_12_hz"] > 500 * p["f_23_hz"]
+    assert res.events == []
     assert blocks["dl1"]["tau_s"] == pytest.approx(p["latency_s"] - 1 / res.spec.run.f_sim_hz, abs=1e-18)   # D55-1
     # locked at Δ = 0 (mod π), the fast stage near the centre
     nl = res.metrics.noise_levels["i.port0"]
@@ -108,6 +120,7 @@ def _leaves(spec):
 FIG4_F = (3e7, 2.5e8, 6.9e8, 1.21e9)
 FIG4_ANTI = (10.0, 8.5, 5.2, 2.8)
 FIG4_SQZ = (-4.7, -4.7, -3.0, -2.2)
+FIG4_SQZ_TOL = (0.5, 0.5, 0.7, 0.5)   # 0.69 GHz: measurement-specific deviation near the 0.83 GHz dip (D69-2)
 VC1_ANTI = (10.0, 8.7, 5.0, 2.6)
 
 
@@ -118,7 +131,7 @@ def test_refC_zero_spans_vs_fig4(full):
     an = [esa[f"anti_{tag[f]}"]["mean_db"] for f in FIG4_F]
     np.testing.assert_allclose(an, VC1_ANTI, atol=0.1)
     np.testing.assert_allclose(an, FIG4_ANTI, atol=0.5)
-    np.testing.assert_allclose(sq, FIG4_SQZ, atol=0.7)
+    assert np.all(np.abs(np.subtract(sq, FIG4_SQZ)) <= FIG4_SQZ_TOL), sq   # per frequency: 0.69 GHz is D69-2's exception
     assert np.all(np.diff(sq) > 0) and np.all(np.diff(an) < 0)
     # zero-span means agree with the metric's V′ at each centre (radiometer scatter of 0.6 s at VBW 300 Hz)
     nl = full.metrics.noise_levels["i.port0"]
@@ -154,8 +167,9 @@ def test_refC_swept_spectrum_and_dip(full):
 def test_refC_convergence_fsim_chunk_seeds():
     spec = rs.load(run={"duration_s": 0.08})
     q = {"i.port0.std_rad": 3e-3}
-    rep = convergence(spec, ("f_sim", "seed"), quantities=q, seeds=list(range(1, 11)), f_sim_factors=(2, 4))
-    assert rep.checks["f_sim"]["passed"], rep.checks["f_sim"]
+    rep_f = convergence(rs.load(run={"duration_s": 0.32}), ("f_sim",), quantities=q, f_sim_factors=(2, 4))
+    assert rep_f.checks["f_sim"]["passed"], rep_f.checks["f_sim"]
+    rep = convergence(spec, ("seed",), quantities=q, seeds=list(range(1, 11)))
     seed = rep.checks["seed"]
     assert seed["passed"]
     assert seed["values"]["i.port0.std_rad"]["std"] < 1e-3                 # ≪ 0.083 rad (VT-20)

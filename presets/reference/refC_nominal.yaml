@@ -2,7 +2,19 @@
 #
 # The point is the value each source names as nominal / central (T02 V-C1, T08 nominal placeholders, T14 §6.3
 # and T16 §7.2 placeholders, fpga_generic values). It is NOT fitted to Ref C's measured residual: the paper's
-# ≈ 0.1 rad total is a comparison band (VT-20), not a target the axes were tuned to.
+# ≈ 0.1 rad total is a comparison band (VT-20), not a target the axes were tuned to (D69-1).
+#
+# Phase 5 M2 review fixes (M2C-04, D69-1), three choices that are constrained, not fitted:
+#  * fibre noise at low frequency: the T08 placeholders (uncorrelated fibres, f⁻² from 0.1 Hz) give a free-running
+#    random walk of 5.5 rad in 1 s and only 6 % of the time within ±0.2 rad of the squeezing angle, whereas
+#    [Ref C Fig. 2 right] (30 MHz, 1 km, NOT locked, 1 s) stays near the squeezing level for the whole second.
+#    rho_conduit = 0.99 (the two fibres side by side in one conduit, "correlated phase noise is canceled out in
+#    balanced detection" [Ref C §2]) and mech_f_lo_hz = 100 Hz (the smallest mech_f_lo_hz axis point that passes
+#    VT-20 (d); 10 Hz fails its 1 s excursion criterion, rho_conduit = 0 fails its time-near-squeezing criterion)
+#    are chosen by Fig. 2 alone. The kHz band (h_ref, mech_f_c_hz), which sets the locked residual, is unchanged.
+#  * EOM loop bandwidth f_u1: "the fiber EOM compensated phase fluctuations in the kHz regime" [Ref C §2] read as
+#    1–3 kHz, nominal = the geometric centre √(1 kHz · 3 kHz) = 1.73 kHz (D69-1(a)). A reading of the text, not a fit:
+#    the resulting non-dither residual (≈ 14 mrad, total ≈ 57 mrad at 30 MHz) stays well below the paper's 0.1 rad.
 extends: refC
 
 offline:
@@ -13,20 +25,28 @@ offline:
     k_T_rad_per_m_K: 44.0        # T08 §2.2 nominal
     r_T_conduit_k_per_s: 1.0e-4  # T08 §2.4 nominal (common to both fibres: cancels up to the τ_th lag)
     r_T_spool_k_per_s: 1.0e-4    # T08 §2.4 nominal
-    dr_T_spool_k_per_s: 5.0e-6   # differential spool drift sized to "several minutes" with the 32.5 rad placeholder [AE]
+    dr_T_spool_k_per_s: 5.0e-6   # differential spool drift sized to "several minutes" with the 32.5 rad placeholder [AE]:
+                                 # VT-21's 6.7 min lock time is therefore a consistency check, not a prediction (M2C-06)
     tau_th_conduit_s: 300.0      # T08 §2.4 nominal
     tau_th_spool_s: 300.0        # T08 §2.4 nominal
     h_ref_conduit_rad2_hz: 4.0   # Williams 2008 real link (T08 §6.2)
     h_ref_spool_rad2_hz: 0.04    # spool (T08 §6.2)
     mech_gamma: 1.0              # T08 §2.5 nominal
     mech_f_c_hz: 1000.0          # T08 §2.5 nominal
-    rho_conduit: 0.0             # uncorrelated: the conservative end (T08 §6.2: h_diff ≈ 1.5 rad²·Hz)
+    mech_f_lo_hz: 100.0          # [Ref C Fig. 2 right] via VT-20 (d) (header; M2C-04, D69-1); T08's 0.1 Hz is the axis bottom
+    mech_peak_f_hz: 1000.0       # [AE] (unused: no peak at the nominal point)
+    mech_peak_area_rad2: 0.0     # no peak published (Fig. 2 bounds the area, refC.yaml)
+    rho_conduit: 0.99            # low-frequency correlation of the two conduit fibres [Ref C §2, Fig. 2 right] (header;
+                                 # M2C-04, D69-1); above f_rho the noise is uncorrelated (T08 §6.2 h_diff ≈ 1.5 rad²·Hz)
     rho_spool: 0.0               # separate spools [AE]
     f_rho_hz: 1000.0             # [AE] (refD value)
     h0_hz2_per_hz: 64.0          # Ref A stand-in 0.2 kHz/π (UNVERIFIED); irrelevant at dL = 0
     latency_s: 1.0e-6            # T16 §4.5 Ref C stand-in upper value
     dac_bits: 16                 # fpga_generic
-    f_u1_hz: 1.0e+4              # T14 §6.3 placeholder (10 kHz)
+    eom_range_v: 0.5             # fpga_generic output (±0.39 rad); not clamped at this point (measure.validity, M2C-03)
+    demod_lpf_hz: 1.0e+5         # [AE] (M2C-07 axis)
+    f_u1_hz: !expr "sqrt(1.0e+3 * 3.0e+3)"   # 1.73 kHz: "kHz regime" [Ref C §2] read as 1–3 kHz (header; D69-1(a)), was
+                                             # T14 §6.3's 10 kHz placeholder
     f_12_hz: 300.0               # [AE] middle of the axis; keeps the EOM (±0.39 rad) out of saturation under the nominal fibre noise
     f_23_hz: 1.0                 # [AE] "Hz to sub-Hz" [Ref C §2]
     mirror_range_rad: 10.0       # [AE]

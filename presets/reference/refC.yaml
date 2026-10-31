@@ -151,7 +151,14 @@ offline:
                                           # nominal 4 rad²·Hz (Williams 2008 real link, T08 §2.5, §6.2)
     h_ref_spool_rad2_hz: !sweep_log [1.0e-3, 0.4, 3]    # spooled part: nominal 0.04 rad²·Hz (spool, 20–25 dB below, T08 §2.5)
     mech_gamma: !choice [1.0, 2.0]        # length exponent, T08 §2.5
-    mech_f_c_hz: !sweep_log [100.0, 1.0e+4, 3]   # f⁻² corner, T08 §2.5 (nominal 1 kHz)
+    mech_f_c_hz: !sweep_log [100.0, 1.0e+4, 3]   # f⁻² corner, T08 §2.5 (nominal 1 kHz); kHz band, Fig. 2 right only bounds it
+                                          # through its ms bursts (M2C-04)
+    mech_f_lo_hz: !sweep_log [0.1, 100.0, 4]     # low-frequency end of the f⁻² region (flat below; thermal model there),
+                                          # T08 §2.5 value 0.1 Hz. Constrained by [Ref C Fig. 2 right] (30 MHz, 1 km, NOT locked,
+                                          # 1 s: the trace stays near the squeezing level): VT-20 (d) (M2C-04, D69-1)
+    mech_peak_f_hz: !sweep_log [100.0, 1.0e+4, 3]  # one band-pass peak of the conduit noise (building vibration; none published)
+    mech_peak_area_rad2: !choice [0.0, 3.0e-3, 3.0e-2]   # its area at L_ref = 1 km (0 = no peak); 3e−2 gives a differential rms
+                                          # ≈ 0.1 rad, the [Ref C Fig. 2 right] bound "near the squeezing level" (M2C-04) [AE]
     rho_conduit: !sweep [0.0, 0.99, 4]    # SQF–LOF correlation of the conduit noise, ρ(f) = ρ0/(1 + (f/f_ρ)²) (D57-5):
                                           # "correlated phase noise is canceled out in balanced detection" [Ref C §2],
                                           # no number (T08 §2.8) — THE correlation axis of this preset
@@ -174,7 +181,11 @@ offline:
     kappa_det: 1.32                       # radiometer factor of the log detector (T14 §6.3 MC; D58-4)
     p_lo_w: 0.01                          # LO power at the BHD, not published [AE]; enters only the absolute PSDs
     demod_phase_rad: !pi_frac -0.5        # I = b (the dither-synchronous quadrature, err._common)
-    demod_lpf_hz: 1.0e+5                  # Moku demodulation low-pass [AE] (≫ loop band, ≪ f_m)
+    demod_lpf_hz: !choice [3.0e+4, 1.0e+5, 3.0e+5]   # Moku:Pro lock-in low-pass corner (2nd order) [AE] (≫ loop band, ≪ f_m;
+                                          # the instrument's LPF bandwidth / order are settable and unpublished). M2C-07 /
+                                          # D67-7: in the time-series dither overlay the 1 MHz ripple passing this LPF (the
+                                          # log detector's ≈ 2 V DC moved to 1 MHz by the 2cos reference) raises the effective
+                                          # dither by +1.4 % at 100 kHz: a property of this model choice, not of Ref C
     # band integrals of S_x(f; Δ) = A + C cos 2Δ over [f1, f2] (T14 §6.1; quantum_noise_power runtime params):
     # closed forms of qnl_band_integrals for the Lorentzian OPO spectra R± = 1 ± η 4x/((1 ∓ x)² + (f/f_h)²)
     # (T02 eq. closed_form, Δ0 = 0, η = total efficiency incl. escape), flat |H| (dip at 0.83 GHz is outside
@@ -207,7 +218,12 @@ offline:
     latency_s: !choice [2.5e-7, 1.0e-6, 2.0e-6]   # τ_L (fpga_generic loop.latency_s 0.1–2 µs; Ref C stand-in 0.2–1 µs, T16 §4.5);
                                           # ≥ 1/f_sim (D55-1). VT-20 runs 0.1 µs at f_sim = 10 MHz
     dac_bits: !choice [14, 16]            # PLAN §2.10 / VT-20 (fpga_generic 12–16 bit)
-    out_range_v: 0.5                      # controller output ±0.5 V (fpga_generic, Moku:Delta stand-in, T16 §4.5)
+    out_range_v: 0.5                      # controller output ±0.5 V (fpga_generic, Moku:Delta stand-in, T16 §4.5) of the
+                                          # mirror and stretcher channels
+    eom_range_v: !sweep_log [0.5, 5.0, 3] # EOM drive range ±V (pid1 clamp and dac1 range; M2C-03): 0.5 = the fpga_generic
+                                          # output (±0.39 rad at U_π = 4 V); Ref C's Moku:Pro output / any EOM driver amplifier
+                                          # is unpublished, and the paper's "not limited by the actuator range" [Ref C §4]
+                                          # allows a wider range. Clamping is reported as validity (measure.validity)
     f_u1_hz: !sweep_log [1.0e+3, 3.0e+4, 4]   # EOM loop unity gain: "fiber EOM compensated phase fluctuations in the kHz
                                           # regime" [Ref C §2]; 10 kHz = T14 §6.3 placeholder
     f_12_hz: !sweep_log [30.0, 3.0e+3, 3] # EOM → piezo-mirror crossover: "took over the band below" [Ref C §2] [AE]
@@ -293,7 +309,7 @@ offline:
         f_s_hz: 3.0e+7
         rbw_hz: 3.0e+5
         vbw_hz: 300.0
-        enbw_factor: 1.0               # T04 §5.3, UNVERIFIED instrument value
+        enbw_factor: !expr "sqrt(pi / (4 * log(2)))"   # 1.0645: Gaussian RBW with −3 dB width = RBW (M1-A-05, D66-4; T04 §5.3)
         rbw_shape: gaussian            # [AE]
         average: power                 # averaging type not published (T04 §5.2, UNVERIFIED)
         detector: sample               # [AE]
@@ -304,15 +320,15 @@ offline:
         toggles: {radiometer_noise: true}
     - block: esa_zero_span
       name: esa_250m
-      params: {f_s_hz: 2.5e+8, rbw_hz: 3.0e+5, vbw_hz: 300.0, enbw_factor: 1.0, rbw_shape: gaussian, average: power, detector: sample,
+      params: {f_s_hz: 2.5e+8, rbw_hz: 3.0e+5, vbw_hz: 300.0, enbw_factor: !expr "sqrt(pi / (4 * log(2)))", rbw_shape: gaussian, average: power, detector: sample,
                oversample: 4, sweep_time_s: 0.6, n_points: 1001, n_traces: 1, toggles: {radiometer_noise: true}}   # as esa_30m
     - block: esa_zero_span
       name: esa_690m
-      params: {f_s_hz: 6.9e+8, rbw_hz: 3.0e+5, vbw_hz: 300.0, enbw_factor: 1.0, rbw_shape: gaussian, average: power, detector: sample,
+      params: {f_s_hz: 6.9e+8, rbw_hz: 3.0e+5, vbw_hz: 300.0, enbw_factor: !expr "sqrt(pi / (4 * log(2)))", rbw_shape: gaussian, average: power, detector: sample,
                oversample: 4, sweep_time_s: 0.6, n_points: 1001, n_traces: 1, toggles: {radiometer_noise: true}}   # as esa_30m
     - block: esa_zero_span
       name: esa_1210m
-      params: {f_s_hz: 1.21e+9, rbw_hz: 3.0e+5, vbw_hz: 300.0, enbw_factor: 1.0, rbw_shape: gaussian, average: power, detector: sample,
+      params: {f_s_hz: 1.21e+9, rbw_hz: 3.0e+5, vbw_hz: 300.0, enbw_factor: !expr "sqrt(pi / (4 * log(2)))", rbw_shape: gaussian, average: power, detector: sample,
                oversample: 4, sweep_time_s: 0.6, n_points: 1001, n_traces: 1, toggles: {radiometer_noise: true}}   # as esa_30m
     - block: esa_swept_spectrum        # Fig. 5 right: dark-noise-corrected spectrum to 1.3 GHz (RBW not given: 300 kHz [AE])
       name: esa_spec
@@ -322,11 +338,45 @@ offline:
         n_points: 130
         rbw_hz: 3.0e+5
         vbw_hz: 300.0
-        enbw_factor: 1.0
+        enbw_factor: !expr "sqrt(pi / (4 * log(2)))"   # 1.0645, as esa_30m (M2C-05)
         rbw_shape: gaussian
         average: power
         n_sub: 41
         toggles: {radiometer_noise: true, subtract_circuit_noise: true}
+    # Phase 5 M2C-02 (D69): per-sweep-point linear-stability pre-check of the three-stage stack. Over the axes
+    # f_u1 × f_12 × f_23 × mirror_f_res × mirror_q × latency part of the grid is linearly unstable (review:
+    # 84 / 972 points, f_12 = 3 kHz with f_u1 ≥ 9.65 kHz and Q ≳ 9.5, and f_u1 = 30 kHz partly at Q = 3: near the
+    # mirror resonance ω_12/ω·Q > 1 and the mirror path cancels the EOM path). The time loop there oscillates at
+    # 0.2–0.5 rad that the supervisor does not report (range criterion only). Such a point gets a `loop_unstable`
+    # CHK warning and is NOT pruned (D34, D04-style, as refD's check, D66-5). Continuous model of VT-20 (c):
+    # L = ω_u1/s·(1 + ω_12/s·M(s) + ω_12 ω_23/s²)·LPF(s)·e^{−sτ_L} from the same offline.params as the PIDs
+    # (k0 = −K_d·π/U_π: K_i of pid1 is negative, so L is positive for the negative feedback). Only
+    # offline.params are read: toggle overrides of pipeline blocks (e.g. mirror resonance off) are not seen.
+    - block: loop_stability_check
+      name: chk.lockC_stability
+      params:
+        k0: !expr "-offline.params.qnl_slope_v_per_rad * pi / offline.params.v_pi_v"
+        kp: 0.0
+        ki_per_s: !expr "-2 * pi * offline.params.f_u1_hz / (offline.params.qnl_slope_v_per_rad * pi / offline.params.v_pi_v)"
+        kd_s: 0.0
+        delay_s: !expr "offline.params.latency_s"
+        poles_hz: [!expr "offline.params.demod_lpf_hz", !expr "offline.params.demod_lpf_hz"]   # 2-pole demodulator LPF
+        modes: []                        # fibre EOM: static (T16 §3.2)
+        stages:
+          - kp: 0.0                      # pid2 → piezo mirror (gain relative to the EOM's π/U_π)
+            ki_per_s: !expr "2 * pi * offline.params.f_12_hz * (pi / offline.params.v_pi_v) / (offline.params.mirror_range_rad / offline.params.out_range_v)"
+            kd_s: 0.0
+            k_act: !expr "(offline.params.mirror_range_rad / offline.params.out_range_v) / (pi / offline.params.v_pi_v)"
+            poles_hz: []
+            modes: [{f_hz: !expr "offline.params.mirror_f_res_hz", q: !expr "offline.params.mirror_q"}]
+          - kp: 0.0                      # pid3 → fibre stretcher (static)
+            ki_per_s: !expr "2 * pi * offline.params.f_23_hz * (offline.params.mirror_range_rad / offline.params.stretcher_range_rad)"
+            kd_s: 0.0
+            k_act: !expr "(offline.params.stretcher_range_rad / offline.params.out_range_v) / (pi / offline.params.v_pi_v)"
+            poles_hz: []
+            modes: []
+        f_grid_hz: [1.0e-3, 1.0e+7, 200001]   # 3 integrators dominate below f_23 ≥ 0.1 Hz; resolves f_res/Q ≥ 333 Hz
+        toggles: {enabled: true}
 
 pipeline:
   # ---- laser and environment ----------------------------------------------------------------------------
@@ -370,10 +420,11 @@ pipeline:
       k_eps_rad_per_m: !expr "offline.params.k_eps_rad_per_m"
       h_ref_rad2_hz: !expr "offline.params.h_ref_conduit_rad2_hz"
       f_c_hz: !expr "offline.params.mech_f_c_hz"
-      f_lo_hz: 0.1                       # T08 §2.5 (thermal model below)
+      f_lo_hz: !expr "offline.params.mech_f_lo_hz"   # T08 §2.5 (thermal model below); Fig. 2-constrained axis (M2C-04)
       rho_0: !expr "offline.params.rho_conduit"
       f_rho_hz: !expr "offline.params.f_rho_hz"
-      toggles: {mech: true, peaks: false, correlation: true}
+      peaks: [{f_hz: !expr "offline.params.mech_peak_f_hz", q: 3.0, area_rad2: !expr "offline.params.mech_peak_area_rad2"}]   # q [AE]
+      toggles: {mech: true, peaks: !expr "offline.params.mech_peak_area_rad2 > 0", correlation: true}
   - block: segment_mech_noise           # spools (T08 §2.5 spool level)
     name: env.mech.spool
     params:
@@ -383,7 +434,7 @@ pipeline:
       k_eps_rad_per_m: !expr "offline.params.k_eps_rad_per_m"
       h_ref_rad2_hz: !expr "offline.params.h_ref_spool_rad2_hz"
       f_c_hz: !expr "offline.params.mech_f_c_hz"
-      f_lo_hz: 0.1
+      f_lo_hz: !expr "offline.params.mech_f_lo_hz"
       rho_0: !expr "offline.params.rho_spool"
       f_rho_hz: !expr "offline.params.f_rho_hz"
       toggles: {mech: true, peaks: false, correlation: true}
@@ -470,8 +521,8 @@ pipeline:
             ki2_per_s2: 0.0
             setpoint_v: 0.0
             offset_v: 0.0
-            u_min_v: !expr "-offline.params.out_range_v"
-            u_max_v: !expr "offline.params.out_range_v"
+            u_min_v: !expr "-offline.params.eom_range_v"    # EOM drive range (M2C-03 axis)
+            u_max_v: !expr "offline.params.eom_range_v"
             toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
         - block: pid
           name: pid2
@@ -536,7 +587,7 @@ pipeline:
                 out: v.dac1
                 device: fpga_generic
                 bits: !expr "offline.params.dac_bits"
-                range_v: [-0.5, 0.5]     # = ±out_range_v (fpga_generic)
+                range_v: [!expr "-offline.params.eom_range_v", !expr "offline.params.eom_range_v"]   # = pid1's clamp (M2C-03)
                 noise_vrms: 0.0
                 r_out_ohm: 50.0
                 r_load_ohm: .inf         # high-impedance driver inputs [AE]
@@ -643,14 +694,25 @@ pipeline:
     params:
       ports: {"0": {squeezed: sqz, lo: lo}}
       setpoint_rad: 0.0
-      t_settle_s: 0.02                 # moments start after the lock acquisition from the random initial fibre phase
-                                       # (EOM saturates, the mirror takes over within ~3 ms) [AE]
+      t_settle_s: 0.02                 # moments start after the START-UP transient (M2C-06): the noise filters start from
+                                       # zero, so Δ(0) = 0 and no lock acquisition is simulated (all 8 review seeds);
+                                       # 0.02 s removes the filters' / integrators' start-up only [AE]. Acquisition from a
+                                       # random initial phase would need a settable initial phase (not modelled)
 
 measure:
   record:
     slots: [lock.lockC.err, v.adc, ctrl.pid1.u, ctrl.pid2.u, ctrl.pid3.u, act.eom.dpsi, act.mirror.dpsi,
             act.stretcher.dpsi]
     decim: 25                          # 160 kHz ≫ VBW 300 Hz; 25 mod 4 ≠ 0 keeps a time-series 1 MHz dither from aliasing to DC
+    antialias: boxcar                  # D68-5; the zero spans read cos 2δ / sin 2δ formed at the full rate (M2C-01)
+  # M2C-03 (D57-4): clamp fraction of the three controller outputs after t_settle_s (RunResult.validity, summary
+  # `validity.<slot>.frac`). The outputs are used, not ctrl.pidN.sat: with anti_windup clamp and a pure integrator
+  # the pid holds its integrator just inside the limit and reports sat = 0 while the output sits at the clamp.
+  # "At the clamp" = within 0.1 % of the range (the held integrator is one increment K_i e h inside it).
+  validity:
+    - {slot: ctrl.pid1.u, abs_max: !expr "0.999 * offline.params.eom_range_v"}   # EOM drive
+    - {slot: ctrl.pid2.u, abs_max: !expr "0.999 * offline.params.out_range_v"}   # piezo mirror
+    - {slot: ctrl.pid3.u, abs_max: !expr "0.999 * offline.params.out_range_v"}   # stretcher (the supervisor's lock loss)
   metrics:
     i:
       f_max_hz: 8.75e+8                # OPO HWHM κ_c/2π: flat-source range (conv §6, T17)
