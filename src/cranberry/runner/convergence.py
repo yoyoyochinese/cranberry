@@ -66,9 +66,13 @@ def _identical(a: RunResult, b: RunResult) -> tuple[bool, float]:
                 if x.shape == y.shape and x.size:
                     diff = max(diff, float(np.max(np.abs(x - y))))
     sa, sb = a.final_state, b.final_state
-    if sa is not None and sb is not None:  # every slot except the recorder's (sized by the chunk)
-        names = [n for n in sa.layout.slot_names() if not n.startswith("rec.")]
-        if names != [n for n in sb.layout.slot_names() if not n.startswith("rec.")]:
+    if sa is not None and sb is not None:
+        # every slot except the recorder's (sized by the chunk) and the DrawBuffer fill state ``rng.*``
+        # (refilled per piece, so its contents depend on the chunk pattern even when every drawn number is
+        # identical — WP-I1/I2 finding)
+        skip = ("rec.", "rng.")
+        names = [n for n in sa.layout.slot_names() if not n.startswith(skip)]
+        if names != [n for n in sb.layout.slot_names() if not n.startswith(skip)]:
             return False, diff
         for n in names:
             if np.asarray(sa[n]).tobytes() != np.asarray(sb[n]).tobytes():
