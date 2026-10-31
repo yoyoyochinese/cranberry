@@ -4,10 +4,10 @@ Owner: WP-B4.
 
 Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 
-* ``pzt_fiber_stretcher``
-* ``hv_amp_914``
-* ``pzt_mirror``
-* ``thermal_actuator``
+* ``pzt_fiber_stretcher``, ``pzt_mirror``, ``hv_amp_914`` (``pzt.py``)
+* ``thermal_actuator`` (``thermal.py``)
 
-Contract: core.block (factory interface, reads/writes, losses(), bands(), toggles, D34 no defaults).
+Actuators write ``act.<name>.*`` and the segment driver ``drv.<segment>.<driver>`` (F6 names; see
+``blocks/ctrl/_kit.py``). Contract: core.block (factory interface, reads/writes, losses(), bands(),
+toggles, D34 no defaults).
 """
