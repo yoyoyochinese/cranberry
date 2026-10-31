@@ -4,13 +4,9 @@
 # difference is put into the squeezed–LO mode overlap [AE], i.e. η_mm = 0.88 / (wg · optics · QE · η_e).
 
 pipeline:
-  - name: koheras
-    params:
-      oob_pairs:
-        - {target: FC, dnu_fc_hz: 1.175e+6}   # must equal fc.dnu_fc_hz
   - name: fc
     params:
-      dnu_fc_hz: 1.175e+6                     # tuned to θ = 14 mrad [AE] (green.yaml)
+      dnu_fc_hz: 1.175e+6                     # tuned to θ = 14 mrad [AE]; the laser's FC ledger pair follows (refA, M1-A-02) (green.yaml)
 
 offline:
   blocks:

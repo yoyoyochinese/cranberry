@@ -18,18 +18,33 @@
 # seed-laser phase noise that the LO filter cavity low-passes and the squeezed light (via the pump) does
 # not (T05 §6: |1 − H_FC|² S_φ, total π·h0/Δν_FC; Ref A §4.1 itself names the seed-laser noise as the
 # limit). With the Koheras white FM h0 = 0.2 kHz/π (T05 §2.3 stand-in, UNVERIFIED) the remaining unknown
-# Δν_FC (no literature value, swept per D49) is set to 3.3 MHz [AE, tuned], which gives θ = 9.0 mrad together
-# with the 16.8 ns LO–squeezed path-delay mismatch (emission time, T05 §3.1). The
-# lock loops (integral servos, unity gain 20 kHz [AE]) suppress only the slow path noise (T08 fibre
-# acoustics on the probe / LO fibres); lock-2 sensor noise (BHD shot noise, T14 §3.4) adds ≈ 0.5 mrad
-# in quadrature, lock-1 noise enters Δ scaled by A−/A+ = 1/123 (T14 §3.4).
+# Δν_FC (no literature value, swept per D49) is set to 3.3 MHz [AE, tuned], which gives θ ≈ 9.0 mrad together
+# with the 16.8 ns LO–squeezed path-delay mismatch (emission time, T05 §3.1): continuous white-FM value
+# 2π²h0·δτ + π·h0/Δν_FC = 8.17×10⁻⁵ rad² (9.04 mrad, M1-A-01; simulated total θ = 9.12 mrad with the fibre
+# noise, lock-2 sensor noise and the delayed loop; Δν_FC not re-tuned after M1-A-01). The lock loops (integral servos, unity
+# gain 20 kHz [AE]) suppress only the slow path noise (T08 fibre acoustics on the probe / LO fibres);
+# lock-2 sensor noise (BHD shot noise, T14 §3.4) adds ≈ 0.5 mrad in quadrature, lock-1 noise enters Δ
+# scaled by A−/A+ = 1/123 (T14 §3.4).
+#
+# What the tuning fixes (D65-5, M1-A-02): θ² ≈ π·h0/Δν_FC weights S_ν flat for f ≲ Δν_FC/2, so the fit
+# fixes only the RATIO h0/Δν_FC (more generally S_ν(0.1–3 MHz)/Δν_FC), not the cavity linewidth nor the
+# laser's Lorentz linewidth (with the Koheras nominal linewidth Δν_FC would be ≈ 1.4 MHz). No physical
+# requirement (laser linewidth, cavity finesse) may be drawn from the value 3.3 MHz; requirements on
+# future configurations are stated as S_ν(f) curves (D49). The relaxation-oscillation peak of the
+# seed/EDFA chain in that band is available as the switchable `koheras.peaks` term (off here).
+#
+# Single source (M1-A-02): Δν_FC and the delays are written once — `fc.dnu_fc_hz` (the tuned value) and
+# the topology segment table — and the laser's filter-cavity ledger pair reads them through `!expr`;
+# tests/integration/test_refA_integration.py checks the resolved preset and its overlays for agreement
+# with `Topology.timing`.
 
 preset: refA
 
 run:
   duration_s: 0.2          # ≥ ESA zero-span sweep time 0.15 s (T04 §5.1 reading of Ref A Fig. 3) [AE]
-  f_sim_hz: 2.0e+7         # above G10's 2–10 MHz: the f_sim×2 check (PLAN §6.4) fails at 10 MHz (R′− moves 0.04 dB:
-                           # white-FM random walk + FC low pass near Nyquist) and passes at 20 MHz (0.006 dB) [WP-I1]
+  f_sim_hz: 2.0e+7         # above G10's 2–10 MHz [WP-I1]. Convergence (PLAN §6.4): the FC ledger pair adds
+                           # continuous − discrete expectation (M1-A-01), so the expected white-FM total is
+                           # f_sim-independent; f_sim ×2 / ×4 checked in test_refA_integration.py
   chunk_samples: 262144    # results independent of it (VT-F2)
   seed: 20261031           # [AE]
 
@@ -166,7 +181,7 @@ offline:
         f_s_hz: 3.0e+6               # [Ref A §3.2]
         rbw_hz: 1.0e+6               # [Ref A §3.2]
         vbw_hz: 100.0                # [Ref A §3.2]
-        enbw_factor: 1.0             # T04 §5.3 (1.0–1.128), UNVERIFIED instrument value
+        enbw_factor: !expr "sqrt(pi / (4 * log(2)))"   # 1.0645: Gaussian RBW with −3 dB width = RBW (M1-A-05; T04 §5.3)
         rbw_shape: gaussian          # swept-tuned analyser RBW [AE]
         average: power               # averaging type not published (T04 §5.2, UNVERIFIED; log is the option)
         detector: sample             # [AE]
@@ -183,7 +198,7 @@ offline:
         n_points: 100                # [AE]
         rbw_hz: 1.0e+6               # [Ref A §3.2]
         vbw_hz: 100.0                # [Ref A §3.2]
-        enbw_factor: 1.0             # UNVERIFIED (T04 §5.3)
+        enbw_factor: !expr "sqrt(pi / (4 * log(2)))"   # 1.0645, as esa_zs (M1-A-05)
         rbw_shape: gaussian          # [AE]
         average: power               # UNVERIFIED (T04 §5.2)
         n_sub: 41                    # integration points per bin [AE]
@@ -197,8 +212,17 @@ pipeline:
       source: koheras
       power_w: 0.0154                # LO power at the BHD (power is not used by the phase model) [Ref A §4.2]
       h0_hz2_per_hz: !expr "200.0 / pi"   # white FM, Lorentz linewidth 0.2 kHz (T05 §2.3 stand-in, UNVERIFIED)
-      oob_pairs:                     # LO through the filter cavity vs the squeezed light (T05 §6): |1 − H_FC|² S_φ above f_N
-        - {target: FC, dnu_fc_hz: 3.3e+6}   # must equal fc.dnu_fc_hz
+      # relaxation-oscillation FM peak of the seed + EDFA chain (T05 §2.3 / E16: Koheras RIN peak ≈ 0.7 MHz,
+      # height and FM share unknown): UNVERIFIED stand-in, S_ν peak ≈ 1.4 h0 at 0.7 MHz (Q 5), for sweeps of
+      # S_ν(0.1–3 MHz) (M1-A-02); off in the nominal point (`toggles.peaks`)
+      peaks:
+        - {f_hz: 7.0e+5, q: 5.0, area: 2.0e+7, quantity: freq}
+      oob_pairs:                     # LO through the filter cavity vs the squeezed light (T05 §6): white FM →
+        # continuous − discrete-model variance (M1-A-01); delays = τ_b of `lo` (LO + FC) and of `sqz`
+        - target: FC
+          dnu_fc_hz: !expr "fc.params.dnu_fc_hz"
+          tau_fc_s: !expr "fc.params.in_delay_s"
+          tau_ref_s: !expr "(topology.segments.SHG.L_m * topology.segments.SHG.n_g + topology.segments.CMB.L_m * topology.segments.CMB.n_g + topology.segments.NC_sq.L_m * topology.segments.NC_sq.n_g + topology.segments.XTAL_sq.L_m * topology.segments.XTAL_sq.n_g + topology.segments.SQ.L_m * topology.segments.SQ.n_g) / 299792458.0"
       rin_targets: []
       toggles: {fm_white: true, fm_flicker: false, peaks: false, drift: false, dither: false, sbs: false, rin: false}
   - block: adder                    # SH output: φ_p = 2 φ_L (conv §4)
@@ -254,9 +278,9 @@ pipeline:
     params:
       segment: FC
       beam: lo
-      dnu_fc_hz: 3.3e+6             # no literature value (D49: swept); tuned to θ ≈ 9 mrad [AE] (header)
+      dnu_fc_hz: 3.3e+6             # no literature value (D49: swept); tuned to θ ≈ 9 mrad [AE]; fixes only h0/Δν_FC (header, D65-5)
       t0: 1.0                        # LO power is quoted at the BHD [Ref A §4.2]
-      in_delay_s: !expr "(5.0 * 1.468 + 0.3 * 1.0003) / 299792458.0"   # τ_b of `lo` (LO + FC segments): LO = H_FC φ_L(t − τ_b)
+      in_delay_s: !expr "(topology.segments.LO.L_m * topology.segments.LO.n_g + topology.segments.FC.L_m * topology.segments.FC.n_g) / 299792458.0"   # τ_b of `lo` (LO + FC segments): LO = H_FC φ_L(t − τ_b)
       source: "[AE] transmission inside the quoted LO power"
       in_phase: laser.koheras.phi
       toggles: {lock_residual: false, laser_lowpass: true}

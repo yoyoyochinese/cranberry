@@ -46,7 +46,8 @@ def qnl_flat(n_sn: float = 1.0) -> dict[str, float]:
     """quantum_noise_power runtime params for a flat band with the Ref C numbers (R± incl. dark noise)."""
     rp, rm, b = REF_C["r_plus"] + REF_C["el"], REF_C["r_minus"] + REF_C["el"], REF_C["b_hz"]
     pm, pd = n_sn * b * (rp + rm) / 2, n_sn * b * (rp - rm) / 2
-    return {"p_mean": pm, "p_delta": pd, "q0": pm * pm / b, "q1": -2 * pm * pd / b, "q2": pd * pd / b}
+    return {"p_mean": pm, "p_delta": pd, "p_dark": n_sn * b * REF_C["el"], "q0": pm * pm / b, "q1": -2 * pm * pd / b,
+            "q2": pd * pd / b}
 
 
 def blk(kind: str, name: str, *, toggles: dict[str, bool], rate_div: int = 1, **params: Any) -> dict[str, Any]:

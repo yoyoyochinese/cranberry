@@ -11,10 +11,13 @@ Ref B numbers are recomputed with x = √(P/P_th) = √(100/180) = 0.7454 (D51-1
 x = 0.769 (G = 18.7): A−/A+ = (1 − x)/(1 + x) = 0.1459, so a lock-1 error δu = 0.1 rad moves the
 lock-2 zero by 14.64 mrad (T14: 13.1 mrad).
 
-Ref C quantum-noise lock (V7): the radiometer noise is cyclostationary over the LO dither cycle; the
-demodulated noise is 2⟨2 sin²θ S_v(Δ0 + m sinθ)⟩, which at the squeezing point is 1.23 × the value
-T14 §6.3 uses (S_v at Δ0). The sensor-limited residual is therefore 3.6 mrad, not 3.2 mrad; T14's
-formula is recovered where the weighting is negligible (small m, or the anti-squeezing point: 78 mrad).
+Ref C quantum-noise lock (V7, D65-1): the radiometer noise is cyclostationary over the LO dither cycle;
+the demodulated noise is 2⟨2 sin²θ S_v(Δ0 + m sinθ)⟩. For the square law this is 1.2257 × the value
+T14 §6.3 uses (S_v at Δ0) at the squeezing point: 3.58 mrad in a continuous loop (3.62 mrad in the
+test's 1 MHz discrete loop), not 3.24 mrad. For the log detector the weight is exactly 1 and the slope
+falls instead: 4.11 mrad (κ_det = 1.32), not T14's 4.2. T14's formula is recovered where the weighting
+is negligible (small m, or the anti-squeezing point: 78 mrad). V12: the LO RAM does not modulate the
+dark noise, so the Ref C RAM shift is 2.54 mrad (D65-1, M1-A-03).
 """
 
 import math
@@ -229,32 +232,67 @@ def test_v6_qnl_baseband_equals_rf_rate_noise_psd():
 # ------------------------------------------------------------------ V7: sensor-limited lock residual
 
 
-def qnl_loop(d0, m, n, seed):
-    """QNL (baseband, square law) → demod (I = b) → integrator → (delay 0) → φ_LO; Δ = φ_LO (φ_p = −π).
-    First-order loop with noise bandwidth b_loop = π f_c/2 = 10 kHz at f_sim = 1 MHz."""
+def qnl_loop(d0, m, n, seed, law="square", kappa=1.0):
+    """QNL (baseband) → demod (I = b) → integrator → (delay 0) → φ_LO; Δ = φ_LO (φ_p = −π).
+    First-order loop with noise bandwidth b_loop = π f_c/2 = 10 kHz at f_sim = 1 MHz.
+
+    Returns (simulated rms, discrete-loop prediction, continuous-loop prediction, T14 stationary form).
+    Square law: slope 4ΔP J1(2m), noise 2⟨2 sin²θ S_v⟩ (cyclostationary weight w). Log law (k = 1):
+    slope (10/ln10)⟨2 sinθ ∂_Δ ln P(Δ0 + m sinθ)⟩, S_v = κ(10/ln10)²·2Q/P² — constant over a flat band, so
+    the noise weight is exactly 1 (D65-1, M1-A-04)."""
     q = qnl_flat()
-    kd = 4 * q["p_delta"] * j1(2 * m) * (1 if d0 == 0.0 else -1)  # dI/dΔ at the lock point
+    th = np.linspace(0, 2 * np.pi, 4096, endpoint=False)
+    sgn = 1 if d0 == 0.0 else -1
+    w, sv0 = cyclo_weight(d0, m, law)
+    if law == "square":
+        kd = 4 * q["p_delta"] * j1(2 * m) * sgn  # dI/dΔ at the lock point
+        kd_stat = kd
+    else:
+        dd = d0 + m * np.sin(th)
+        pp = q["p_mean"] - q["p_delta"] * np.cos(2 * dd)
+        c = 10 / np.log(10)
+        kd = c * np.mean(2 * np.sin(th) * 2 * q["p_delta"] * np.sin(2 * dd) / pp)
+        p0 = q["p_mean"] - q["p_delta"] * math.cos(2 * d0)
+        kd_stat = c * 4 * q["p_delta"] * j1(2 * m) * sgn / p0  # T14 §6.2: square-law slope / P(Δ0)
+    sv0 *= kappa
     f_c = 2 * 10e3 / math.pi
-    objs = [qnl(noise=True, dither_m_rad=m), dem(inp="v.qnl", f_ref_hz=1e6, phi_d_rad=-math.pi / 2),
+    objs = [qnl(law=law, noise=True, dither_m_rad=m, kappa_det=kappa),
+            dem(inp="v.qnl", f_ref_hz=1e6, phi_d_rad=-math.pi / 2),
             integ("int", "dem.dem.i", -2 * math.pi * f_c / kd), dl("dl", "ctrl.int.u", "beam.lo.phi")]
     x = record(objs, 1e6, n, ["beam.lo.phi"], external={"beam.p.phi": "rad"},
                init={"beam.p.phi": -math.pi, "ctrl.int.u": d0}, seed=seed)["beam.lo.phi"]
     eps = 2 * math.pi * f_c / 1e6
-    w, sv0 = cyclo_weight(d0, m)
-    var_pred = 2 * math.pi * f_c * (w * sv0) / (kd**2 * (2 - eps))  # exact AR(1) of the discrete loop
-    s_t14 = sv0 * 2 / kd**2  # T14 §6.3: S_Δ,sens = 2 S_v(Δ0)/K_d² (rad²/Hz)
-    return float(np.std(x[2000:] - d0)), math.sqrt(var_pred), math.sqrt(s_t14 * 10e3)
+    var_cont = 2 * (w * sv0) / kd**2 * 10e3  # continuous first-order loop, b_loop = 10 kHz
+    var_pred = var_cont / (1 - eps / 2)  # exact AR(1) of the discrete loop (factor 1.0204)
+    s_t14 = sv0 * 2 / kd_stat**2  # T14 §6.3: S_Δ,sens = 2 S_v(Δ0)/K_d² (rad²/Hz)
+    return float(np.std(x[2000:] - d0)), math.sqrt(var_pred), math.sqrt(var_cont), math.sqrt(s_t14 * 10e3)
 
 
 def test_v7_qnl_sensor_limited_residual():
-    rms, pred, t14 = qnl_loop(0.0, REF_C["m"], 200_000, seed=11)
+    """Square law (D65-1): T14's 3.24 mrad → 3.58 mrad in the continuous loop (weight 1.2257), 3.62 mrad
+    in this test's discrete loop at f_sim = 1 MHz (factor 1/(1 − ε/2) = 1.0204)."""
+    rms, pred, cont, t14 = qnl_loop(0.0, REF_C["m"], 200_000, seed=11)
     assert t14 == pytest.approx(3.24e-3, rel=0.01)  # T14 §6.3 number (S_Δ,sens = 1.05e-9 rad²/Hz)
-    assert pred == pytest.approx(3.62e-3, rel=0.02)  # with the cyclostationary weighting (1.23 in PSD)
+    assert cyclo_weight(0.0, REF_C["m"])[0] == pytest.approx(1.2257, rel=1e-3)  # square law only
+    assert cont == pytest.approx(3.58e-3, rel=0.005)  # continuous loop, cyclostationary weighting
+    assert pred == pytest.approx(3.62e-3, rel=0.005)  # discrete loop of this test
     assert rms == pytest.approx(pred, rel=0.10)
-    rms, pred, t14 = qnl_loop(math.pi / 2, REF_C["m"], 200_000, seed=12)  # anti-squeezing lock point
+    rms, pred, cont, t14 = qnl_loop(math.pi / 2, REF_C["m"], 200_000, seed=12)  # anti-squeezing lock point
     assert t14 == pytest.approx(78e-3, rel=0.01) and rms == pytest.approx(t14, rel=0.10)
-    rms, pred, t14 = qnl_loop(0.0, 0.02, 200_000, seed=13)  # small dither: T14's formula itself holds
+    rms, pred, cont, t14 = qnl_loop(0.0, 0.02, 200_000, seed=13)  # small dither: T14's formula itself holds
     assert rms == pytest.approx(t14, rel=0.10)
+
+
+def test_v7_qnl_sensor_limited_residual_log_detector():
+    """Log detector, κ_det = 1.32 (Ref C, D65-1 / M1-A-04): the cyclostationary noise weight is 1 and the
+    slope is 0.905 × T14's stationary slope (1.222 in PSD): 4.11 mrad in the continuous loop, not T14's
+    4.2 (rms × κ_det, an arithmetic slip) nor the stationary 3.24·√1.32 = 3.72 mrad."""
+    rms, pred, cont, t14 = qnl_loop(0.0, REF_C["m"], 200_000, seed=14, law="log", kappa=1.32)
+    assert cyclo_weight(0.0, REF_C["m"], "log")[0] == pytest.approx(1.0, rel=1e-9)
+    assert t14 == pytest.approx(3.72e-3, rel=0.01)
+    assert (t14 / cont) ** 2 == pytest.approx(1 / 1.222, rel=2e-3)
+    assert cont == pytest.approx(4.11e-3, rel=0.005)
+    assert rms == pytest.approx(pred, rel=0.10)
 
 
 # ------------------------------------------------------------------ V10: Liu-type locks, integration schemes A/B
@@ -415,23 +453,28 @@ def test_v11_loop_sign_selects_the_lock_point(loop_sign, start, end):
 
 @pytest.mark.parametrize("m,exact_tol", [(REF_C["m"], 0.01), (0.02, 0.01)])
 def test_v12_qnl_ram_offset(m, exact_tol):
-    """a_RAM = 1e−2 (φ_a = 0) moves the QNL lock point by δΔ = a⟨2 sin²θ P(m sinθ)⟩/(4ΔP J1(2m)).
+    """a_RAM = 1e−2 (φ_a = 0) moves the QNL lock point by δΔ = a⟨2 sin²θ P_opt(m sinθ)⟩/(4ΔP J1(2m)).
 
-    T14 V12's first-order form a R−/(2(R+−R−)J1(2m)) = 2.77 mrad replaces ⟨2 sin²θ P⟩ by P(Δ0) = P−; at
-    Ref C's m = 0.0785 the cycle average is 1.107 P−, so the exact shift is 3.06 mrad (T14's form holds for
-    small m, checked at m = 0.02 within T14's 10 %)."""
+    The LO RAM modulates only the LO-proportional (optical) part P_opt = P − p_dark of the band power,
+    not the BHD dark / circuit noise (T14 §6.4; D65-1, M1-A-03). At Ref C's m = 0.0785 the shift is
+    2.54 mrad (D65-1). T14 V12's 2.77 mrad (first-order form a R−/(2(R+−R−)J1(2m)) with R− incl. the dark
+    noise) and D56-8's 3.06 mrad (cycle average, dark noise modulated too) are superseded; the first-order
+    form with the optical R− holds for small m (checked at m = 0.02 within T14's 10 %)."""
     q = qnl_flat()
     ev, _, _ = evaluator([qnl(ram_a=1e-2, dither_m_rad=m, toggles={"ram_offset": True})],
                          external={"beam.lo.phi": "rad", "beam.p.phi": "rad"})
     d = brentq(lambda d0: float(ev(**{"beam.lo.phi": d0 + math.pi / 2})["v.qnl"][1]), -0.05, 0.05, xtol=1e-15)
-    rp, rm = REF_C["r_plus"] + REF_C["el"], REF_C["r_minus"] + REF_C["el"]
+    rp, rm = REF_C["r_plus"], REF_C["r_minus"]  # optical part (dark noise not modulated)
     t14 = 1e-2 * rm / (2 * (rp - rm) * j1(2 * m))
     th = np.linspace(0, 2 * np.pi, 4096, endpoint=False)
-    w = np.mean(2 * np.sin(th) ** 2 * (q["p_mean"] - q["p_delta"] * np.cos(2 * m * np.sin(th))))
-    exact = 1e-2 * w / (4 * q["p_delta"] * j1(2 * m))
+    p_opt = q["p_mean"] - q["p_dark"] - q["p_delta"] * np.cos(2 * m * np.sin(th))
+    exact = 1e-2 * np.mean(2 * np.sin(th) ** 2 * p_opt) / (4 * q["p_delta"] * j1(2 * m))
     assert abs(d) == pytest.approx(exact, rel=exact_tol)
     if m == REF_C["m"]:
-        assert t14 == pytest.approx(2.77e-3, rel=0.01) and exact == pytest.approx(3.06e-3, rel=0.01)
+        assert exact == pytest.approx(2.54e-3, rel=0.01)
+        # the superseded model (dark noise modulated too) gives D56-8's 3.06 mrad
+        w_all = np.mean(2 * np.sin(th) ** 2 * (q["p_mean"] - q["p_delta"] * np.cos(2 * m * np.sin(th))))
+        assert 1e-2 * w_all / (4 * q["p_delta"] * j1(2 * m)) == pytest.approx(3.06e-3, rel=0.01)
     else:
         assert abs(d) == pytest.approx(t14, rel=0.10)
 

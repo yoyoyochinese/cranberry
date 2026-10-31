@@ -136,7 +136,7 @@ def _build(jit: bool):
             sa = sb = n0 + n1 * p
         else:
             _, a, b, sa, sb = harmonic(0, kv, gbar, dg, phi1, 0.0, 0.0, P[c.p_dither_m_rad], ram_a(P, c),
-                                       P[c.p_ram_phase_rad], n0, n1, 0.0, 0.0, 0.0)
+                                       P[c.p_ram_phase_rad], n0, n1, 0.0, 0.0, 0.0, 0.0)
         emit(S, I, c, c.s_out, a, b, sa, sb)
 
     @dec
@@ -157,7 +157,7 @@ def _build(jit: bool):
                 b = k2 * (gc * math.sin(u - v) + gs * math.sin(u + v))
         elif c.mode == DITHER and not c.f_rf:
             _, a, b, _, _ = harmonic(0, k2, 0.0, gc, u - v, gs, u + v, P[c.p_dither_m_rad], ram_a(P, c),
-                                     P[c.p_ram_phase_rad], 0.0, 0.0, 0.0, 0.0, 0.0)
+                                     P[c.p_ram_phase_rad], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         else:  # dc, or dither at RF rate
             a = k2 * (gc * math.cos(u - v) + gs * math.cos(u + v))
             if c.mode == DITHER:
@@ -192,7 +192,7 @@ def _build(jit: bool):
                 a = k * math.cos(x) * ram(P, c, t)
             else:
                 _, a, b, _, _ = harmonic(0, k, 0.0, 1.0, x, 0.0, 0.0, P[c.p_dither_m_rad], ram_a(P, c),
-                                         P[c.p_ram_phase_rad], 0.0, 0.0, 0.0, 0.0, 0.0)
+                                         P[c.p_ram_phase_rad], 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         else:  # homodyne_dc
             a = k * math.cos(x) + P[c.p_v_off_v]
         n0, n1 = det_coefs(P, c, 1.0)
