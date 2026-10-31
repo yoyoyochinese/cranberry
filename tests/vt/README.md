@@ -17,10 +17,10 @@ Rules (PLAN §6.1, §6.3):
 
 | Done | VT | prompt §7 | Main modules | Kind | WP | M | File |
 |---|---|---|---|---|---|---|---|
-| [ ] | VT-01 | 1 | `single_mode_reference`, `phase_to_quadrature` | unit | B1, F4 | M1 | `test_vt_01_single_mode_reference.py` |
+| [x] | VT-01 | 1 | `single_mode_reference`, `phase_to_quadrature` | unit | B1, F4 | M1 | `test_vt_01_single_mode_reference.py` |
 | [ ] | VT-02 | 1 | `refA` full (loss budget, lock to 9 mrad; ±0.10 dB, D48) | integ | I1 | M1 | `test_vt_02_refA_full.py` |
 | [ ] | VT-03 | 1 | CW limit (pulsed blocks identity), GNLSE CW shortcut | unit + integ | B9, B11 | M5 | `test_vt_03_cw_limit.py` |
-| [ ] | VT-04 | 2 | Fig. 5 (4 curves × 8 points, P_opt) | unit + integ | B1, I1 | M1 | `test_vt_04_refA_fig5.py` |
+| [x] | VT-04 | 2 | Fig. 5 (4 curves × 8 points, P_opt) | unit + integ | B1, I1 | M1 | `test_vt_04_refA_fig5.py` |
 | [~] | VT-05 | 3 | `offline.gaussian`, `LossRegistry`, `pure_loss`, circuit noise = loss, OPO / pulsed OPO parts | unit | F3 (M0), B5, B6, B11 | M0–M5 | `test_vt_05_pure_loss.py` |
 | [ ] | VT-06 | 4 | linearized fiber, OPA g → 0, OPO x = 0, pulsed OPO (initial vacuum term) | unit | B10, B1, B6, B11 | M1–M5 | `test_vt_06_vacuum_limits.py` |
 | [ ] | VT-07 | 5 | `fiber_gnlse` soliton | unit | B9 | M5 | `test_vt_07_gnlse_soliton.py` |
@@ -41,7 +41,7 @@ Rules (PLAN §6.1, §6.3):
 | [ ] | VT-22 | 11 | shared-segment cancellation (equal coefficients), passes with polarization off | integ | F6 (M0), I4 (M3), B7 | M0, M3, M4 | `test_vt_22_shared_segment_cancellation.py` |
 | [ ] | VT-23 | 11 (added) | no cancellation on OPO segment with unequal coefficients | integ | B6, I4, B11 | M3, M5 | `test_vt_23_unequal_coef_no_cancellation.py` |
 | [ ] | VT-24 | D04 | Ref D pre-blind analytic checks | unit + integ | I2, B3, B4, B2, B7 | M1 | `test_vt_24_refD_analytic.py` |
-| [ ] | VT-30 | — | OPA | unit | B1 | M1 | `test_vt_30_opa.py` |
+| [x] | VT-30 | — | OPA | unit | B1 | M1 | `test_vt_30_opa.py` |
 | [ ] | VT-31 | — | CW OPO | unit | B6 | M2 | `test_vt_31_cw_opo.py` |
 | [ ] | VT-32 | — | pulsed OPA (table interpolation 1e−3) | unit | B11 | M5 | `test_vt_32_pulsed_opa.py` |
 | [ ] | VT-33 | — | phase → squeezing, ESA, metric invariance / decomposition (V11, V12), HF add-on (V13) | unit + integ | F4, B5 | M1 (V1–V10, V13), M4 (V11, V12) | `test_vt_33_phase_to_squeezing.py` |
