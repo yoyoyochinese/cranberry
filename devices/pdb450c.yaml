@@ -1,0 +1,62 @@
+# Device preset: Thorlabs PDB450C balanced amplified photodetector at gain 10^3 V/A (Ref D, D02, T13 §4.1).
+#
+# Same leaf format as dsc1.yaml ({value, source, sweep?, note?}; SI, linear). Key names match the
+# parameters of ``dc_fringe`` (WP-B3) and ``bhd_frontend`` / ``detector_efficiency`` (WP-B5).
+# "PDB p.N" = printed page of the PDB440x/PDB450x Operation Manual v2.4, 2019-04-08, M0009-510-1043
+# (refs/manuals/thorlabs-pdb.pdf; PDF page = printed page + 2).
+# Values are for a high-impedance load (DSC1 input 1 MΩ, D53); with a 50 Ω load the gain and the
+# RF swing are divided by ``rf.load_divisor_50ohm`` (``load: 50ohm`` in bhd_frontend).
+
+meta:
+  device: pdb450c
+  title: Thorlabs PDB450C balanced amplified photodetector (InGaAs), gain setting 10^3 V/A
+  document: Thorlabs PDB440x/PDB450x Operation Manual v2.4, 2019-04-08, M0009-510-1043 (printed page numbers)
+
+photodiode:
+  responsivity_a_per_w:
+    value: 1.0
+    source: "PDB p.19 (Max. Responsivity, typ. 1.0 A/W)"
+    sweep: [1.0, 1.03]
+    note: "1.03 A/W at 1549 nm read from the typical curve, PDB p.15 [manual-fig, UNVERIFIED]; curves are typical, units deviate (PDB p.8)"
+  active_diameter_m: {value: 3.0e-4, source: "PDB p.19 (Detector Active Area Ø 0.3 mm)"}
+  damage_power_w: {value: 0.02, source: "PDB p.5, p.14 (damage threshold 20 mW per photodiode)"}
+  linear_max_intensity_w_per_m2: {value: 4.0e+4, source: "PDB p.5, p.7 (max. 4 W/cm² for maximum linearity)"}
+
+rf:
+  gain_v_per_a: {value: 1.0e+3, source: "PDB p.19 (RF OUTPUT Transimpedance Gain 10^3 V/A, high-Z load, note 1)"}
+  load_divisor_50ohm: {value: 2.0, source: "PDB p.13, p.19 note 1 (values for high-Z load; divide by 2 for 50 Ω)"}
+  output_impedance_ohm: {value: 50.0, source: "PDB p.14 (RF OUTPUT impedance 50 Ω)"}
+  bandwidth_hz:
+    value: 1.5e+8
+    source: "PDB p.19 (RF OUTPUT Bandwidth (−3 dB) DC–150 MHz at gain 10^3)"
+    note: "flat to ~100 MHz with ~+1 dB peak near 130 MHz, PDB p.20 figure [manual-fig, UNVERIFIED]"
+  v_sat_v: {value: 4.6, source: "PDB p.14 (RF OUTPUT Voltage Swing max. ±4.6 V, PDB450 gain 10^3–10^6, high-Z, note 1)"}
+  p_sat_diff_w: {value: 4.5e-3, source: "PDB p.19 (CW Saturation Power 4.5 mW @ 1550 nm; applies to P_1 − P_2, PDB p.5, p.7)"}
+  v_off_v:
+    value: 0.0
+    source: "PDB p.8 (offset factory-set to zero at 23 °C), p.19 (RF OUTPUT DC Offset < ±15 mV)"
+    sweep: [-0.015, 0.015]
+    note: "~5 min warm-up drift (PDB p.8); drift coefficient not documented"
+  nep_w_per_rthz: {value: 6.86e-11, source: "PDB p.19 (Minimum NEP 68.6 pW/√Hz, DC to 150 MHz, gain 10^3)"}
+  i_n_a_rthz:
+    value: 6.86e-11
+    source: "PDB p.19 (NEP 68.6 pW/√Hz × responsivity 1.0 A/W; band average DC–150 MHz) [AE, T13 §4.1]"
+    sweep: [2.9e-11, 1.18e-10]
+    note: "low-frequency ~29 pA/√Hz and 130 MHz ~118 pA/√Hz from the noise figure, PDB p.21, assuming dBm/100 kHz into 50 Ω [manual-fig, UNVERIFIED]"
+  cmrr_lin:
+    value: 1000.0
+    source: "PDB p.19 (CMRR >25 dB, typ. >30 dB); definition PDB p.10 §3.6"
+    sweep: [316.22776601683796, 1000.0]
+    note: "both spec numbers are lower bounds; 30 dB (typ.) as value, 25 dB (min.) as the lower sweep end"
+
+monitor:
+  monitor_v_per_w: {value: 1.0e+4, source: "PDB p.13, p.14 (Monitor conversion gain 10 V/mW at peak responsivity, high-Z)"}
+  monitor_v_max_v: {value: 10.0, source: "PDB p.5, p.8, p.14 (max. swing 10 V high-Z; saturation above ~1 mW optical input)"}
+  monitor_v_max_50ohm_v: {value: 1.55, source: "PDB p.14 (1.55 V into 50 Ω; p.5 and p.8 state 1.5 V)"}
+  monitor_bandwidth_hz: {value: 1.0e+6, source: "PDB p.14 (MONITOR bandwidth DC to 1 MHz)"}
+  monitor_noise_vrms: {value: 1.8e-4, source: "PDB p.14 (MONITOR voltage noise < 180 µV rms)"}
+  monitor_v_off_v: {value: 0.0, source: "PDB p.14 (MONITOR DC offset < ±2 mV)", sweep: [-0.002, 0.002]}
+
+esa_noise_spectra:
+  rbw_hz: {value: 1.0e+5, source: "PDB p.13 (typical noise spectra measured with RBW 100 kHz)"}
+  vbw_hz: {value: 1.0e+4, source: "PDB p.13 (VBW 10 kHz)"}

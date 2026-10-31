@@ -1,0 +1,30 @@
+# Device preset: generic high-QE CW balanced homodyne detector (future configuration F; D15 Open).
+#
+# Not a commercial device: reference values standing in until the BHD is chosen (T13 §4.2). Every
+# value is to be swept (D34). Same leaf format as dsc1.yaml (SI, linear). Keys match
+# ``detector_efficiency`` / ``bhd_frontend`` (WP-B5). Clearance scales as C ∝ P_LO (CW, T13 §1.3).
+
+meta:
+  device: bhd_generic_highqe
+  title: Generic high-QE balanced homodyne detector (placeholder for configuration F, D15)
+  document: notes/bhd-detection.md §4.2 (T13), Ref A §2–4.2, Ref B §4, Ref C Fig. 4–5
+
+photodiode:
+  qe:
+    value: 0.99
+    source: "T13 §4.2 (future default = Ref A PD QE ~99%, Laser Components IGHQEX0500-1550) [Ref A]"
+    sweep: [0.97, 0.998]
+    note: "Ref C 0.97, Ref B 0.998 (Si, 860 nm)"
+
+bhd:
+  clearance_lin:
+    value: 630.957344480193
+    source: "T13 §4.2 (Ref A clearance ~28 dB at 3 MHz, LO 15.4 mW) [Ref A]"
+    sweep: [3.1622776601683795, 630.957344480193]
+    note: "Ref B 21.7 dB @ 5.5 mW; Ref C 11 / 7.4 / 5 / 5.7 dB @ 30 MHz / 0.25 / 0.69 / 1.21 GHz (dark-corrected) [Ref B, Ref C]"
+  p_lo_ref_w: {value: 0.0154, source: "Ref A §3.2 (LO 15.4 mW at the quoted clearance), T13 §4.2"}
+  cmrr_lin:
+    value: 1000.0
+    source: "T13 §4.2 (30 dB example; the required CMRR is set by the LO RIN at f_s) [AE]"
+    sweep: [316.22776601683796, 1.0e+8]
+    note: "Hansen et al. 2001 pulsed BHD CMRR > 85 dB (abstract) [UNVERIFIED body]"
