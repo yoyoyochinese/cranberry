@@ -1,11 +1,14 @@
 # Phase 1 効果サーベイ（survey）
 
-- Phase: 1（サーベイ、1 エージェント）
-- 日付: 2026-10-28
+- Phase: 1（サーベイ、1 エージェント）／ **Phase 2 で改訂（統合担当、2026-10-31）**
+- 日付: 2026-10-28（初版）、2026-10-31（Phase 2 の修正）
 - 入力: `docs/squeezing_sim_prompt.md`（§4 Phase 1）、`DECISIONS.md`（D01–D23、prompt と食い違う場合はこちらが優先）、`AGENTS.md`、
   `refs/` の Ref A・B・C、McKenzie 2005、`refs/manuals/`（Thorlabs DSC1、Thorlabs PDB4xx、Moku:Delta 仕様書）
 - 目的: squeezing の量、または系のいずれかのロックに影響しうる効果をすべて挙げ、deep-dive の分担（§4）を提案する。
   ここでの数値は「当たり」をつけるためのもので、根拠にはしない。根拠は各 deep-dive ノートで一次資料から取る。
+- **Phase 2 の改訂の規則**: deep dive（T01–T17、`notes/<topic>.md`）と DECISIONS D34–D50 に基づいて修正した行・節には **［Txx で修正］**（または ［D48 で修正］ など）を付けた。
+  行は削除していない。誤りだった初版の値は、必要なものだけ「旧:」として残した。deep dive で新しく見つかった効果は §2.12（N01–N19）に追加した。
+  効果ごとのトリアージ（kept / optional、プリセットでのオン・オフ）は `notes/00_summary.md` §1 を参照。
 
 ## 0. 凡例と記号
 
@@ -16,8 +19,8 @@
 | A | Hirota et al.、PPLN 導波路 OPA、phase-detection OPA によるロック（＋比較用の conventional tap） | Ref A |
 | B | Takeno et al. 2007、PPKTP bow-tie OPO、同軸 probe、dither | Ref B |
 | C | Verclas et al. 2026、モノリシック ppKTP OPO、squeezed 光と LO を別々の 1 km ファイバ、量子雑音ロック | Ref C（補助: McKenzie 2005） |
-| D | 現行系: Cobrite DX1（CW、1548.8 nm）→ PM ファイバ MZI（片腕に 915B）→ PDB450C → DSC1 の DC side-fringe lock | D02 |
-| F | 将来の構成: パルス光源 → 単一パス導波路 OPA → 時間で 32 ポートへ振り分け → ポートごとの遅延ファイバ L_k → GBS。LO_k は別ファイバ。アクチュエータは probe と squeezed 光が一緒に通る区間 | D07–D13 |
+| D | 現行系: Cobrite DX1（SC 型、CW、1548.8 nm）→ PM ファイバ MZI（片腕に 915B）→ PDB450C → DSC1 の DC side-fringe lock | D02、D35 |
+| F | 将来の構成（**既定はなく、名前付きのプリセットを複数持つ**、D34）。**［T17・D43・D50 で修正］** 光源 = 単一パスの導波路 OPA（Ref A 型、略号 Fw）**または パルス励起のしきい値以下 PPKTP OPO（Borealis 型 Fb、Liu 2026 型 Fl）** → 時間で 32 ポートへ振り分け（Pockels 木・ブロック振り分け・受動遅延ループ・ファイバ LN、D39）→ ポートごとの遅延ファイバ L_k = L_0 + k·N_b·c·T_rep/n_g → GBS。LO_k は別ファイバ（D09、D45）。アクチュエータは probe と squeezed 光が一緒に通る区間（D10）。probe・squeezed 経路の組み方・LO/BHD は D38・D40・D45 の選択肢 | D07–D13、D38–D45、D50 |
 
 ### 0.2 「段」列の略号（prompt §5.1）
 
@@ -35,25 +38,26 @@
 - **[manual]**: `refs/manuals/` のメーカー資料から読んだ値。
 - **[AE]**: agent estimate（このサーベイ担当による概算）。**unverified**。deep-dive で一次資料により確認すること。
 - **[UNVERIFIED]**: 文献値・文献情報を記憶から書いたもので、原典で確認していない。
+- **［Txx で修正］**: Phase 2 で deep dive Txx（`notes/survey.md` §4 の番号、T17 は `pulsed-opo-source`）の結果により修正した値。値の根拠はそのノートにある。
 
 ### 0.4 記号（symbols, English）
 
-- `L_k`: fiber length of port k (D08), `L_k ≈ k·c·T_rep/n_g`, k = 0…31.
+- `L_k`: fiber length of port k (D08). **［T11・D39 で修正］** general form `L_k = L_0 + k·N_b·c·T_rep/n_g`, k = 0…31 (`N_b`: pulses routed per port per frame; D08 is `N_b = 1`, `L_0 = 0`).
 - `T_rep`, `f_rep = 1/T_rep`: pulse repetition period / rate (Open, D07).
-- `τ_p`: pulse duration (swept 100 fs – 10 ps, D07). `T0`: 1/e half-width used in `L_D`.
+- `τ_p`: pulse duration (swept 100 fs – 10 ps, D07; **not used for OPO presets, which sweep (Δν_c, T_p, κ_p, x_ss, ρ), D50**). `T0`: 1/e half-width used in `L_D`.
 - `n`, `n_g`: phase / group index of the fiber. `c`: speed of light in vacuum.
 - `λ`: vacuum wavelength. `ν = c/λ`: optical frequency. `h`: Planck constant.
 - `β2`, `β3`: group-velocity dispersion and third-order dispersion. `L_D = T0²/|β2|`: dispersion length.
 - `γ`: fiber nonlinear coefficient. `P_peak`, `P_avg`: peak / average power. `L_eff`: effective length.
-- `φ_NL = γ·P_peak·L_eff`: self-phase-modulation phase.
+- `φ_NL = γ·P_peak·L_eff`: self-phase-modulation phase (dispersion-free estimate; see E29 correction).
 - `ΔL`: arm length difference of the Ref D MZI. `τ = n_g·ΔL/c`: corresponding delay.
 - `δL_k`: residual length mismatch between squeezed fiber k and LO fiber k (D09).
 - `S_ν(f)`: one-sided PSD of laser frequency noise [Hz²/Hz]. `Δν`: Lorentzian (white-FM) linewidth, `S_ν = Δν/π`.
 - `S_Δφ(f)`: one-sided PSD of the phase difference between two delayed copies [rad²/Hz].
 - `θ`, `θ_rms`: phase error between LO and the squeezed (or anti-squeezed) quadrature; RMS value.
 - `R±`: anti-squeezed (+) / squeezed (−) noise variance normalized to shot noise. `R'±`: same, including `θ`.
-- `L` (Ref A context): total effective optical loss. `α`: SHG efficiency [1/W]. `P`: pump power.
-- `x`, `P_th`, `T`, `L_ic`, `l`, `γ_c`, `Ω`, `η`, `ξ`, `ζ`, `ρ` (Ref B context): normalized pump, threshold, output-coupler transmittance, intracavity loss (`L` in the paper), round-trip length, cavity decay rate, normalized frequency, PD QE, homodyne visibility, propagation efficiency, escape efficiency.
+- `L` (Ref A context): total effective optical loss. `α`: SHG efficiency [1/W]. `P`: pump power (**Ref A: pump power at the OPA output, fitted together with α = 906 %/W ［T01・D48 で修正］**).
+- `x`, `P_th`, `T`, `L_ic`, `l`, `γ_c`, `Ω`, `η`, `ξ`, `ζ`, `ρ` (Ref B context): normalized pump, threshold, output-coupler transmittance, intracavity loss (`L` in the paper), round-trip length, cavity decay rate, normalized frequency, PD QE, homodyne visibility, propagation efficiency, escape efficiency. **［T02・D48 で修正］** `x = √(P/P_th)`; `γ_c = c(T + L)/l` is the FWHM in rad/s; `Ω_B = 2πf/γ_c`.
 - `PER`: polarization extinction ratio. `B`: modal birefringence of PM fiber.
 - `ER`: extinction ratio of the time-demultiplexing switch.
 - `K_D`: error-signal slope [V/rad]. `G_TIA`: transimpedance gain [V/A]. `ℜ`: PD responsivity [A/W]. `V`: fringe visibility.
@@ -66,22 +70,32 @@
   640 mW は「squeezer OPA 直後のポンプ出力の推定値」（§3.2）。probe は AOM 2 台で 1 MHz シフト、probe と LO の各経路に EOM。LO 経路に ASE 抑圧用のフィルタキャビティ。
   BHD の PD 帯域 35 MHz、QE 約 99%。conventional 方式の probe は数 µW、新方式では数 mW まで上げられる（§2）。
   検算 [AE]: L = 8%、α = 9.06 /W、P = 0.64 W、θ = 9 mrad で R'− = −10.15 dB、R+ = +20.56 dB（prompt §7-1 と整合）。
+  **［T01・T05・D48 で修正］** 光源は Fig. 2 で「Laser + EDFA + SHG」→ BPF を確認（prompt §1 と整合）。α = 906 %/W は「出口のポンプパワー P と集中損失モデル」で当てはめた値で、導波路の SHG 効率の測定値（[19] で 820 %/W）とは別物。
+  分布損失モデルでは L_wg = 2.03% を再現するが、同じ α で R′+ が 0.27 dB 低い（20.29 dB）。§7-1 の全体の許容幅は R′− = −10.15 ± 0.10 dB、R′+ = +20.56 ± 0.10 dB（集中損失、D48）。
+  lock 1 は phase-detection OPA の PD 光電流の **2 f_sh = 2 MHz** のビート、lock 2 は BHD の 1 MHz ビート（T01・T14）。
 - **Ref B**（§2–4）: T = 0.123、往復 約 500 mm、PPKTP 10 mm、L = 0.0038（100 mW）、L(x) = 0.00249 + 0.00222x、G = 18.7、ζ = 0.99、θ = 1.5°、ξ = 0.988、η = 0.998、
   回路雑音 −21.7 dB（LO 5.5 mW）、P_th = 180 ± 2 mW。PZT 共振 14 kHz（PZT1）・22 kHz（PZT3）、変調 295 kHz（PZT2 の共振でもある）、レーザー雑音 89・177 kHz。
   ESA: 1 MHz、RBW 30 kHz、VBW 300 Hz。
+  **［T02・D48 で修正］** x = √(P/P_th)（本文・式・Fig. 3 で一貫。初版の「本文は x = P/P_th」は pdftotext が √ を落とした誤り）。Ω_B = 2πf/γ_B（γ_B = FWHM [rad/s]、FWHM 12.1 MHz）。
+  G = 18.7 は Eq. (4)–(5) と合わない（P = 100 mW なら G = 15.4）。原因は未解決で、検証には使わない。§7-9 の目標は T02 V-B3 の表（θ = 1.5° で x_opt = 0.758・−9.35 dB、3.9° で 0.607・−7.17 dB）。
 - **Ref C**（§2–4）: モノリシック ppKTP 2.6 mm、ポンプ 約 180 mW、線幅は図 1 の設計値 2.37 GHz、Fig. 5 の当てはめ 1.75 GHz。
   SMF 1 km（0.2 dB/km）を squeezed 光用と LO 用に 2 本、うち 約 180 m は敷設、残りは巻いたまま。別々のジャケットで同じ電線管に並べて置く。
   ファイバの結合・伝搬・取り出しで 8%、ファイバ前で 15%（BHD の QE 97% を含む）、当てはめで損失 21%、位相雑音 約 0.1 rad。
   ファイバ EOM（exail MPZ-LN-10、Uπ = 4 V、200 mVpp → ±4.5°）で LO に 1 MHz の位相変調。包絡線検出器（ログアンプ、8–300 MHz）→ 1 MHz で復調。
   3 段の PID（ファイバ EOM: kHz、ピエゾミラー: その下、ファイバ位相シフタ: Hz 以下）。**制御器は Moku:Pro**（本文）。ロック時間は遅いアクチュエータのレンジで数分。
   BHD の干渉ディップ 0.96 GHz（BHD_A）、0.83 GHz（BHD_B）。暗雑音クリアランス 11 / 7.4 / 5 / 5.7 dB（30 MHz / 0.25 / 0.69 / 1.21 GHz）。
+  **［T02・T16 で修正］** 線幅 1.75 GHz は FWHM（Tohermes 2024 が明記、Fig. 4 の周波数依存も FWHM でだけ合う）。Moku:Pro のプリセットは不要（汎用 FPGA プリセットで §7-10 を再現できる、T16）。
 - **McKenzie 2005**: 量子雑音ロックの誤差信号 ∝ J0(θ1)J1(θ1) sin2θ0 (V1 − V2)·Δω（Eq. 7）。センサ雑音は分散の分散（kurtosis）で決まり、
   ロック安定度は (1/Δω)^{1/4} で弱く改善（Eq. 13, 14）。squeezed 側のロック点のほうが安定。損失・検出効率で悪化。
+  **［T14 で修正］** Eq. (13)–(14) は静的な見積もり。閉ループに入るセンサ雑音は radiometer 型で δΔ ∝ R_−/(R_+ − R_−)·(b_loop/B)^{1/2}/J1(2m)。シミュレータは radiometer の PSD を使う。
 - **Ref D**（D02 ＋ manuals）: 入力 3.33 mW。PDB450C 利得 10³ V/A（高インピーダンス負荷時）で帯域 DC–150 MHz、CMRR >25 dB（typ. >30 dB）、
   CW 飽和 4.5 mW @ 1550 nm、RF 出力の最大振幅 ±4.6 V、DC オフセット < ±15 mV [manual]。
   DSC1: 入力 16 bit・1 MHz サンプル（2 点平均で実効 500 kHz）、出力 12 bit、入出力 ±4 V、帯域 DC–100 kHz、入力→出力の −180° 周波数 >58 kHz（typ. 60 kHz）、
   入力 RMS 雑音 0.3 mV（100 Hz–250 kHz）、PID 更新 500 kHz、積分は「積分の中に Ki」を入れる bumpless 形、出力インピーダンス 220 Ω [manual]。
   **915B、Model 914、Cobrite DX1 の資料は `refs/manuals/` にない**（§6-2）。
+  **［T05・T13・T15・T16・D24・D35・D37 で修正］** `914-915B-Specifications.pdf` が追加された（915B: 38 巻、PM15-U25D、全レンジで光路長 16 µm（S/N 8669-1、Ref D の個体、D35）→ 914 入力あたり 6.49 rad/V、DSC1 の ±4 V で ±26 rad。914: 入力 ±5 V で全振幅、Fig. 1 の大信号 −3 dB 約 28 kHz）。共振・容量・巻線長の記載はない（D36 で掃引のまま）。
+  DX1 は SC 型（線幅 80 kHz typ、RIN −140 dB/Hz（100 kHz–20 MHz）、D35）。PDB450C の飽和は**2 入力の差**に対する値で、Ref D では DSC1 の ±4 V が先にクリップ（差 約 3.9 mW、余裕 14–17%）。MONITOR 出力はロック点で飽和。
+  D37 で追加された資料から（Phase 2 で読んだ値 [manual]）: PNH1550R5A2 は 50:50 ± 1.5%、PER ≥ 25 dB、過剰損失 < 0.3 dB typ、ORL ≥ 60 dB、ファイバ PM15-U25D 相当、リード長 0.8 m。Opneti 偏光子（1550）は IL 0.3 dB typ（≤ 0.5 dB、コネクタ付きで +0.3 dB）、ER 30 dB typ（≥ 28 dB、コネクタ付きで −2 dB）、RL ≥ 50 dB。
 
 ## 2. 効果の一覧
 
@@ -91,158 +105,192 @@
 
 | ID | 効果 | 機構 | 構成 | 周波数帯 | スケーリング | 概算 | 段 | Topic |
 |---|---|---|---|---|---|---|---|---|
-| E01 | 導波路内の分布損失を伴う OPA squeezing | 生成と減衰が同時に起きるので、実効損失は伝搬損失と利得の両方で決まる | A, F | 位相整合帯域（THz）まで | 伝搬損失 × 導波路長、利得とともに増える | 0.1 dB/cm・45 mm・640 mW で 2% [Ref A §4.2] | O | T01 |
-| E02 | ポンプ枯渇 | 信号側へのエネルギー移動でポンプが減る | A（phase-detection OPA の mW probe）、F（高利得パルス） | — | 信号パワー / ポンプパワー | squeezed vacuum では無視できる [AE] | O（パルスでは結合波方程式） | T01 |
-| E03 | ポンプ強度雑音 → 利得の揺らぎ | r = √(αP) が揺らぎ R± が揺らぐ | A, B, C, F | DC–検出帯 | δr/r = δP/(2P) | RIN 10⁻³ なら δr/r ≈ 5×10⁻⁴、小さい [AE] | O 表 ＋ T 雑音源 | T01 |
-| E04 | ポンプ位相雑音 → squeezing 角の揺らぎ | squeezing 角はポンプ位相の半分に従う（符号は conventions で決める） | A, B, C, F | DC–MHz | ポンプと LO の非共通光路長に比例 | — | T（経路ごとの位相） | T01 |
-| E05 | 位相不整合の温度ドリフト | 結晶温度で Δk が変わり、利得が下がり、squeezing 角が周波数に依存して回る | A, B, C, F | < Hz | dΔk/dT × 結晶長 | — | O 表 ＋ T（遅いドリフト） | T01 / T02 |
-| E06 | ポンプ誘起の吸収（GRIIRA / BLIIRA / 光屈折） | 強いポンプで結晶の吸収が増え、損失がポンプの関数になる | A, B, F | 遅い（s–h） | ポンプ強度、波長 | L(x) = 0.00249 + 0.00222x、短波長側では時間とともに増加 [Ref B §3–4] | O（パラメータを関数で） ＋ T（遅いドリフト） | T01 / T02 |
-| E07 | 空間多モード性（準単一モード導波路） | squeezed 光と probe の空間モードの差で LO との重なりが下がる | A, F | — | コア寸法 | モード不整合 4% のうち原因不明 2% [Ref A §4.2] | O | T01 / T12 |
-| E08 | OPO キャビティの伝達（Ref B Eq. 2） | Lorentz 型の squeezing スペクトル、取り出し効率 ρ = T/(T + L) | B, C | 0 – 線幅（C: 1.75 GHz 当てはめ） | ρ、x、Ω | B: γ_c = c(T + L)/l ≈ 7.6×10⁷ s⁻¹。Ω = f/γ_c の 2π の扱いを要確認 [AE] | O | T02 |
-| E09 | OPO の離調・キャビティ長雑音 | 離調で squeezing 角が周波数とともに回り、長さ雑音が位相雑音になる | B, C | DC–kHz | フィネス、長さ雑音 | C はモノリシックで長さロックの記述なし | O ＋ T | T02 |
-| E10 | パラメトリック利得 G と x の定義 | G = 1/(1 − x)²、x = √(P/P_th)（Eq. 4, 5）と、本文の x = P/P_th が食い違う | B | — | — | P = 100 mW・P_th = 180 mW を Eq. 4–5 に入れると G ≈ 15.4、報告値は 18.7 [AE] | O | T02 |
-| E11 | パルス励起の多モード squeezing（supermode） | 結晶内の GVM・GVD で squeezing が複数の時間モードに分かれ、LO の時間モードとの重なりで決まる | F | THz | 結晶長 × GVM と τ_p の比 | PPLN の 775/1550 nm の GVM を 約 0.3 ps/mm とすると 45 mm で 約 10 ps、100 fs ≪ 10 ps [AE, GVM 値 UNVERIFIED] | O | T03 |
+| E01 | 導波路内の分布損失を伴う OPA squeezing **［T01 で修正］** | 生成と減衰が同時に起きるので、実効損失は伝搬損失と利得の両方で決まる。dR±/dz = ±2gR± − a_s(R± − 1) | A, F（Fw） | 位相整合帯域（THz）まで | 伝搬損失 × 導波路長、L_wg は P とともに下がる（0.1 W で 3.5%、1.2 W で 1.5%） | 0.1 dB/cm・45 mm・640 mW で L_wg = 2.03%（Ref A の 2% を再現）。同じ α では集中損失より R′+ が 0.27 dB 低い [T01] | O | T01 |
+| E02 | ポンプ枯渇 **［T01・T17 で修正］** | 信号側へのエネルギー移動でポンプが減る | A（phase-detection OPA の mW probe）、F（高利得パルス） | — | 信号パワー / ポンプパワー | squeezer で生成 約 2×10⁻⁵ W / 640 mW（無視）。PD-OPA では誤差信号の傾きの非線形性だけ。OPO もパルスあたり ≲ 3 光子で無視 [T01・T17] | O（パルスでは結合波方程式） | T01 |
+| E03 | ポンプ強度雑音 → 利得の揺らぎ **［T01・T02・T17 で修正］** | r = √(αP) が揺らぎ R± が揺らぐ | A, B, C, F | DC–検出帯 | δr/r = δP/(2P)。OPO では δ(R+ − 1)/(R+ − 1) ≈ (1/x + 2/(1−x))·x·δP/(2P) | Ref A: R′+ の傾き 16.3 dB/W（+1% で +0.10 dB、R′− は +0.002 dB）。Ref B: 3.4·δP/P。パルス OPO: d ln r/d ln P ≈ 0.51、Borealis は透過ポンプを AOM で安定化 [T01・T02・T17] | O 表 ＋ T 雑音源 | T01 |
+| E04 | ポンプ位相雑音 → squeezing 角の揺らぎ **［T01・T10 で修正］** | squeezing 角はポンプ位相の半分に従う（θ_sq = φ_p/2 + π/2、conventions §4） | A, B, C, F | DC–MHz | ポンプと LO の非共通光路長に比例。時間多重ではポートごとに違う時刻でサンプル（4 sin²(πf(τ_k − τ_0)) の重み） | ポンプ経路の位相 ψ_p は θ_sq に ½ψ_p で入る（同じ δL なら基本波の光路と同じ大きさ）[T01] | T（経路ごとの位相） | T01 |
+| E05 | 位相不整合の温度ドリフト **［T01・T02 で修正］** | 結晶温度で Δk が変わり、利得が下がり、squeezing 角が回る（δθ_mm ≈ −Δkℓ/(4r)） | A, B, C, F | < Hz | dΔk/dT × 結晶長。Δkℓ/2 = 2.784 δT/ΔT_FWHM | Ref A 相当: 10 mK → δθ_mm ≈ 2 mrad（ΔT_FWHM ≈ 2.7 K [AE]）。OPO: P_th(T_c) = P_th,0/sinc²（2 次）。結晶そのものの熱位相は N03 [T01・T02] | O 表 ＋ T（遅いドリフト） | T01 / T02 |
+| E06 | ポンプ誘起の吸収（GRIIRA / BLIIRA / 光屈折） **［T01・T02 で修正］** | 強いポンプで結晶の吸収が増え、損失がポンプの関数になる | A, B, F | 遅い（s–h） | ポンプ強度、波長 | L(x) = 0.00249 + 0.00222x（x = √(P/P_th)）、短波長側では時間とともに増加 [Ref B §3–4]。2000 s で 0.0073 以上 → R′− −9.44 → −8.61 dB。Ref A は 1 W まで ΔL ≲ 数% [T01・T02] | O（パラメータを関数で） ＋ T（遅いドリフト） | T01 / T02 |
+| E07 | 空間多モード性（準単一モード導波路） **［T01 で修正］** | squeezed 光と probe の空間モードの差で LO との重なりが下がる | A, F | — | コア寸法 | モード不整合 4% = probe–LO の可視度 0.99（η = 0.98）× 原因不明の 0.98 [Ref A §4.2、T01] | O | T01 / T12 |
+| E08 | OPO キャビティの伝達（Ref B Eq. 2） **［T02・T17 で修正］** | Lorentz 型の squeezing スペクトル、取り出し効率 ρ = T/(T + L) | B, C, F（Fb・Fl） | 0 – 線幅（C: 1.75 GHz FWHM） | ρ、x、Ω | B: γ_c = c(T + L)/l ≈ 7.6×10⁷ s⁻¹ は **FWHM [rad/s]**（FWHM 12.1 MHz）、**Ω_B = 2πf/γ_c**（2π なしでは x → 1 で R′+ が +37 dB に発散し Fig. 3 と合わない）。C の 1.75 GHz は FWHM。Fb: 66 MHz、ρ ≈ 0.95、Fl: 125 MHz、ρ ≈ 0.99 [T02・T17] | O | T02 |
+| E09 | OPO の離調・キャビティ長雑音 **［T02・T17 で修正］** | 離調で squeezing 角が周波数とともに回り、長さ雑音が位相雑音になる | B, C, F（Fb・Fl） | DC–kHz | フィネス、長さ雑音 | CW: δθ_sq ≈ −(Δ/κ)/(1 + x²)。Ref B: −4.2°/nm（往復）、同軸 probe でロック後の残差 0.94°/nm（N02）。C: 温度で ~1.7 rad/K（6 mK 必要）。パルス OPO: 透過ポンプのロック後も −0.55 Δ_s/κ_c ≈ 40 mrad/nm、ロック光と信号の Δ(dn/dT) で 0.8–8 rad/K [T02・T17] | O ＋ T | T02 |
+| E10 | パラメトリック利得 G と x の定義 **［T02・D48 で修正］** | G = 1/(1 − x)²、x = √(P/P_th)（Eq. 4, 5）。**本文・式・Fig. 3 で一貫しており食い違いはない**（旧: 「本文の x = P/P_th と食い違う」は pdftotext の誤り） | B | — | — | P = 100 mW・P_th = 180 mW で x = 0.745、G = 15.4、報告値 18.7 は説明できない（未解決）。生成値から逆算すると x = 0.753（P = 102 mW）、全損失 0.0708。**検証では x = √(P/P_th)、P_th = 180 mW、G は使わない** [T02] | O | T02 |
+| E11 | パルス励起の多モード squeezing（supermode） **［T03 で修正］** | 結晶内の GVM・GVD で squeezing が複数の時間モードに分かれ、LO の時間モードとの重なりで決まる | F（Fw） | THz | 結晶長 × GVM と τ_p の比 | バルク LN（Zelmon）で GVM 0.304 ps/mm、45 mm で τ_GVM = 13.7 ps。100 fs–10 ps はすべて強い多モード（低利得の K ≈ 195–320）。τ_p ≪ τ_GVM では必要なピークパワーが (τ_GVM/(√(2π)T0p))² 倍（100 fs で 約 8×10³ 倍）[T03、導波路分散は未確認]。OPO の多モード性は N13 | O | T03 |
 
 ### 2.2 レーザー雑音と遅延差のある干渉（D18-1）
 
 | ID | 効果 | 機構 | 構成 | 周波数帯 | スケーリング | 概算 | 段 | Topic |
 |---|---|---|---|---|---|---|---|---|
-| E12 | レーザーの周波数雑音・位相雑音 | S_ν(f)（白色 FM ＋ 1/f ＋技術的ピーク） | 全部 | DC–MHz | — | Cobrite DX1 の値は資料待ち（§6-2） | T 雑音源 | T05 |
-| E13 | 遅延差のある干渉で位相差雑音に変わる | S_Δφ(f) = 4 sin²(πfτ)·S_ν(f)/f²。低周波では (2πτ)²·S_ν | D（ΔL）、F（δL_k、LO_k） | DC – 1/τ | 低周波で τ² に比例 | ΔL = 10 m・Δν = 100 kHz（どちらも仮定）なら全帯域 0.18 rad rms、100 kHz 以下 17 mrad rms [AE] | T（遅延バッファ） | T05 |
-| E14 | ポート間のポンプ位相のコヒーレンス（D12 の指標 (ii)） | 32 ポートの squeezed パルスは k·T_rep ずつ違う時刻に生まれ、squeezing 角はその時刻のポンプ位相を引き継ぐ | F | DC – f_rep | 遅延 k·T_rep | 31 × 10 ns・Δν = 100 kHz（仮定）で 0.44 rad rms。モード同期レーザーの櫛線幅しだい [AE] | T | T05 |
-| E15 | 強度雑音（RIN） | CMRR を通って BHD に、不平衡を通って DC ロックに、SPM を通って LO 位相に入る | 全部 | DC–MHz | — | — | T 雑音源 | T05 |
-| E16 | レーザーの過剰雑音ピーク | 89 kHz、177 kHz のピーク（変調周波数をここから外した） | B | 89、177 kHz | — | [Ref B §3] | T 雑音源 | T05 |
-| E17 | EDFA の ASE と LO フィルタキャビティ | 広帯域 ASE と広帯域 squeezed 光のビートが BHD の雑音になる | A, F | 広帯域 | ASE の PSD × LO | フィルタキャビティで抑圧 [Ref A §3.1] | O（スペクトル） | T05 |
-| E18 | フィルタキャビティ / MCC のロック残差 | 離調で透過光の位相・振幅が変わり、LO の位相雑音になる | A, B, F | DC–kHz | キャビティ線幅 | — | T | T05 |
-| E19 | パルスのタイミングジッタ | LO パルスと squeezed パルスの時間のずれで時間モードの重なりが下がる | F | DC – f_rep/2 | — | — | T ＋ O 表 | T03 |
+| E12 | レーザーの周波数雑音・位相雑音 **［T05・D35・D49 で修正］** | S_ν(f)（白色 FM ＋ 1/f ＋技術的ピーク） | 全部 | DC–MHz | — | Cobrite DX1（SC 型）: 線幅 80 kHz typ、instantaneous（3.5 µs）< 100 kHz。参照値は白色 h0 = 25 kHz/π ≈ 8×10³ Hz²/Hz ＋ flicker h₋₁ = 0–5×10⁸ Hz²（D49、SC の上限なら h0 ≤ 3.2×10⁴）。周波数雑音 PSD そのものは非公表。1 時間の確度 0.3 GHz [T05] | T 雑音源 | T05 |
+| E13 | 遅延差のある干渉で位相差雑音に変わる **［T05・T15 で修正］** | S_Δφ(f) = 4 sin²(πfτ)·S_ν(f)/f²。低周波では (2πτ)²·S_ν | D（ΔL）、F（δL_k、LO_k） | DC – 1/τ | 低周波で τ² に比例 | ΔL = 10 m・Δν = 100 kHz で全帯域 175 mrad、100 kHz 以下 17.4 mrad（初版と一致）。DX1 の 25 kHz 相当なら半分（8.7 mrad）。ΔL は 915B 巻線 8.4–9 m から名目 9 m、掃引 0–15 m（00_summary §5）[T05・T15] | T（遅延バッファ） | T05 |
+| E14 | ポート間のポンプ位相のコヒーレンス（D12 の指標 (ii)） **［T04・T05・T10 で修正］** | 32 ポートの squeezed パルスは k·T_rep ずつ違う時刻に生まれ、squeezing 角はその時刻のポンプ位相を引き継ぐ | F | DC – f_rep | 遅延 k·T_rep | σ² = 2πΔν·31T_rep（白色 FM）。100 MHz・DX1 25 kHz で 0.22 rad。σ ≤ 10 mrad に Δν ≤ 51 Hz（100 MHz）、10 Hz（20 MHz）、約 3 Hz（6 MHz）。**同じレーザー・同じ周波数の probe の Liu 型ロックでは帯域内（ドリフト・flicker）は打ち消され、帯域外だけが線幅への要求になる**（D47）[T04・T05・T10] | T | T05 |
+| E15 | 強度雑音（RIN） **［T05・T13・T15 で修正］** | CMRR を通って BHD に、不平衡を通って DC ロックに、SPM を通って LO 位相に入る | 全部 | DC–MHz | — | BHD: 15.4 mW、−145 dB/Hz、CMRR 40 dB でショット雑音の 1.9%。Ref D: 光学的不平衡 ε はロック点に吸収され、RIN は (S − V_off)/\|K_d\| を通してだけ入る（4.5×10⁻¹⁰ rad/√Hz、無視）。残留 probe の古典雑音は N01 [T05・T13・T15] | T 雑音源 | T05 |
+| E16 | レーザーの過剰雑音ピーク **［T05 で修正］** | 89 kHz、177 kHz のピーク（変調周波数をここから外した） | B | 89、177 kHz | — | [Ref B §3]。周波数雑音か強度雑音か、高さ・幅は本文にない → S_ν と S_RIN のどちらに入れるかを選べるパラメータ [T05] | T 雑音源 | T05 |
+| E17 | EDFA の ASE と LO フィルタキャビティ **［T05・T13・D49 で修正］** | 広帯域 ASE と広帯域 squeezed 光のビートが BHD の雑音になる（CMRR では抑えられない） | A, F | 広帯域 | ASE の PSD × LO | V_meas = (1 − ε_ASE)V_θ + ε_ASE(V₊ + V₋)/2。Ref A の R± で ε_ASE = 10⁻³ → −10.58 → −8.41 dB。フィルタキャビティで π/(2F) 倍。Ref A の線幅・ASE は文献になく掃引、Ref A プリセットではオフ（D49）[T05] | O（スペクトル） | T05 |
+| E18 | フィルタキャビティ / MCC のロック残差 **［T05 で修正］** | 離調で透過光の位相・振幅が変わり、LO の位相雑音になる | A, B, F | DC–kHz | キャビティ線幅 | arg T = arctan(2δ/Δν_FC)。Δν_FC = 1 MHz、δ_rms = 1 kHz で 2 mrad。キャビティは LO にとって τ_eff = 1/(πΔν_FC) の遅延線と同じ働き [T05] | T | T05 |
+| E19 | パルスのタイミングジッタ **［T03・T17 で修正］** | LO パルスと squeezed パルスの時間のずれで時間モードの重なりが下がる | F | DC – f_rep/2 | — | 重なり ≥ 0.99 に σ_t ≤ 0.142 T0（1 ps で 85 fs）。OPO の ns モードでは許容 436 ps（Fb）/ 227 ps（Fl）で実質無関係 [T03・T17] | T ＋ O 表 | T03 |
 
 ### 2.3 ファイバ: 線形の伝搬と環境
 
 | ID | 効果 | 機構 | 構成 | 周波数帯 | スケーリング | 概算 | 段 | Topic |
 |---|---|---|---|---|---|---|---|---|
-| E20 | ファイバの伝搬損失 | Rayleigh 散乱と吸収 | C, D, F | — | L に比例 | C: 結合・取り出し込みで 8% [Ref C §3]。F: f_rep = 10 MHz なら L_31 ≈ 630 m、PM 0.5–1 dB/km で 7–14% [AE, PM の損失 UNVERIFIED] | G（損失項） | T06 |
-| E21 | 色分散（β2、β3） | パルスが広がる。LO 側とファイバの種類・長さが違うとモードの重なりが下がる | F | — | L_D = T0²/\|β2\| | β2 ≈ −22 ps²/km（SMF、UNVERIFIED）なら L_D は 100 fs で 0.45 m、1 ps で 45 m、10 ps で 4.5 km [AE] | G | T06（モードの重なりは T03） |
-| E22 | 温度による位相ドリフト | dφ/dT = (2π/λ)(dn/dT + n·α_L)·L | C, D, F | < 1 Hz | L·ΔT に比例 | 約 44 rad/(m·K)、63 m で 約 2800 rad/K [AE] | T 雑音源 | T08 |
-| E23 | 音響・振動による位相雑音 | 歪みと圧力で光路長が変わる | C, D, F | Hz–kHz | L、巻き方、設置 | 一次資料のモデルか値が必要（§6-6） | T 雑音源 | T08 |
-| E24 | 熱力学的な位相雑音（基底） | 温度の熱揺らぎ（Wanser 型） | C, F | Hz–kHz | L に比例 | 環境雑音に比べ小さいと予想 [AE] | T 雑音源 | T08 |
-| E25 | ファイバ間の雑音相関 | 同じ電線管・束の中のファイバは同じ環境雑音を受ける。相関係数は周波数に依存 | C, F（squeezed と LO_k、2 ポート組） | DC–kHz | 間隔、束ね方 | C は定性的な記述のみ [Ref C §4] | T（相関係数つき雑音源） | T08 |
-| E26 | 群遅延の温度ドリフト（タイミング） | dτ_g/dT でパルスの到着時刻がずれる | F | < 1 Hz | L に比例 | 約 39 ps/(km·K) → 63 m で 2.5 ps/K。100 fs パルスなら 0.04 K で 1 パルス幅ずれる [AE] | T（タイミング状態） ＋ O 表 | T08（係数）/ T03（帰結） |
-| E27 | ストレッチャの巻線部の曲げ損失・応力複屈折 | 小径に巻くと損失が増え、PM の PER が下がる | D, F | — | 巻き径、巻き数 | 915B は 38 巻 [D02] | O（静的） | T16 / T09 |
-| E28 | 後方反射とエタロン | コネクタなどの反射が寄生干渉計を作り、位相・強度の雑音になる | D, F | DC–kHz | 反射率の積 | FC/APC で十分小さいはず [AE] | T（小） | T12 |
+| E20 | ファイバの伝搬損失 **［T06・T12 で修正］** | Rayleigh 散乱と吸収 | C, D, F | — | L に比例 | C: 結合・取り出し込みで 8% [Ref C §3]（うち 1 km 伝搬 4.5%）。SMF-28 Ultra ≤ 0.18 dB/km、PANDA PM 1550 ≤ 0.5 dB/km（Corning、最大値）。63 m で SMF 0.26%、PM 0.73%。633 m で 2.6%、7.0%。ポートごとに損失が違う [T06・T12] | G（損失項） | T06 |
+| E21 | 色分散（β2、β3） **［T03・T06・T17 で修正］** | パルスが広がる。LO 側とファイバの種類・長さが違うとモードの重なりが下がる | F | — | L_D = T0²/\|β2\| | β2 = −21.7 ps²/km（SMF、PM も代用、D49）。L_D は 100 fs で 0.15 m、1 ps で 15 m、10 ps で 1.5 km。ポート間（63 m）の重なりは 100 fs で 0.005、1 ps で 0.47。CW の量子サイドバンドには β2Ω²L/2 の回転（1 km・1 GHz で 4×10⁻⁴ rad、無視）。OPO の ns モードでは L_D ~ 10⁸ m で無関係 [T03・T06・T17] | G | T06（モードの重なりは T03） |
+| E22 | 温度による位相ドリフト **［T08 で修正］** | dφ/dT = (2π/λ)(dn/dT + n·α_L)·L | C, D, F | < 1 Hz | L·ΔT に比例 | **約 44 rad/(m·K) を確認**（文献の幅 40–48: Dong 2016 の物性値で 40.6、Slavík 2015 の換算で 約 48）。63 m で 約 2800 rad/K。被覆によっては数百 rad/(m·K) もありうる [T08] | T 雑音源 | T08 |
+| E23 | 音響・振動による位相雑音 **［T08 で修正］** | 歪みと圧力で光路長が変わる | C, D, F | Hz–kHz | L、巻き方、設置 | パラメトリックモデル S = h_ref(L/L_ref)^γ f⁻²/(1 + (f/f_c)²)。Williams 2008: 地中リンク h/L ≈ 4 rad²·Hz/km、spool は 20–25 dB 低い。63 m spool で 1 Hz 以上 28–50 mrad（ロックなし）、f_u = 1 kHz で 2 mrad [T08] | T 雑音源 | T08 |
+| E24 | 熱力学的な位相雑音（基底） **［T08 で修正: 名前を「熱伝導（Wanser）＋熱機械（Duan）」に］** | 温度の熱揺らぎ（Wanser 型）と熱機械雑音（Duan、約 150 Hz 以下で支配的） | C, F | Hz–kHz | L に比例 | 63 m・0.1 Hz–10 kHz で 27 µrad、1 km で 0.1 mrad。すべての構成で無視できる（プリセットではオフ、D49）[T08] | T 雑音源 | T08 |
+| E25 | ファイバ間の雑音相関 **［T08 で修正］** | 同じ電線管・束の中のファイバは同じ環境雑音を受ける。相関係数は周波数に依存 | C, F（squeezed と LO_k、2 ポート組） | DC–kHz | 間隔、束ね方 | C は定性的な記述のみ [Ref C §4]（確認）。ρ(f) = ρ_0/√(1 + (f/f_ρ)²) をパラメータに、差の PSD は 2S(1 − ρ)。Koke 2019（同じケーブル 700 km）は Δt = 0 で相関 > 0.98、帯域で崩れる（形だけ参考）[T08] | T（相関係数つき雑音源） | T08 |
+| E26 | 群遅延の温度ドリフト（タイミング） **［T03・T08・T17 で修正］** | dτ_g/dT でパルスの到着時刻がずれる | F | < 1 Hz | L に比例 | **37.4–39 ps/(km·K) を確認**（Slavík 2015）→ 63 m で 2.5 ps/K。100 fs なら 0.04 K で 1 パルス幅。ストレッチャで位相をロックすると群遅延は 21–28% 残る（TEC なら 0）。OPO の ns モードでは無関係 [T03・T08・T17] | T（タイミング状態） ＋ O 表 | T08（係数）/ T03（帰結） |
+| E27 | ストレッチャの巻線部の曲げ損失・応力複屈折 **［T09・T12・T16 で修正］** | 小径に巻くと損失が増え、PM の PER が下がる | D, F | — | 巻き径、巻き数 | 915B は 38 巻 [D02]、巻線長 38 × 0.22 m ≈ 8.4 m（UNVERIFIED の掲載から）。曲げ半径（推定 15–20 mm）で PER −31〜−36 dB、曲げ損失 0.01–2 dB（R 不明、掃引）。F では squeezed 経路に入る（D10）[T09・T12・T16] | O（静的） | T16 / T09 |
+| E28 | 後方反射とエタロン **［T12 で修正］** | コネクタなどの反射が寄生干渉計を作り、位相・強度の雑音になる | D, F | DC–kHz | 反射率の積 | FC/APC 同士で位相リップル 約 10⁻⁶ rad、LN 変調器（ORL −40 dB）と組んで 10⁻⁵ rad。無視できる（プリセットではオフ、D49）[T12] | T（小） | T12 |
 
 ### 2.4 ファイバ: 非線形と量子雑音
 
 | ID | 効果 | 機構 | 構成 | 周波数帯 | スケーリング | 概算 | 段 | Topic |
 |---|---|---|---|---|---|---|---|---|
-| E29 | SPM（LO、probe パルス） | φ_NL = γ·P_peak·L_eff。RIN が LO の位相雑音になり、スペクトルが広がってモードの重なりが下がる | F（パルス LO）、C/D（CW では小） | — | P_peak、L | LO P_avg = 1 mW・f_rep = 100 MHz・1 ps・63 m・γ = 1.3 /(W·km) なら 約 0.8 rad、100 fs なら 約 8 rad [AE, 入力はすべて仮定] | G | T06 |
-| E30 | XPM（probe・LO → squeezed 光） | 同じファイバの強い光が squeezed 光の位相を変える。逆向き伝搬では走り抜けで平均される | F（probe が同じファイバ） | — | P_probe、L | — | G | T06 |
-| E31 | 誘導ラマン / パルス内ラマン（SSFS） | fs パルスの LO でスペクトルが赤方偏移する | F（fs LO） | — | P_peak、τ_p | — | G | T06 |
-| E32 | 自発ラマン雑音（熱フォノン） | 強い光が squeezed モードへ光子を散乱する。熱フォノン数 n_th(T) に比例 | F（probe が同じファイバ）、C（squeezed と LO が別ファイバなので小） | 広帯域（THz）、パルスの squeezing 帯域に入る | P_probe·L·(n_th + 1) | — | Q | T07 |
-| E33 | GAWBS | クラッドの熱的な横方向音響モードが位相・偏光を変調する | C（LO を別ファイバにして避けた [Ref C §1]）、F | 約 20 MHz – 1 GHz（離散ピーク） | 分散は T·L に比例、ピーク周波数はクラッド径で決まる | パルス光ではパルスごとのランダムな位相 [AE] | Q（＋ T の位相雑音） | T07 |
-| E34 | SBS の閾値（CW の LO・probe） | 強い CW 光が後方へブリルアン散乱し、パワーが頭打ちになり雑音が増える | C, F（長いファイバに CW） | — | P_th ≈ 21·A_eff/(g_B·L_eff) | 1 km で 約 30 mW、63 m で 約 0.5 W [AE, g_B・A_eff は UNVERIFIED]。ps パルスでは抑えられる | O（チェック） | T07 |
-| E35 | 自発ブリルアン後方散乱 | 逆向きの probe から約 11 GHz シフトした光が squeezed 光の向きに戻る | F | 約 11 GHz [UNVERIFIED] | P_probe·L·T | — | Q / O | T07 / T10 |
+| E29 | SPM（LO、probe パルス） **［T06・T17 で修正］** | φ_NL = γ·P_peak·L_eff。RIN が LO の位相雑音になり、スペクトルが広がってモードの重なりが下がる | F（パルス LO）、C/D（CW では小） | — | P_peak、L。分散が効くと φ_NL ≈ γP0L_D·asinh(L/L_D)（短いパルスのほうが小さい） | **旧: 100 fs で 約 8 rad は分散を無視した過大評価**。RK4IP で 1 mW・100 MHz・63 m: 非線形位相 0.05–0.3 rad（最大は 1 ps 付近）、RIN → 位相の係数 0.05–0.3。10 MHz・633 m・1 mW では τ ≳ 0.3 ps がソリトン（N = 0.7–4）になり重なり 0.02–0.4。Ref D は 10 m あたり 2×10⁻⁵ rad。OPO の 15 ns LO（ピーク 約 11 mW）で 63 m 0.9 mrad [T06・T17] | G | T06 |
+| E30 | XPM（probe・LO → squeezed 光） **［T06・T10 で修正］** | 同じファイバの強い光が squeezed 光の位相を変える。逆向き伝搬では走り抜けで平均される | F（probe が同じファイバ） | — | P_probe、L | 逆向き probe で φ_XPM = bγP̄_pr L_eff: 同じ偏光 0.16 mrad/mW（63 m）、1.55 mrad/mW（633 m）、直交は 1/3。窓 2n_gL/c の平均なのでパルス化・時間ずらしでは消えないが、P̄_pr ≲ 100 mW なら無視できる [T06・T10] | G | T06 |
+| E31 | 誘導ラマン / パルス内ラマン（SSFS） **［T06 で修正］** | fs パルスの LO でスペクトルが赤方偏移する | F（fs LO） | — | P_peak、τ_p | Blow–Wood（参照値、D49）で Gordon の式と 0.4–1.5% で一致、Lin–Agrawal は 1.5–2.2 倍大きい。h̃_R(Ω) は解析式で与える（Δt ≳ 3 fs の標本化は偽の遅延）。10 MHz・633 m で重心 −14〜−86 GHz。CW の閾値は 23–360 W で無関係 [T06] | G | T06 |
+| E32 | 自発ラマン雑音（熱フォノン） **［T07 で修正］** | 強い光が squeezed モードへ光子を散乱する。熱フォノン数 n_th(T) に比例 | F（probe が同じファイバ）、C（squeezed と LO が別ファイバなので小） | 広帯域（THz）、パルスの squeezing 帯域に入る | P_probe·L·(n_th + 1) | 同じ周波数の probe 1 mW で N_R ≈ 9×10⁻⁶（63 m）、9×10⁻⁵（630 m）、モードの長さによらない（広帯域）。Ω → 0 で熱の部分は g_R′k_BT/ħ（有限）[T07・T17] | Q | T07 |
+| E33 | GAWBS **［T07 で修正］** | クラッドの熱的な横方向音響モードが位相・偏光を変調する | C（LO を別ファイバにして避けた [Ref C §1]）、F | **R0,m: 30.5, 82.1, 130.7, …, 323.3 MHz（125 µm）**（旧: 約 20 MHz – 1 GHz。TR2,m は未計算） | 分散は T·L に比例、ピーク周波数はクラッド径で決まる（80 µm で ×1.5625） | squeezed 光自身の位相ジッタは 63 m で 0.1–0.2 mrad、630 m で 0.3–0.65 mrad（無視）。同じ向きの明るい CW LO 1 mW・63 m ではショット雑音の 約 10 倍（Ref C が LO を別ファイバにした理由と整合）。OPO モードでは低次のピークだけ帯域内 [T07・T17] | Q（＋ T の位相雑音） | T07 |
+| E34 | SBS の閾値（CW の LO・probe） **［T07・T17 で修正］** | 強い CW 光が後方へブリルアン散乱し、パワーが頭打ちになり雑音が増える | C, F（長いファイバに CW） | — | P_th ≈ 21·A_eff/(g_B·L_eff) | 1 km で 34 mW、630 m で 54 mW、63 m で 0.53 W（初版と整合、g_B・A_eff は UNVERIFIED）。CW LO 15.4 mW を 630 m に通すと G_B ≈ 6（警告）。ps パルスでは抑えられるが、**OPO の ns パルスは音響の寿命と同程度で抑えられない** [T07・T17] | O（チェック） | T07 |
+| E35 | 自発ブリルアン後方散乱 **［T07・T10・T17 で修正］** | 逆向きの probe から約 10.8 GHz シフトした光が squeezed 光の向きに戻る | F | 約 10.8 GHz（2n_eff V_A/λ で 10.8–11.2 GHz、UNVERIFIED） | P_probe·L·T | 1 mW・1 ps モードで N_B ≈ 4.5×10⁻³（63 m）、4.5×10⁻²（630 m）。時間ゲートでは除けない。Rayleigh の 約 1/12–1/14。OPO の ns モードでは帯域の外（重み ≤ 10⁻⁵）[T07・T10・T17] | Q / O | T07 / T10 |
 
 ### 2.5 偏光と PM ファイバ（D18-3）
 
 | ID | 効果 | 機構 | 構成 | 周波数帯 | スケーリング | 概算 | 段 | Topic |
 |---|---|---|---|---|---|---|---|---|
-| E36 | PM ファイバの PER とクロストーク | 接続・コネクタ・応力で直交軸へ漏れる | D, F | 静的 ＋ 遅いドリフト | 部品ごと | 1 部品あたり 20–30 dB [AE] | O ＋ T | T09 |
-| E37 | PM の複屈折の温度依存 | dB/dT で 2 軸の位相差がドリフトする | F（直交偏光の probe）、D（PER が有限のとき） | < 1 Hz | L·ΔT に比例 | 2.4 rad/(m·K)、60 m で 約 150 rad/K（D11 の概算、未検証）。dB/dT ≈ 6×10⁻⁷ /K に相当 [AE] | T | T09 |
-| E38 | SMF の偏波ドリフト | ランダムな複屈折の変化で LO との偏光の重なり（可視度）が下がる | C, F（SMF の比較設定） | < 1 Hz – Hz | L、環境 | C は PC で調整 [Ref C Fig. 1] | T | T09 |
-| E39 | 偏光子の消光比・偏波コントローラ | MZI の 2 腕の偏光がずれると縞の可視度が下がる | D | < 1 Hz | — | — | T | T09 / T15 |
-| E40 | PDL、PMD | 偏光に依存する損失、偏光モード分散 | F（SMF） | — | PMD は √L に比例 | 短いファイバでは小さい [AE] | O | T09 |
+| E36 | PM ファイバの PER とクロストーク **［T09・T15 で修正］** | 接続・コネクタ・応力で直交軸へ漏れる | D, F | 静的 ＋ 遅いドリフト | 部品ごと | PER_k = −10 log10(tan²θ_k)（1° で 35 dB、3° で 25.6 dB）。部品 20–30 dB、PANDA の分布 h ≤ 10⁻⁵ /m。PNH1550R5A2 は ≥ 25 dB、Opneti 偏光子は ER ≥ 26 dB（コネクタ込み）[manual、Phase 2]。2 結合点の干渉は N05 [T09・T15] | O ＋ T | T09 |
+| E37 | PM の複屈折の温度依存 **［T09 で修正］** | dB/dT で 2 軸の位相差がドリフトする | F（直交偏光の probe）、D（PER が有限のとき） | < 1 Hz | L·ΔT に比例 | 一次資料（Ritari 2004）: K_T = ∂β_b/∂T = **−2.05 rad/(m·K)**（標準 PANDA、L_b = 4.2 mm）、PM15-U25D で −(1.7–2.9) rad/(m·K)、**符号は負**（温度が上がると slow − fast の位相差が減る）。60 m で −123 rad/K。旧: D11 の 2.4 rad/(m·K) は大きさで約 20% 過大（範囲内）。別の文献に 3–6 倍小さい値があり、掃引は 0.3–3.4 rad/(m·K) [T09] | T | T09 |
+| E38 | SMF の偏波ドリフト **［T09 で修正］** | ランダムな複屈折の変化で LO との偏光の重なり（可視度）が下がる | C, F（SMF の比較設定） | < 1 Hz – Hz | L、環境 | C は PC で調整 [Ref C Fig. 1]。区間の偏光は 2×2 Jones 行列で持つ（D47）。普遍的な値がないので Poincaré 球上の拡散係数 D_pol = 10⁻⁸–10⁻² rad²/s を掃引。曲げ複屈折（R = 5 cm で B ≈ 2×10⁻⁷）[T09] | T | T09 |
+| E39 | 偏光子の消光比・偏波コントローラ **［T09・T15 で修正］** | MZI の 2 腕の偏光がずれると縞の可視度が下がる。偏光子の前の偏光の揺らぎはパワーの揺らぎになる | D | < 1 Hz | — | 偏光子の後のパワー変化 δP/P ≈ −Θ²/4（二次、PDL があれば一次）。Ref D は DX1 → 偏光子が SMF（D35）。寄生縞によるロック点のずれは N05 [T09・T15] | T | T09 / T15 |
+| E40 | PDL、PMD **［T09 で修正］** | 偏光に依存する損失、偏光モード分散 | F（SMF） | — | PMD は √L に比例 | SMF の平均 DGD 25 fs（63 m）、79 fs（630 m）。100 fs パルスでモード整合が 0.7–4.2%（63 m）、6.6–32%（630 m）下がる（最悪）。1 ps 以上では無視 [T09] | O | T09 |
 
 ### 2.6 probe と squeezed 光の相殺の崩れ（D18-5）
 
 | ID | 効果 | 機構 | 構成 | 周波数帯 | スケーリング | 概算 | 段 | Topic |
 |---|---|---|---|---|---|---|---|---|
-| E41 | 直交偏光の probe の複屈折ドリフト | probe が測る位相と squeezed 光の位相が E37 の分だけ食い違う | F | < 1 Hz | L·ΔT に比例 | E37 と同じ | T（区間ごとに軸を持つ、D11） | T10 |
-| E42 | 逆向き伝搬による時刻のずれ | 位置 z の雑音を probe と squeezed 光は違う時刻に受けるので、高い周波数では相関が消える | F | 約 c/(2·n_g·L) より上 | 1/L に比例 | 63 m で 約 1.6 MHz [AE] | T（区間ごとの遅延バッファ） | T10 |
-| E43 | PER による probe → squeezed 光の偏光への漏れ | probe のコヒーレントな光子が squeezed モードに入る（GBS の光子計数を汚す） | F | — | P_probe × 10^(−PER/10) | — | O ＋ T | T10 |
-| E44 | Rayleigh 後方散乱による probe の混入 | 逆向きの probe の Rayleigh 散乱光は squeezed 光と同じ向き・同じ周波数 | F | DC –（散乱光の位相は揺らぐ） | 捕捉率 S × α_s × L × P_probe | S ≈ 1.5×10⁻³、α_s ≈ 0.15 dB/km（UNVERIFIED）、63 m・1 mW CW で 約 3 nW、10 ns スロットあたり 約 10² 光子 [AE] | O ＋ T | T10 |
-| E45 | probe を入れ出しする素子の損失 | サーキュレータ・PBS・WDM の挿入損失が squeezed 光にかかる | F | — | — | サーキュレータで 0.5–1 dB 程度 [AE, UNVERIFIED] | O（静的） | T10 / T12 |
-| E46 | 対策の候補 | 波長をずらした probe（WDM で分離）、周波数シフト、同じ偏光で逆向き、時間ゲート。波長が違うと熱係数が違い差動ドリフトが残る | F | — | — | — | 設計の比較 | T10 |
+| E41 | 直交偏光の probe の複屈折ドリフト **［T09・T10 で修正］** | probe が測る位相と squeezed 光の位相が E37 の分だけ食い違う（PM: Θ_err = Δψ_b(t) − Δψ_b(0)、SMF: 2·arg(a)） | F | < 1 Hz | L·ΔT に比例 | PM で 63 m なら −129 rad/K（−108〜−181）、10 mrad には平均温度を 77 µK に保つ。in-loop の誤差信号には現れない。同じ偏光の逆向き probe は相反性で偏光によらず一致（Faraday は N06）。対策: 90° 融着で軸の入れ替え、同じ区間の TEC [T09・T10] | T（区間ごとに軸を持つ、D11） | T10 |
+| E42 | 逆向き伝搬による時刻のずれ **［T08・T10 で修正］** | 位置 z の雑音を probe と squeezed 光は違う時刻に受けるので、高い周波数では相関が消える | F | **一様に分布した雑音・アクチュエータが端のとき、残差/補正前 = 2[1 − sinc(4πf n_g L/c)]、1 になるのは f₁ = 0.151·c/(n_g L)**（旧: c/(2n_gL)） | 1/L に比例 | **63 m で f₁ = 0.49 MHz**（旧: 1.6 MHz）、1 kHz で −53 dB、10 kHz で −33 dB。630 m で 49 kHz。区間全体で一様な擾乱なら相殺は保たれる（空間の構造に依存）。アクチュエータを下流に置くと probe の飛行時間（63 m で 0.31 µs）がループ遅延に加わる [T08・T10] | T（区間ごとの遅延バッファ） | T10 |
+| E43 | PER による probe → squeezed 光の偏光への漏れ **［T10 で修正］** | **PER で squeezed 光の偏光に移った probe も逆向きに進むので、そのままでは GBS に届かない**。PER は「後方散乱・反射のうち squeezed 光の偏光（PBS の透過側）に入る割合 ε_pol」として E44・E35・N07 に掛かる（旧: P_probe × 10^(−PER/10)） | F | — | ε_pol × （後方散乱・反射） | PM・直交偏光で ε_pol ≈ 2×10⁻³–10⁻²、SMF・直交偏光で平均 1/3（往復の MᵀM、時間で揺らぐ）、同じ偏光で 1 [T10] | O ＋ T | T10 |
+| E44 | Rayleigh 後方散乱による probe の混入 **［T10・T17 で修正］** | 逆向きの probe の Rayleigh 散乱光は squeezed 光と同じ向き・同じ周波数 | F | DC –（散乱光の位相は揺らぐ） | 後方散乱係数 b_R × L × P_probe | Corning の −82 dB（1 ns）から b_R = 6.2×10⁻⁸ /m。1 mW CW・63 m・同じ偏光で **10 ns あたり 3.0×10² 光子**（初版の 2.6×10² を確認）、1 ps モードあたり 0.03。分布した散乱はパルス化しても平均パワーで決まる（k ≤ 15 のポートだけフレームの空きに逃がせる）。OPO の ns モードでは 1 モードあたり 435（Fb）/ 226（Fl）→ 同じ周波数の probe は ≲ 1–3 nW。ショット雑音の上では nW–µW で足りる [T10・T17] | O ＋ T | T10 |
+| E45 | probe を入れ出しする素子の損失 **［T10・T12・D37 で修正］** | サーキュレータ・PBS・WDM の挿入損失が squeezed 光にかかる | F | — | — | Thorlabs CIR1550PM: IL ≤ 0.9 dB（D37、ユーザが表から転記）、OC-L-1550: 0.9–1.3 dB。ファイバ型 PBS 0.4–0.7 dB（UNVERIFIED）、自由空間 PBS 約 1%。−10 dB は 0.3 dB で −8.0 dB、1.2 dB で −5.0 dB。ファイバ型 2 個では致命的 [T10・T12] | O（静的） | T10 / T12 |
+| E46 | 対策の候補 **［T10・T17 で修正］** | 波長をずらした probe（WDM で分離）、周波数シフト、同じ偏光で逆向き、時間ゲート、probe のパワーを下げる、軸の入れ替え、TEC、Borealis 型 +7 GHz ＋ FBG。波長が違うと熱係数が違い差動ドリフトが残る（N08） | F | — | — | 比較表は T10 §4。組み合わせ「PM・直交・自由空間 PBS・nW–µW・パルス化・TEC＋PZT・軸の入れ替え」はどの項目でも桁で破綻しない。OPO では周波数をずらした probe と FBG が使える [T10・T17] | 設計の比較（プリセットの軸） | T10 |
 
 ### 2.7 時間での振り分けと 32 ポートの遅延線（D18-2、D08）
 
 | ID | 効果 | 機構 | 構成 | 周波数帯 | スケーリング | 概算 | 段 | Topic |
 |---|---|---|---|---|---|---|---|---|
-| E47 | 振り分け素子の挿入損失 | squeezed 光の経路上の部品 | F | — | 素子の種類 | ファイバ型 LN 変調器 3–5 dB、自由空間ポッケルスセルは小（UNVERIFIED） | O（静的） | T11 |
-| E48 | 消光比 → 隣のスロットの混入 | 別のスロットの squeezed パルスが混ざる（損失と同時にモード間の相関も生む） | F | — | 10^(−ER/10) | ER 20–30 dB [AE] | O | T11 |
-| E49 | スイッチ駆動による位相雑音・バイアスドリフト | 駆動電圧の雑音 × π/Vπ、MZM のバイアスドリフト | F | DC – GHz | Vπ、駆動の雑音 | — | T | T11 |
-| E50 | 立ち上がり時間とスロットとの同期 | 遷移中のパルスが一部切られ、損失と位相の誤差になる | F | — | 立ち上がり時間 / T_rep | — | O | T11 |
-| E51 | 遅延線長 L_k の誤差と δL_k | 静的な長さの不一致で時間モードの重なりが下がり、レーザー位相雑音の相関も崩れる | F | 静的 | — | f_rep = 100 MHz なら L_1 ≈ 2.04 m、L_31 ≈ 63 m [AE] | O ＋ T | T11 / T03 |
+| E47 | 振り分け素子の挿入損失 **［T11 で修正］** | squeezed 光の経路上の部品 | F | — | 素子の種類、段数（二分木で 5 段） | ファイバ型 LN スイッチ 1 段 < 4 dB（< 3 dB オプション、約 2 dB カスタム、EOSPACE）→ 5 段で 10–20 dB（使えない）。自由空間 Pockels セル単体 0.8–1%、PBS・結合込みで 1 段 約 1–4% → 5 段で η = 0.82–0.96（−10 dB が −5.8〜−8.7 dB）[T11] | O（静的） | T11 |
+| E48 | 消光比 → 隣のスロットの混入 **［T11・T17 で修正］** | 別のスロットの squeezed パルスが混ざる | F | — | 10^(−ER/10) | ER 20–23 dB（PC）。**遅延が固定で光源が 1 台なら、漏れはターゲットの時間ビンと重ならず、ターゲットのモードには損失として働く**。相関（クリックの相関）は検出器がビンを分けられない場合だけ（旧: 「損失と同時にモード間の相関も生む」）。漏れ光子 n̄_leak ≈ Σε_s sinh²r（5 段・1/200・r = 1 で 0.035）。ただし OPO のモードの裾が次のスロットに入る場合はコヒーレントな混合（N11）[T11・T17] | O | T11 |
+| E49 | スイッチ駆動による位相雑音・バイアスドリフト **［T11 で修正］** | 駆動電圧の雑音 × π/Vπ、MZM のバイアスドリフト | F | DC – GHz（ポートではフレーム周期で標本化され [0, 1/(2T_F)] に折り返す） | Vπ、駆動の雑音 | ψ_sw = κ_pm·(πδV/V_π + δΓ_b)。5 段の合計 10 mrad に δV/V_π ≤ 1.4×10⁻³ rms（κ_pm = 1）。バイアス誤差 0.14 rad で消光 23 dB。probe ループの外にあると指標 (ii) に直接入る [T11] | T | T11 |
+| E50 | 立ち上がり時間とスロットとの同期 **［T11・T17 で修正］** | 遷移中のパルスが一部切られ、損失と位相の誤差になる | F | — | 立ち上がり時間 / T_rep | PC の t_r 8–10 ns、繰り返し 0.5–3 MHz → パルスごと（N_b = 1）なら f_rep ≲ 6 MHz（Borealis と同じ）。100 MHz を保つにはブロック振り分け（N_b ≥ 50、L_31 ≈ 3.2 km）。OPO ではモードの長さ（約 22 ns）もエッジ条件に入る [T11・T17] | O | T11 |
+| E51 | 遅延線長 L_k の誤差と δL_k **［T11・T03・T17 で修正］** | 静的な長さの不一致で時間モードの重なりが下がり、レーザー位相雑音の相関も崩れる。**T_rep の相対変化でポート k の到着が k·N_b·T_rep·δT/T ずれる** | F | 静的 ＋ T_rep のドリフト | — | L_k = L_0 + k·N_b·c·T_rep/n_g（D39）。f_rep = 100 MHz なら L_1 ≈ 2.04 m、L_31 ≈ 63 m、6 MHz なら L_31 ≈ 1.06 km。δT/T = 10⁻⁶ で 310 fs（100 MHz）。長さの不一致（分散、cm–100 m で効く）とタイミングの合わせ残り（µm で効く）は別のパラメータに [T11・T03・T17] | O ＋ T | T11 / T03 |
 
 ### 2.8 損失とモード整合
 
 | ID | 効果 | 機構 | 構成 | 周波数帯 | スケーリング | 概算 | 段 | Topic |
 |---|---|---|---|---|---|---|---|---|
-| E52 | 光学部品の損失（自由空間、ファイバ結合、コネクタ、スプライス、カプラ） | — | 全部 | — | 部品数 | A: 光学部品 1% [Ref A]。C: ファイバ前 15%、ファイバ 8% [Ref C]。FC/APC 1 対 0.1–0.3 dB（UNVERIFIED）で 10 dB 目標の損失収支に大きく効く [AE] | O（静的） | T12 |
-| E53 | 空間モードの不整合（squeezed 光と LO） | — | 全部 | — | — | A: 約 4% [Ref A §4.2]。B: ξ = 0.988 [Ref B §4] | O | T12 |
-| E54 | 時間・スペクトルモードの不整合（パルス） | E11・E19・E21・E26・E51 の結果 | F | — | — | — | O 表 | T03 |
-| E55 | squeezed 光の経路上のアクチュエータ・変調器の挿入損失 | D10 と prompt §5.5 | F, C（EOM は LO 側） | — | — | ファイバ EOM 2–3 dB（UNVERIFIED）、ストレッチャは小 [AE] | O（静的） | T12 |
-| E56 | conventional tap のトレードオフ | tap 比 r で損失 r が増え、誤差信号の SNR は r に比例して上がる | A（比較用トポロジー） | — | r | prompt §7-8 | O ＋ T | T12 |
+| E52 | 光学部品の損失（自由空間、ファイバ結合、コネクタ、スプライス、カプラ） **［T12・D38 で修正］** | — | 全部 | — | 部品数 | A: 光学部品 1% [Ref A]。C: ファイバ前 15%、ファイバ 8% [Ref C]。FC/APC 1 対: IEC 61753-1 Grade B で ≤ 0.25 dB（97%）、名目 0.2 dB（0.12–0.3）。融着 SMF 0.03 dB、PM 0.06 dB。10 dB を GBS 入力で出すには、上流 4.9% のときポートの部品の合計 ≤ 0.16 dB（FC/APC 1 対で超える）。経路の組み方（FC/APC・融着＋ファイバ PBS・融着＋自由空間）は D38 の選択肢 [T12] | O（静的） | T12 |
+| E53 | 空間モードの不整合（squeezed 光と LO） **［T12 で修正］** | — | 全部 | — | — | A: 約 4% [Ref A §4.2]。B: ξ = 0.988 [Ref B §4]（η_mm = ξ² = 0.976）。η_mm = V_vis²（同じパワー）。ファイバ型 BHD では横モードの不整合はほぼ 0 で、代わりに自由空間 → ファイバの結合損失 [T12] | O | T12 |
+| E54 | 時間・スペクトルモードの不整合（パルス） **［T03・T17 で修正］** | E11・E19・E21・E26・E51 の結果 | F | — | — | ガウスで η_t = (1 + χ²)^{−1/2} exp[−Δt²/(2T0²(1 + χ²))]、χ = φ2/(2T0²)。arg κ が squeezing 角のずれ θ_off になる。V(θ) は (V_−, V_+, θ_off) の 3 つで表せる。OPO の LO の時間波形は N14 [T03・T17] | O 表 | T03 |
+| E55 | squeezed 光の経路上のアクチュエータ・変調器の挿入損失 **［T12・T16 で修正］** | D10 と prompt §5.5 | F, C（EOM は LO 側） | — | — | ファイバ EOM（exail MPX-LN-0.1）: IL typ 2.7 / max 3.5 dB ＋ コネクタ 1 個 ≤ 0.25 dB → squeezed 経路に置くと上限 2.6–3.6 dB（置けない）。915B は資料に値なし: 接続 2 個分（0.12–0.4 dB）＋ 曲げ損失（未知、0.01–2 dB）[T12・T16] | O（静的） | T12 |
+| E56 | conventional tap のトレードオフ **［T12・T14 で修正］** | tap 比 r で損失 r が増え、誤差信号の SNR は r に比例して上がる | A（比較用トポロジー） | — | r | ショット雑音だけなら µW の probe で tap 10⁻³ 以下で足りる。トレードオフを作るのは tap 用 PD の電気雑音: P_pr = 10 µW、NEP 1 pW/√Hz で最適 r_t ≈ 3×10⁻³、−9.94 dB（tap なし −10.15 dB）。θ を 9 mrad に固定すると T_tap = 0.1 / 1 / 3% で −10.11 / −9.76 / −9.07 dB。prompt §7-8 [T12・T14] | O ＋ T | T12 |
 
 ### 2.9 検出と測定の模擬
 
 | ID | 効果 | 機構 | 構成 | 周波数帯 | スケーリング | 概算 | 段 | Topic |
 |---|---|---|---|---|---|---|---|---|
-| E57 | PD の量子効率 | — | 全部 | — | — | A: 約 99%（変換損失 約 1%）。B: 0.998。C: 97% | O（静的） | T13 |
-| E58 | 検出器の帯域と周波数応答（干渉ディップ） | 有限の帯域、TIA の応答、2 PD 間の遅延による干渉 | A（35 MHz）、C（0.83・0.96 GHz のディップ）、D（DC–150 MHz） | 帯域の端 | — | [Ref A §3.2、Ref C Fig. 5、manual] | O ＋ M | T13 |
-| E59 | 回路雑音（暗雑音）のクリアランス | 等価的な損失 | 全部 | 測定周波数 | 1/P_LO に比例 | A: 28 dB → <0.2%。B: −21.7 dB。C: 11 → 5 dB | O ＋ M | T13 |
-| E60 | CMRR と平衡のずれ | LO の古典雑音（RIN、ASE）が漏れる | 全部 | — | ε | PDB450C: >25 dB [manual] | T | T13 |
-| E61 | PD の飽和・非線形 | — | D, F | — | — | D: PD 1 個あたり 約 1.7–3.3 mW、飽和 4.5 mW に近い [AE] | O | T13 |
-| E62 | パルス BHD 特有の効果 | パルスごとの積分、パルス間のクロストーク（リンギング）、f_rep に対する帯域 | F | f_rep | — | — | O | T13 |
-| E63 | ESA の模擬 | RBW・VBW の平均、ゼロスパン、ログ平均のバイアス（ガウス雑音で 約 −2.5 dB、UNVERIFIED）、位相ジッタがあると分布が変わりバイアスが打ち消されない | A, B, C | — | — | — | M | T04 |
-| E64 | 位相揺らぎ → 測定される squeezing | R'± ≈ R± cos²θ + R∓ sin²θ（小角）と、分布での厳密な平均。どの帯域の位相雑音を θ_rms に入れるか（CW の ESA と、パルスごとの GBS で違う） | 全部 | — | — | A: 10 mrad で等価損失 約 1%（クリアランス >30 dB）[Ref A §1] | O ＋ M | T04 |
-| E65 | 速い位相雑音と測定周波数 | 測定周波数付近の位相変調は直交成分ではなく側帯波を混ぜる（dither の寄与） | B（295 kHz）、C（1 MHz） | 変調周波数 | — | C: dither ±4.5° → 0.056 rad rms、全体 約 0.1 rad [Ref C §3] | O ＋ M | T04 |
+| E57 | PD の量子効率 **［T13 で修正］** | — | 全部 | — | — | A: 約 99%（変換損失 約 1%）。B: 0.998。C: 97%。**D: PDB450C は ℜ = 1.0 A/W で η ≈ 0.80（squeezing の測定には使えない。Ref D では傾きにだけ効く）** [T13] | O（静的） | T13 |
+| E58 | 検出器の帯域と周波数応答（干渉ディップ） **［T13 で修正］** | 有限の帯域、TIA の応答、2 PD 間の遅延による干渉 | A（35 MHz）、C（0.83・0.96 GHz のディップ）、D（DC–150 MHz） | 帯域の端 | — | H(f) = H_TIA·(1 + r e^{−i2πfτ_d})/(1 + r)、Ref C で τ_d = 0.52 / 0.60 ns、r は掃引。正規化した squeezing にはクリアランスを通してだけ効く [T13] | O ＋ M | T13 |
+| E59 | 回路雑音（暗雑音）のクリアランス **［T13 で修正］** | 等価的な損失 η_e = C/(1 + C) | 全部 | 測定周波数 | 1/P_LO に比例 | A: 28 dB → 0.16%。B: −21.7 dB → 0.67%。C: 11 → 5 dB で 7.4–24%（C の値は暗雑音補正済み）。D: ショット雑音 / 電子雑音 +1.2 dB（DSC1 の帯域）で、センサ雑音は DSC1 の入力雑音が支配 [T13] | O ＋ M | T13 |
+| E60 | CMRR と平衡のずれ **［T13 で修正］** | LO の古典雑音（RIN、ASE）が漏れる | 全部 | — | ε | R_meas = (R + x)/(1 + x)、x = \|δ\|²(1 + N_ex)。PDB450C: >25 dB [manual]。LO 15.4 mW・RIN −150 dB/Hz・CMRR 30 dB で 1.5% の等価損失（−10 → −9.45 dB）。光路長差 1 cm で 100 MHz の CMRR は 30 dB に制限 [T13] | T | T13 |
+| E61 | PD の飽和・非線形 **［T13 で修正］** | — | D, F | — | — | 旧: 「PD 1 個あたり 約 1.7–3.3 mW、飽和 4.5 mW に近い」→ **飽和 4.5 mW は 2 入力の差に対する値**。Ref D で先にクリップするのは DSC1 の ±4 V（差 3.9 mW、余裕 14–17%）。MONITOR 出力は 1 mW で飽和し使えない [T13] | O | T13 |
+| E62 | パルス BHD 特有の効果 **［T13・T17 で修正］** | パルスごとの積分、パルス間のクロストーク（リンギング）、f_rep に対する帯域 | F | f_rep | — | 1 次の応答で c_1 = exp(−2πB/f_rep)（c_1 < 10⁻² に B/f_rep > 0.73）。OPO の ns モードではゲート ≥ 約 25 ns、BHD 帯域 200–500 MHz 級 [T13・T17] | O | T13 |
+| E63 | ESA の模擬 **［T04 で修正］** | RBW・VBW の平均、ゼロスパン、ログ平均のバイアス、位相ジッタがあると分布が変わりバイアスが打ち消されない | A, B, C | — | — | ログ平均のバイアス −2.51 dB を AN 1303 で確認（UNVERIFIED を外す）。RBW より遅い位相揺らぎでは log 平均が squeezing を大きく見せる（Ref A で 9 mrad 0.03 dB、30 mrad 0.8 dB）。放射計雑音: RBW 1 MHz・VBW 100 Hz でトレースの標準偏差 0.07–0.10 dB（Ref A の 0.07 dB と同じで、位相雑音の情報はほぼない）[T04] | M | T04 |
+| E64 | 位相揺らぎ → 測定される squeezing **［T04 で修正］** | V′ = (V₋ + V₊)/2 − (V₊ − V₋)/2·cos(2Δ₀)·χ、χ = ⟨cos 2δ⟩。**CW の ESA とパルスごとの GBS の違いは上限ではなく、下限 f_low（トレース長・較正の間隔）と平均のしかた**（旧: 「帯域が違う」）。上限は光源のスペクトルが平らな範囲（OPO ではモードの帯域） | 全部 | — | — | A: 10 mrad で等価損失 約 1.25%（Ref A の約 1% と整合）。小角近似と厳密式の差は 0.1 rad で 0.03 dB 未満 [T04] | O ＋ M | T04 |
+| E65 | 速い位相雑音と測定周波数 **［T04 で修正］** | 測定周波数付近の位相変調は側帯波を混ぜる（dither の寄与）。RBW は帯域を切らない | B（295 kHz）、C（1 MHz） | 変調周波数 | — | C: dither ±4.5° → 0.0555 rad rms、J0(2m) = 0.99384、−5.63 → −5.18 dB、全体 約 0.1 rad。**B の 295 kHz の dither は probe にかかるので、θ に入るのはループの 295 kHz での応答分だけ**（C は LO にかかり全量が入る）[T04] | O ＋ M | T04 |
 
 ### 2.10 誤差信号
 
 | ID | 効果 | 機構 | 構成 | 周波数帯 | スケーリング | 概算 | 段 | Topic |
 |---|---|---|---|---|---|---|---|---|
-| E66 | ヘテロダイン（AOM 1 MHz）と復調 | probe と LO・ポンプとのビートを復調 | A | 1 MHz | — | BHD のスペクトルに 1 MHz のピーク [Ref A Fig. 4] | T | T14 |
-| E67 | phase-detection OPA の信号 | 利得のポンプ・probe 位相依存。probe とポンプのパワーを独立に選べる | A | — | P_probe、P_pump | 新方式は probe 数 mW [Ref A §2] | T | T14 |
-| E68 | phase-detection OPA までの非共通光路 | 分岐後の 2 経路の差が誤差信号に入り、squeezer の位相を補正しない | A, F | DC–kHz | 非共通光路長 | 自由空間 cm では小、ファイバで分けると大 [AE] | T（経路ごとの位相） | T14 |
-| E69 | dither ＋ DC 極値ロック（Ref B lock 1） | 透過 probe の強度を最大・最小に | B | 295 kHz | 変調深さ | — | T | T14 |
-| E70 | probe–LO 干渉 ＋ dither 復調（Ref B lock 2） | BHD 出力を復調 | B | 295 kHz | — | — | T | T14 |
-| E71 | 量子雑音ロック | 帯域制限した雑音パワー → 包絡線・ログ検出 → 復調。有限帯域・有限時間の推定の揺らぎ（radiometer 雑音）がセンサ雑音 | C | 8–300 MHz → 1 MHz | (1/Δω)^{1/4} [McKenzie Eq. 13–14] | 全体 約 0.1 rad [Ref C] | T | T14 |
-| E72 | probe の BHD への漏れ | 残った probe と LO のビート、probe の古典雑音 | A（conventional）、B、F | 変調・シフト周波数 | P_probe | conventional では数 µW [Ref A §2] | T | T14 |
-| E73 | ショット雑音で決まる位相検出の雑音 | S_φ ≈ hν/(η·P_det)（係数は要確認） | probe を使う全部、D | 白色 | 1/P に比例 | 1 µW で 約 1.3×10⁻¹³ rad²/Hz、小さい [AE] | T | T14 |
-| E74 | 復調の RF 参照の位相雑音・ミキサのオフセット | ロック点がずれる | A, B, C | DC–kHz | — | — | T | T14 |
-| E75 | DC side-fringe lock の誤差の伝わり方（D18-4） | 差信号 ∝ ℜ·G_TIA·P·[ε + V cos φ]。φ = π/2 では強度雑音は ε を通してだけ入り、オフセットドリフト δV_off は δφ = δV_off/K_D | D | DC–100 kHz | P、V、ε | K_D ≈ 1 A/W × 3.33 mW × 10³ V/A ≈ 3.3 V/rad（損失を除く）、DSC1 入力雑音 0.3 mV → 約 0.1 mrad [AE] | T | T15 |
-| E76 | 可視度の変化 | 偏光・パワー比のずれで K_D が変わり、ループ利得が変わる | D | < 1 Hz | V | — | T | T15 |
+| E66 | ヘテロダイン（AOM 1 MHz）と復調 **［T01・T14 で修正］** | probe と LO・ポンプとのビートを復調 | A | lock 1: **2 MHz**（probe と idler のビート）、lock 2: 1 MHz | — | BHD のスペクトルに 1 MHz のピーク [Ref A Fig. 4]（ショット雑音の約 41 dB 上、図から）。lock 1 の 2 f_sh は Vahlbruch 2006 と同じ原理（Ref A 本文に記述なし）[T01・T14] | T | T14 |
+| E67 | phase-detection OPA の信号 **［T01・T14 で修正］** | 利得のポンプ・probe 位相依存。probe とポンプのパワーを独立に選べる | A | — | P_probe、P_pump | P_PD = ηP_in[cosh 2r_d + sinh 2r_d cos(2Ω_sh t − Φ1)]。センサ雑音は 4 µrad（仮置き値、無視）。**lock 1 の誤差は lock 2 を通して A−/A+ 倍（Ref A で 1/123）されて Δ に入る**。Ref A の「SNR 改善で 14 → 9 mrad」とは食い違う（未解決、Phase 5）[T01・T14] | T | T14 |
+| E68 | phase-detection OPA までの非共通光路 **［T01・T14 で修正］** | 分岐後の 2 経路の差が誤差信号に入り、squeezer の位相を補正しない | A, F | DC–kHz | 非共通光路長 | 同軸なら分散の分だけ: 空気 16 rad/m（δL 1 µm で 16 µrad、10 cm・1 K で 5.4 mrad）、溶融石英 79 mrad/µm（ファイバで分けると致命的）。PD-OPA の Δk で arg(μν*) がずれる。Ref A では A−/A+ 倍されるが、F（BHD の lock 2 なし）では縮まない [T01・T14] | T（経路ごとの位相） | T14 |
+| E69 | dither ＋ DC 極値ロック（Ref B lock 1） **［T14 で修正］** | 透過 probe の強度を最大・最小に | B | 295 kHz | 変調深さ | e1 ∝ 2ΔG J1(2m) sin Φ1。m、P_in、PD は本文になく掃引。PD が 1% の tap なら squeezed 光に 1% の損失（UNVERIFIED）[T14] | T | T14 |
+| E70 | probe–LO 干渉 ＋ dither 復調（Ref B lock 2） **［T14・T02 で修正］** | BHD 出力を復調 | B | 295 kHz | — | lock 1 の誤差は (1 − x)/(1 + x) 倍（x = 0.745 で 0.146）されて Δ に入る [T14、x は T02] | T | T14 |
+| E71 | 量子雑音ロック **［T14 で修正］** | 帯域制限した雑音パワー → 包絡線・ログ検出 → 復調。有限帯域・有限時間の推定の揺らぎ（radiometer 雑音）がセンサ雑音 | C | 8–300 MHz → 1 MHz | 旧: (1/Δω)^{1/4} [McKenzie]→ 閉ループでは S_Δ ≈ κ_det R_−²/(B J1(2m)²(R_+ − R_−)²) | C の値で S_Δ = 1.0×10⁻⁹ rad²/Hz → 3.2 mrad（10 kHz、2 乗検出）、ログ検出で 4.2 mrad（κ_det = 1.32）。反 squeezing 側は 78 mrad。全体 0.1 rad の主因は dither [T14] | T | T14 |
+| E72 | probe の BHD への漏れ **［T14・T05 で修正］** | 残った probe と LO のビート、probe の古典雑音（N01） | A（conventional）、B、F | 変調・シフト周波数 | P_probe | conventional では数 µW [Ref A §2]。ビートは測定帯（3 MHz、RBW 1 MHz）の外。GBS へのコヒーレントな混入は T10（E43・E44）[T14・T05] | T | T14 |
+| E73 | ショット雑音で決まる位相検出の雑音 **［T10・T14 で修正］** | 係数は方式で違う: 強い参照光とのホモダイン hν/(2ηP_pr)、ヘテロダイン（I のみ）でその 2 倍、同程度の 2 ビームの DC 干渉（Ref D）2e/(ℜPV²) | probe を使う全部、D | 白色 | 1/P に比例 | 1 nW のホモダインで 6.4×10⁻¹¹ rad²/Hz。Ref D で 9.6×10⁻¹⁷ rad²/Hz（DSC1 の入力雑音 3.2×10⁻¹⁴ が支配）。迷光との積は P_pr によらない: N_stray σ_lock² = ε·b·L·B_loop·T_gate/(2η T_ret) [T10・T14] | T | T14 |
+| E74 | 復調の RF 参照の位相雑音・ミキサのオフセット **［T14 で修正］** | ロック点がずれる | A, B, C | DC–kHz | — | ヘテロダインでは復調位相のずれがそのままロック点のずれ（lock 2 では A−/A+ 倍）。dither では傾きを cos φ_d 倍にするだけ。RF 参照の作り方は Ref A に記載なし（パラメータ）[T14] | T | T14 |
+| E75 | DC side-fringe lock の誤差の伝わり方（D18-4） **［T15 で修正］** | 差信号 = V_0[ε + 𝒱 cos(φ + φ_μ)] + V_off。**光学的な不平衡 ε はロック点に吸収され、強度雑音は (S − V_off)/\|K_d\| を通してだけ入る**（旧: 「ε を通してだけ」）。オフセットドリフトは δφ = δV_off/\|K_d\| | D | DC–100 kHz | P、𝒱、V_off | K_D ≈ 3.33 V/rad（T_opt = 𝒱 = 1、上限）。V_off = 15 mV（PDB の最大）で 4.5 mrad、ε = 0.05 で 50 mrad のロック点のずれ。DSC1 入力雑音 0.3 mV → 0.09 mrad [T15] | T | T15 |
+| E76 | 可視度の変化 **［T15 で修正］** | 偏光・パワー比のずれで K_D が変わり、ループ利得が変わる。直交点（c_lock = 0）ではロック点には 1 次で効かない | D | < 1 Hz | V | δK_d/K_d = δp + δ𝒱/𝒱。可視度を大きく下げるのは \|μ\|（偏波・可干渉性）で、カプラの比のずれには 2 次で鈍感 [T15] | T | T15 |
 
 ### 2.11 アクチュエータ・制御・デジタル
 
 | ID | 効果 | 機構 | 構成 | 周波数帯 | スケーリング | 概算 | 段 | Topic |
 |---|---|---|---|---|---|---|---|---|
-| E77 | EOM | Vπ、帯域、範囲、残留振幅変調（RAM）、挿入損失 | A, C, F | DC – GHz | — | C: Uπ = 4 V [Ref C §3] | T | T16 |
-| E78 | PZT ファイバストレッチャ（915B） | rad/V、機械共振、レンジ、ヒステリシス、クリープ、偏光の変調 | C, D, F | DC – kHz | — | 915B の値は資料待ち（§6-2） | T | T16 |
-| E79 | PZT ミラー | 機械共振 | B（14・22 kHz、単層 PZT では 約 2 kHz）、C | DC – kHz | — | [Ref B §3] | T | T16 |
-| E80 | 高圧アンプ（Model 914 など） | 帯域、容量負荷でのスルーレート、出力雑音 → 位相雑音 = rad/V × 雑音電圧 | B, C, D | DC – kHz | PZT 容量 | Model 914 の値は資料待ち | T | T16 |
-| E81 | ADC/DAC の量子化とレンジ | — | 全部 | — | ビット数 | DSC1: 入力 LSB 122 µV、出力 LSB 1.95 mV（±4 V、16 / 12 bit）[manual から計算] | T | T16 |
-| E82 | ループ遅延とサンプリング | — | 全部 | — | — | DSC1: −180° が 約 60 kHz → 純遅延なら 約 8 µs 相当 [AE] | T（遅延バッファ） | T16 |
-| E83 | レンジ飽和、ロック外れ、再引き込み | 遅いドリフトがアクチュエータのレンジを超えるとロックが外れる | C, D, F | < 1 Hz | 熱ドリフト × L / レンジ | C: 数分 [Ref C §4]。F: 63 m・0.1 K で 約 280 rad [AE] | T | T16 |
-| E84 | 制御器の構造 | 並列の帯域分割、スタック（Ref C）、PID の離散化、DSC1 の bumpless 積分、加算器、ランプ | 全部 | — | — | — | T | T16 |
+| E77 | EOM **［T16 で修正］** | Vπ、帯域、範囲、残留振幅変調（RAM）、挿入損失 | A, C, F | DC – GHz | — | C: Uπ = 4 V [Ref C §3]（200 mVpp → 0.0785 rad = 4.50°）。挿入損失 2.5–3.5 dB → squeezed 経路には置けない（F では pump・LO・probe・参照光だけ）。V_π,LF と V_π,RF を分ける。RAM はオフセット（T14）[T16] | T | T16 |
+| E78 | PZT ファイバストレッチャ（915B） **［T15・T16 で修正］** | rad/V、機械共振、レンジ、ヒステリシス、クリープ、偏光の変調 | C, D, F | DC – kHz | — | 旧: 「915B の値は資料待ち」→ 914 入力あたり **6.49 rad/V**（8669-1、Ref D の個体、D35）/ 6.90 rad/V（8669-2）、ΔOPL と読む（conventions §4）。914 の全レンジ 64.9 rad、DSC1 の ±4 V で ±26 rad。機械共振は資料になく掃引（5–60 kHz、Q 3–100）。ヒステリシス・クリープは既定オフ [T15・T16] | T | T16 |
+| E79 | PZT ミラー **［T16 で修正］** | 機械共振 | B（14・22 kHz、単層 PZT では 約 2 kHz）、C、Liu | DC – kHz | — | [Ref B §3]。C は値なし（10–20 kHz を掃引の目安）。Liu は各空間モードに PZT ミラー（1 / 3 / 10 nm）[T16] | T | T16 |
+| E80 | 高圧アンプ（Model 914 など） **［T15・T16 で修正］** | 帯域、容量負荷でのスルーレート、出力雑音 → 位相雑音 = rad/V × 雑音電圧 | B, C, D | DC – kHz | PZT 容量 | 旧: 「Model 914 の値は資料待ち」→ Fig. 1（大信号）の −3 dB 約 28 kHz。小信号は 2 極 29.5 kHz・112 kHz（6 点を 2% で再現、参照値）または 1 極 28 kHz。30–100 kHz の裾はスルーレート 約 7 V/µs の形。出力雑音・入力インピーダンスは資料にない [T15・T16] | T | T16 |
+| E81 | ADC/DAC の量子化とレンジ **［T15・T16 で修正］** | — | 全部 | — | ビット数 | DSC1: 入力 LSB 122 µV、出力 LSB 1.95 mV [manual から計算]。**DAC の 1 LSB = 12.7 mrad の光位相**（915B）→ 白色なら 1–2 mrad rms、リミットサイクルなら ±6.3 mrad（Ref A の 9 mrad と同じ桁、プリセットでオン、D49）。DSC1 入力のアンチエイリアスの有無は資料にない [T15・T16] | T | T16 |
+| E82 | ループ遅延とサンプリング **［T15・T16 で修正］** | — | 全部 | — | — | DSC1: −180° 約 60 kHz から、入出力の 1 次 LPF（120 kHz、100 kHz）を差し引いて **純遅延 5.7 µs**（全部を遅延とみなすと 8.3 µs、旧: 約 8 µs）。Moku:Delta は 400 kHz で 30° から ≲ 0.21 µs。逆向き probe の飛行時間（63 m で 0.31 µs、630 m で 3.1 µs）も同じ桁 [T15・T16] | T（遅延バッファ） | T16 |
+| E83 | レンジ飽和、ロック外れ、再引き込み **［T08・T15・T16 で修正］** | 遅いドリフトがアクチュエータのレンジを超えるとロックが外れる | C, D, F | < 1 Hz | 熱ドリフト × L / レンジ | C: 数分 [Ref C §4]。D: ΔL 9 m で 390 rad/K、±26 rad は 0.07 K（1 mK/s で 約 1 分）。F: 63 m・10⁻⁴ K/s で 915B 1 台は 235 s、630 m で 23 s → TEC・スプールの温度制御・2π リセットが必要（D41）。ランダムウォークでは ⟨t⟩ = R²/(2D_ψ)。anti-windup は資料になくモードで選ぶ [T08・T15・T16] | T | T16 |
+| E84 | 制御器の構造 **［T16 で修正］** | 並列の帯域分割、スタック（Ref C）、PID の離散化、DSC1 の bumpless 積分、加算器、ランプ | 全部 | — | — | 線形の範囲ではスタック ＝ F_k = C_k⋯C_1 の並列。違いは飽和・量子化・再引き込みで出る。受け渡しの位相差 ≤ 135°。DSC1 の K_i の単位がマニュアル内で 5×10⁵ 倍食い違う（p.12 と p.20、未解決）。Moku:Pro のプリセットは不要 [T16] | T | T16 |
+
+### 2.12 deep dive で見つかった効果（Phase 2 で追加、N01–N19）
+
+| ID | 効果 | 機構 | 構成 | 周波数帯 | スケーリング | 概算 | 段 | Topic |
+|---|---|---|---|---|---|---|---|---|
+| N01 | 残留 probe（コヒーレント光）の古典雑音が BHD の測定周波数に入る **［T05 で追加］** | BHD の signal 側に残るコヒーレント光の RIN・レーザー位相雑音・ASE が squeezed 光と同じモードに入る | A（残留 probe）、B（同軸 probe）、F（Liu 型 probe の漏れ） | 測定周波数 f_s | 振幅: P_pr S_RIN/(2hν)、位相: 2P_pr S_Δφ(f_s)/(hν)、ASE: 2n_ASE,pr | 1 µW・RIN −145 dB/Hz で 0.012（ショット雑音比）。位相雑音（DX1 の h0、打ち消しなし）で 1.4×10⁴、遅延差 10 cm なら 1.2。ASE（OSNR 40 dB）1 µW で 0.062 → −10.6 → −8.3 dB。ECL では残留 probe を pW–nW に [T05] | O ＋ M | T05（＋T12/T14） |
+| N02 | OPO キャビティ区間で同軸 probe・透過ポンプが離調の回転を完全には追わない **［T02・T17 で追加］** | 同じ区間でも squeezed 光（δθ_sq = −(Δ/κ)/(1 + x²)）と probe（−Δ/(2κ)）・透過ポンプで係数が違う → 「同軸 = 区間の共有で自動的に相殺」は成り立たない | B, F（Fb・Fl） | DC–kHz | 往復の光路長 δl × F/λ0 | B: ロック後の残差 (Δ/κ)(1 − x²)/(2(1 + x²)) = 0.94°/nm。パルス OPO: 透過ポンプのロック後 −0.55 Δ_s/κ_c ≈ 40 mrad/nm（Fb・Fl）。ポンプ共振の位相 −arctan(Δ_p/κ_p) は θ_sq に ½ で入る [T02・T17] | T（区間 × ビームの係数） | T02 / T17 |
+| N03 | squeezer の結晶の熱によるポンプ位相（結晶 = ポンプ経路の区間） **［T01 で追加］** | θ_sq,out = (φ_p,in + ψ_p,xtal)/2 + π/2 + δθ_mm、ψ_p,xtal = k_p(T)ℓ | A, F（Fw） | < 1 Hz | ℓ × dn_e/dT | 45 mm PPLN で 約 6 mrad/mK（dn/dT は UNVERIFIED）。A は probe が squeezer を通るので lock 2 で相殺。F で squeezer に probe を通さないと補正されない → 結晶温度 ≲ 1 mK か、D42 の (b)–(d) [T01] | T | T01 |
+| N04 | Liu 型ロックが書き込むレーザー周波数ドリフトの補正（指標 (i)/(ii) のトレードオフ） **［T05・T10 で追加］** | ロックは ψ_k = −2πδν(τ_k + τ_p − τ_r) を書き込み (ii) では打ち消すが、遅延を合わせた LO_k には掛からないので (i) が同じだけずれる。帯域内のレーザー項は 16 sin²(πf(T_a − T_b)) sin²(πf(τ_k − τ_0)) S_φ | F | DC – ループ帯域 | 遅延 τ_k + τ_p − τ_r、T_a − T_b | 310 ns で 1 MHz のドリフトあたり指標 (i) に 1.95 rad。T_a = T_b にすれば帯域内のレーザー項は消える [T05・T10] | T | T05 / T10 |
+| N05 | PER の 2 結合点の干渉（寄生縞） **［T09・T15 で追加］** | 結合点 i で fast 軸に移り j で戻った成分が主成分と干渉: δφ ≈ −κ_iκ_j sin Δψ_b,ij(t)。CW の probe は受け、パルスは DGD がパルス幅を超えると受けない。Ref D では fast 軸の縞が重なりロック点が ε sin δ_b だけ動く | D, F | 温度で回る（Δψ_b が K_T ℓ_ij で回る） | κ_iκ_j（L によらない） | D: 入力 PER 20 dB で ±10 mrad、30 dB で ±1 mrad（Opneti 偏光子 ER ≥ 26 dB なら ±2.5 mrad [AE]）、915B の腕で 0.3–0.4 K に 1 周。F（PM・同じ偏光）: PER 25 dB の接続 2 か所で ≤ 3.2 mrad [T09・T15] | O ＋ T | T09 / T15 |
+| N06 | 非相反（Faraday・Sagnac）による逆向き probe の位相差 **［T09 で追加］** | 磁場に沿った Faraday 回転は向きで符号が変わり、J_back = Jᵀ の相反性を破る | F（同じ偏光の逆向き probe） | 静的 ＋ 遅い | V_F B_∥ L | 63 m・地磁気が全長に平行という最悪で 2×10⁻³ rad、スプールでは打ち消す。Sagnac は 2×10⁻⁶ rad。無視できる（既定オフ）[T09] | T | T09 |
+| N07 | 迷光の補助経路: 不連続反射と AOM の消光比の漏れ **［T10 で追加］** | コネクタ・コリメータ面・融着点の反射、パルス化 probe の AOM の漏れ（ε_AOM P_pk）が GBS 向きに戻る | F | — | R_i、ε_AOM | FC/APC 1 個（R = 10⁻⁶）で 1 mW のとき 10 ns あたり 78 光子（同じ偏光、時間をずらさない場合）。反射は時間ずらしで避けられる。AOM の漏れには ε_AOM ≪ デューティ比が必要 [T10] | O | T10 |
+| N08 | 周波数をずらした probe の熱ドリフト **［T10・T17 で追加］** | 同じ区間で squeezed 光との位相差 2πΔν_pr τ_g が温度で変わる | F | < 1 Hz | Δν_pr × L × dτ_g/dT | 63 m で 80 MHz（AOM）1.2 mrad/K、1 GHz 0.015 rad/K、7 GHz（Borealis 型）0.11 rad/K、100 GHz 1.5 rad/K、1 THz 15 rad/K [T10・T17] | T | T10 |
+| N09 | 時間多重による誤差信号の標本化の制約 **［T14 で追加］** | probe が振り分け素子を逆向きに通ってから検出されると、ポート k の誤差信号は k のスロットだけ（ポートあたり f_rep/32） | F | — | f_rep/64 のナイキスト | f_rep = 10 MHz でナイキスト 156 kHz（1 MHz のヘテロダインは不可）、100 MHz で 1.56 MHz。振り分けの手前で検出すれば制約なし [T14] | T | T14 |
+| N10 | 積分型 BHD と全パルス列の LO による squeezing の薄まり **［T11 で追加］** | LO_k を全パルス列で配り、BHD がパルスを分解せず積分すると、32 ビン中 1 ビンだけが squeezed | F | f ≪ f_rep | 1/K | K = 32、−10 dB → −0.12 dB。パルスごとに分解すれば −10 dB（D45 の比較用構成）[T11] | M | T11 |
+| N11 | パルス励起 OPO のモードの裾による隣スロットのコヒーレントな混合 **［T17 で追加］** | 時間モードの裾 ε_tail(T) ≈ 8.8 e^{−2κ_c T} が次のスロットに入る（消光比の漏れと違い、損失ではなくコヒーレントな混合） | F（Fb・Fl） | — | κ_c、T_rep | 裾 ≤ 10⁻³ に f_rep ≲ 45 MHz（Fb）/ 87 MHz（Fl）。Borealis 型を 100 MHz で使うと 13.8%、Liu 型で 0.34%（悪い構成として残す、D50）[T17] | O（チェック） | T17 |
+| N12 | FSR の櫛の非縮退モード組とFSR フィルタの損失 **［T17 で追加］** | ω0 ± m·FSR の組が 2 モード squeezing を作り、光子計数（GBS）にはフィルタの漏れの分の熱的光子が加わる。BHD には見えない | F（Fb・Fl） | ±m × FSR（3.7 / 7.4 GHz） | T_f(m)、r_m | Borealis: FBG 2 枚で 30 dB 以上、透過 約 80%。Liu: 不平衡 MZI 3 段＋0.4 nm フィルタで > 95% [T17] | O | T17 |
+| N13 | パルス励起 OPO の時間モードの多モード性 K **［T17 で追加］** | 多モード性は「ポンプの時間幅とキャビティの寿命の比 T_p κ_c」で決まる（結晶の GVM ではない） | F（Fb・Fl） | — | T_p κ_c、κ_p/κ_c、r | Borealis（T_p κ_c = 0.622）で K = 1.10、Liu（0.630）で 1.026（純度 0.975）を合わせ込みなしで再現。最適モードの squeezing はほとんど下げず、GBS の純度に効く [T17] | O | T17 |
+| N14 | LO の時間波形とモードの整合 **［T17・T03 で追加］** | LO の波形が最適モードと違うと純損失 | F | — | 波形 | OPO の最適モードに対し、ガウス 0.951、矩形の窓 0.864、片側指数 0.84。導波路 OPA では先頭の超モードに整形するか（T03）。選択肢は D50 [T17・T03] | O | T17 / T03 |
+| N15 | GBS 前の単一モード化スペクトルフィルタ **［T03・D44 で追加］** | 強い多モード（K ≈ 200）の squeezed 光を GBS に入れる前にスペクトルを絞る（損失とトレードオフ） | F（Fw） | — | フィルタの帯域 | 帯域が使う T0 を決める。Liu は MZI と 0.4 nm フィルタで波束の重なり > 99.7% [T03] | O | T03 |
+| N16 | ポートごとの分散補償・遅延の微調整 **［T03・T06・D44 で追加］** | ポート間の L_k の差の GDD・TOD を補償し、タイミングを合わせる | F（Fw） | — | L_k − L_0 | 100 MHz（63 m）で τ < 約 3.7 ps なら必要、10 MHz で 11.6 ps、1 GHz で 1.2 ps。OPO では不要 [T03・T06] | O | T03 |
+| N17 | レーザー内蔵の FM dither・SBS 抑圧変調 **［T05 で追加］** | DX1 は周波数安定化のための dither tone（値は非公開）と SBS 抑圧（0–1 GHz）を持つ。遅延差のある MZI で正弦波の位相変調になる | D | f_d | 2πτΔν_d | Δν_d = 1 MHz なら 0.31 rad（ΔL 10 m）、SBS 0.1–1 GHz なら 31–310 rad。D35 で dither オフ・SBS オフとして扱い、オンの設定も試せるようにする [T05・D35] | T | T05 |
+| N18 | 明るい LO・probe 自身の量子雑音（Kerr、線形化の破れ） **［T07 で追加］** | 明るいパルスの φ_NL が大きいと、揺らぎの線形化が破れうる（Kerr squeezing の曲がり） | F（Fw の長いファイバ・fs LO） | — | φ_NL | 100 MHz・63 m では φ_NL ≤ 0.3 rad で線形化で十分。10 MHz・633 m のソリトン領域で要確認。truncated Wigner は検証用（既定オフ）[T07・T06] | Q | T07 |
+| N19 | BHD の PD 面で反射した LO が squeezed 経路に戻る **［T12 で追加］** | PD の反射光が 2×2 カプラを逆にたどり、どこかで再反射して squeezed モードに入る | F（ファイバ型 BHD） | — | R_PD × R_return | PD の反射率は資料になく UNVERIFIED。既定オフ [T12] | O | T12 / T13 |
 
 ## 3. 主な概算の根拠（[AE] の式）
 
 - **Ref A の検算**: R± = L + (1 − L)·exp(±2√(αP))、R'± = R± cos²θ + R∓ sin²θ。L = 0.08、α = 9.06 /W、P = 0.64 W、θ = 0.009 rad → R'− = −10.15 dB、R+ = +20.56 dB。
+  **［T01・T04 で確認］** conventions §6 の厳密なガウス平均でも 10⁻⁴ dB 以内で同じ。最適ポンプ P_opt = 612 mW、R′−,min = L + (1 − L) sin 2θ。
 - **Ref B の G**: x = √(P/P_th) = √(100/180) = 0.745、G = 1/(1 − x)² = 15.4（報告値は 18.7）。逆に G = 18.7 なら x = 0.769、P = 106 mW。
   γ_c = c(T + L)/l = 3×10⁸ × 0.1268 / 0.5 ≈ 7.6×10⁷ s⁻¹。Ω = f/γ_c で f が Hz なら 2π の扱いを確認する必要がある。
+  **［T02・D48 で修正］** x = √(P/P_th) は論文の定義そのもの（食い違いはない）。γ_c は FWHM [rad/s] で Ω_B = 2πf/γ_c（2π が必要）。G = 18.7 は未解決で検証に使わない。
 - **遅延差のある干渉**: S_Δφ(f) = 4 sin²(πfτ)·S_ν(f)/f²。白色 FM（S_ν = Δν/π）で τ ≪ 1/Δν なら、全帯域の分散 σ² ≈ 2πΔν·τ、
   低周波 S_Δφ ≈ 4πτ²Δν。τ = n_g·ΔL/c = 1.468 × 10 m / c = 49 ns、Δν = 100 kHz（仮定）→ σ² = 0.031 rad²、S_Δφ = 3.0×10⁻⁹ rad²/Hz、100 kHz までで 17 mrad rms。
+  **［T05 で確認］** 175 mrad（全帯域）、17.4 mrad（100 kHz まで）と一致。DX1 の白色の床（25 kHz 相当）なら半分。
 - **ポート間（指標 (ii)）**: 同じ式で τ = 31 T_rep = 310 ns（f_rep = 100 MHz）→ σ ≈ 0.44 rad（Δν = 100 kHz を仮定）。パルス光源の光学的コヒーレンス（櫛の線幅）で大きく変わる。
+  **［T05・T10 で修正］** 同じレーザーから同じ周波数で作った probe の Liu 型ロックでは、ループ帯域内の成分は打ち消される。白色 FM の分散はほとんど帯域外（f ~ 1/(2τ)）にあるので線幅への要求は残る（10 mrad に Δν ≤ 51 Hz、100 MHz）。
 - **熱位相**: dφ/dT / L = (2π/λ)(dn/dT + n·α_L)。dn/dT ≈ 1.0×10⁻⁵ /K、α_L ≈ 5.5×10⁻⁷ /K（どちらも UNVERIFIED）→ 約 44 rad/(m·K)。
-- **群遅延の熱係数**: (dn_g/dT + n_g·α_L)/c ≈ 39 ps/(km·K)（同じ仮定）。
+  **［T08 で確認］** Dong 2016（dn/dT = 9.2×10⁻⁶）で 40.6、Slavík 2015 で 約 48。44 rad/(m·K) を参照値、40–48 を掃引。
+- **群遅延の熱係数**: (dn_g/dT + n_g·α_L)/c ≈ 39 ps/(km·K)（同じ仮定）。**［T08 で確認］** Slavík 2015 で 37.4–39 ps/(km·K)。
 - **ポートの長さ**: L_k = k·c·T_rep/n_g。f_rep = 100 MHz なら L_1 = 2.04 m、L_31 = 63 m。f_rep = 10 MHz なら L_31 ≈ 630 m。f_rep = 1 GHz なら L_31 ≈ 6.3 m。
+  **［T11・D39 で修正］** 一般形 L_k = L_0 + k·N_b·c·T_rep/n_g。Pockels 木でパルスごと（N_b = 1）なら f_rep ≲ 6 MHz で L_31 ≈ 1.06 km、100 MHz を保つなら N_b ≥ 50 で L_31 ≈ 3.2 km。
 - **SPM**: φ_NL = γ·P_avg/(f_rep·τ_p)·L。γ = 1.3 /(W·km)（UNVERIFIED）、1 mW、100 MHz、1 ps、63 m → 0.82 rad。
+  **［T06 で修正］** 分散を無視した見積もり。RK4IP では 100 MHz・63 m・1 mW で非線形位相 0.05–0.3 rad（最大は τ ≈ 1 ps）。γ は SMF 1.24、PM 1.22–1.32 /(W·km)。
 - **逆向き伝搬の相関周波数**: c/(2·n_g·L) = 3×10⁸ / (2 × 1.468 × 63) ≈ 1.6 MHz（D11 の「通過時間の逆数より上では相関しない」の目安）。
+  **［T10 で修正］** 一様に分布した雑音・アクチュエータが端のロックでは、残差/補正前 = 2[1 − sinc(4πf n_g L/c)]、1 になる周波数は 0.151·c/(n_g L) = 0.49 MHz（63 m）。
 - **Rayleigh**: 後方散乱の割合 ≈ S·α_s·L（αL ≪ 1）。S ≈ 1.5×10⁻³、α_s = 3.5×10⁻⁵ /m → 63 m で 3.3×10⁻⁶。1 mW なら 3.3 nW ≈ 2.6×10¹⁰ 光子/s → 10 ns で 約 260 光子。
   直交偏光にすれば PER の分だけ減るが、GBS（光子計数）で許される量は GBS_REQUIREMENTS が Open なので決められない（§6-7）。
+  **［T10 で修正］** Corning のデータシートの −82 dB（1 ns）から b_R = 6.2×10⁻⁸ /m、10 ns あたり 3.0×10² 光子。PER は直接の漏れでなく後方散乱に掛かる係数 ε_pol（E43）。
 - **DC side-fringe lock**: 差信号 = ℜ·G_TIA·P_in·η_opt·[ε + V cos φ]（P_in は MZI への入力、η_opt は MZI の透過）。K_D = ℜ·G_TIA·P_in·η_opt·V。
   DSC1 の入力雑音 0.3 mV rms → δφ = 0.3 mV / 3.3 V/rad ≈ 0.09 mrad（η_opt = V = 1 とした上限）。
+  **［T15 で修正］** ε はロック点に吸収され、RIN の結合係数は (S − V_off)/\|K_d\|。Ref D の残差は ΔL のレーザー周波数雑音（8–27 mrad、DC–100 kHz）、PDB のオフセット（≤ 4.5 mrad）、PER の寄生縞（N05）、DAC の量子化（E81）が支配。
 
 ## 4. deep-dive の分担（提案）
 
@@ -267,11 +315,12 @@
 | T14 | `error-signal-generation` | E66–E74、prompt §5.5 の誤差信号 1–4 | Ref A §2–3、Ref B §2–3、Ref C §2、McKenzie 2005 | T13（C の検出帯域） |
 | T15 | `dc-fringe-lock-ref-d` | E39 の D 部分、E75、E76、D05・D06 の DSC1 プリセット、Ref D 全体の解析モデル（prompt §7-7 と D04） | `refs/manuals/thorlabs-dsc1.pdf`、`thorlabs-pdb.pdf`、915B・914・DX1 の資料 | T05、T16 |
 | T16 | `actuators-control-digital` | E27 の機械的な部分、E77–E84、機器プリセット（Moku:Delta、DSC1、必要なら Moku:Pro）、prompt §7-7・§7-10 | `refs/manuals/`、Ref B §3、Ref C §2–4、915B・914 の資料 | — |
+| T17 | `pulsed-opo-source` **［D43 で追加］** | パルス励起 OPO（Borealis 型・Liu 型）の時間モード、FSR フィルタ、OPO・ポンプのロック、N11–N14、T02・T03・T06・T07・T10・T11・T12 の結論の変化 | Madsen 2022 SI（`refs/xanadu_2022.pdf`）、Liu 2026 SI | T02、T03、T07、T10、T11、T12 |
 
 依存のまとめ: T10 ← T07・T08・T09、T03 ← T06・T08、T11 ← T03、T14 ← T13、T15 ← T05・T16。それ以外は独立。
 
 補足:
-- `notes/conventions.md`（prompt §3、全位相の符号の約束）はどの Phase の担当かが決まっていない（§6-5）。T04 か調整役が Phase 2 の前に作るのが自然。
+- `notes/conventions.md`（prompt §3、全位相の符号の約束）はどの Phase の担当かが決まっていない（§6-5）。T04 か調整役が Phase 2 の前に作るのが自然。**［D26・D33 で解決］** 調整役が作成し承認済み、Phase 1 の提案で改訂（D47・D49）。
 - 「どの帯域の位相雑音が squeezing を下げるか」は T04 が全トピック共通の写像を定める。他のトピックは位相雑音の PSD を出すところまでを担当する。
 
 ## 5. 文献
@@ -280,36 +329,51 @@
 
 - Ref A: K. Hirota, T. Kashiwazaki, et al., "Generation of 10-dB squeezed light from a broadband waveguide optical parametric amplifier with improved phase locking method."
   **掲載誌・年・DOI は PDF の本文から読み取れなかった（UNVERIFIED）。**
+  **［T03・T05 で修正］** Optics Express 34, 7958 (2026)、DOI 10.1364/OE.585323（T03・T05 が Crossref で確認。PDF には記載なし）。プレプリントは arXiv:2511.15082（T01・T04・T14 が arXiv の記録で確認）。著者: K. Hirota, T. Kashiwazaki, G. Ha, T. Yamashima, P. Jaturaphagorn, T. Suzuki, K. Takahashi, A. Kawasaki, A. Inoue, W. Asavanant, M. Endo, T. Umeki, A. Furusawa。
 - Ref B: Y. Takeno, M. Yukawa, H. Yonezawa, A. Furusawa, "Observation of −9 dB quadrature squeezing with improvement of phase stability in homodyne measurement,"
-  Opt. Express 15, 4321–4327 (2007)。DOI は PDF に記載がない（UNVERIFIED）。
+  Opt. Express 15, 4321–4327 (2007)。DOI は PDF に記載がない（UNVERIFIED）。**［T02 で修正］** DOI 10.1364/OE.15.004321（Crossref で確認）。
 - Ref C: S. Verclas, C. Darsow-Fromm, B. Tohermes, R. Schnabel, "Fiber distribution of phase-stabilized GHz-bandwidth squeezed vacuum states of light between two buildings,"
-  Optica Quantum 4, 1 (2026)。DOI 10.1364/OPTICAQ.567418（PDF に記載）。
+  Optica Quantum 4, 1 (2026)。DOI 10.1364/OPTICAQ.567418（PDF に記載）。**［T05 で注記］** Crossref の issued は 2025（オンライン公開と号の年の違いの可能性、UNVERIFIED）。
 - K. McKenzie, E. E. Mikhailov, K. Goda, P. K. Lam, N. Grosse, M. B. Gray, N. Mavalvala, D. E. McClelland, "Quantum noise locking,"
   J. Opt. B: Quantum Semiclass. Opt. 7, S421–S428 (2005)。doi:10.1088/1464-4266/7/10/032（PDF に記載）。
 - Thorlabs DSC1 manual（Rev. B, November 3, 2025、DOC-103674）、Thorlabs PDB440x/PDB450x manual（© 2019）、Moku:Delta specifications（`refs/manuals/`）。
+- **［Phase 2 で追加］** deep dive で読まれた主な一次資料（詳細は各ノート）: H.-L. Liu et al., "Gaussian boson sampling with 1,024 squeezed states in 8,176 modes," Nature 653, 687–692 (2026), DOI 10.1038/s41586-026-10523-6（SI を含む、T05・T08・T10・T14・T17）。
+  L. S. Madsen et al., "Quantum computational advantage with a programmable photonic processor," Nature 606, 75–81 (2022), DOI 10.1038/s41586-022-04725-x（ローカルは SI のみ、T11・T17）。
+  Evanescent Optics 914/915B 仕様書、Thorlabs PNH1550R5A2 仕様書（TTN091005-S01 Rev B）、Opneti In Line Polarizer 仕様書（`refs/manuals/`、D24・D37）。
 
 deep-dive の出発点として挙げたもので、このサーベイでは確認していないもの（**すべて UNVERIFIED**）:
 Agrawal「Nonlinear Fiber Optics」、J. M. Dudley, G. Genty, S. Coen, Rev. Mod. Phys. 78, 1135 (2006)、J. Hult, J. Lightwave Technol. 25, 3770 (2007)、
 R. M. Shelby, M. D. Levenson, P. W. Bayer, Phys. Rev. B 31, 5244 (1985)、P. D. Drummond, J. F. Corney, J. Opt. Soc. Am. B 18, 139 (2001)、
 L.-S. Ma, P. Jungner, J. Ye, J. L. Hall, Opt. Lett. 19, 1777 (1994)、K. H. Wanser, Electron. Lett. (1992)（ファイバの熱力学的雑音）。
+**［T06・T07・T08 で修正］** 書誌は deep dive で確認済み: Agrawal 6th ed. (2019) doi:10.1016/C2018-0-01168-8、Dudley 2006 doi:10.1103/RevModPhys.78.1135、Hult 2007 doi:10.1109/JLT.2007.909373、Shelby PRB 31, 5244 doi:10.1103/PhysRevB.31.5244、
+Drummond & Corney JOSA B 18, 139 doi:10.1364/JOSAB.18.000139（arXiv 版の式を T07 が確認）、Ma 1994 doi:10.1364/OL.19.001777、Wanser Electron. Lett. 28, 53 (1992) doi:10.1049/el:19920033。本文を読んだのは Drummond & Corney（arXiv）だけで、他は書誌のみ。
 Ref B・C の参考文献リストにある文献（Polzik 1992、Lam 1999、Zhang 2003、Franzen 2006 など）は、リストに書かれている書誌情報までは確認済みで、本文は未読。
 
 ## 6. 仕様の食い違いと、ユーザの決定が必要な点
 
+**［Phase 2 で注記］** 各項目の解決状況を末尾に付けた。残っている問いは `notes/00_summary.md` §7 にまとめた。
+
 1. **worktree の起点**: この worktree は `main`（init commit）から作られていて、`AGENTS.md`・`DECISIONS.md`・`docs/squeezing_sim_prompt.md` がなかった。
-   `dev` へ fast-forward して作業した。他の worktree も `dev` から作る必要がある（運用、D22）。
+   `dev` へ fast-forward して作業した。他の worktree も `dev` から作る必要がある（運用、D22）。→ **解決**（D29、全担当が fast-forward）。
 2. **メーカー資料がない**: D02 は「915B の rad/V・共振・レンジ、DSC1 の仕様、Cobrite DX1 の線幅・周波数雑音・RIN はメーカー資料の値だけを使う」と決めているが、
    `refs/manuals/` には DSC1、PDB4xx、Moku:Delta しかない。915B、Model 914、Cobrite DX1、PNH1550R5A2、Opneti 偏光子、Optoquest PC、MN9605C の資料がない。
    ユーザが PDF を `refs/manuals/` に置くか、deep-dive がメーカーのウェブページを引いてよいか（ウェブの値でも出典を書けば D02 を満たすか）、決めてほしい。
+   → **一部解決**（D24: ウェブ可。914/915B・PNH1550R5A2・Opneti 偏光子の PDF が追加（D24・D37）。DX1 はウェブ資料（T05）。915B の共振・容量は資料になく、メーカーは存在しない（D36）。Optoquest PC、PM パッチケーブルは未入手）。
 3. **Ref C の制御器は Moku:Pro**（Ref C §2、Fig. 3）。prompt は Moku:Delta をプリセットに挙げている。Ref C の再現に Moku:Pro のプリセットが必要か、汎用値でよいか。
+   → **解決**（D25、T16: プリセット不要、汎用 FPGA プリセットで再現）。
 4. **Ref B Eq. (2) の定義**: 本文は x = P/P_th、Eq. (5) は x = √(P/P_th)。Eq. (4)–(5) からは G ≈ 15.4、報告値は 18.7。Ω = f/γ_c の 2π も要確認。
    prompt §1 が research agent に確認を求めている項目そのもので、T02 が調べる。ユーザの決定は不要だが、検証目標（§7-9）の数値に効く。
-5. **`notes/conventions.md` の担当**: prompt §3 は「実装の前に」とだけ書いていて、Phase と担当が決まっていない。
+   → **解決**（T02・D48: x = √(P/P_th) で食い違いなし、Ω_B = 2πf/γ_B。G = 18.7 だけ未解決で検証に使わない）。
+5. **`notes/conventions.md` の担当**: prompt §3 は「実装の前に」とだけ書いていて、Phase と担当が決まっていない。→ **解決**（D26・D33）。
 6. **環境雑音のデータ**: FIBER_PHASE_NOISE_DATA と TEMPERATURE（環境の温度ドリフト・音響 PSD）にはリファレンス値がない（Ref C は定性的な記述のみ）。D23 では「リファレンス値がなければ止めて聞く」。
    文献のモデル（一般的な実験室環境の値）で代用してよいか。ユーザの実験室で測った値を使う場合、D04 のブラインド検証（Ref D）と衝突しないか。
+   → **解決**（D27: 文献のモデルを掃引、Ref C を目安の 1 点、ユーザの測定値は Phase 5 の終わりまで使わない。T08 がモデルを提案）。
 7. **指標 (ii) の「共通の基準」の定義**（D12）: GBS 入力の位相を何に対して測るか（ポンプの位相？ある時刻のレーザー位相？ポート 0？）。
    E14 の概算どおり、ポート間の k·T_rep の遅延によるレーザー・ポンプ位相雑音が (ii) で支配的になりうるので、定義で結果が大きく変わる。
+   → **解決**（D31・D47: ポート 0 に対する squeezing 角の差 Θ_k、4 成分に分解）。
 8. **将来の probe の仕様**（D10、D18-5）: CW かパルスか、波長、偏光（直交か同じか）、パワー。さらに GBS の入力に許されるコヒーレント光子の混入量（GBS_REQUIREMENTS、Open）。
    E44 の概算では、1 mW の CW probe の Rayleigh 散乱だけでスロットあたり 約 10² 光子になりうる。T10 の結論はこの許容量で決まる。
+   → **一部解決**（D40: すべてパラメータ。T10: ショット雑音の上では nW–µW で足りる。許容量は Open（D28・D46））。
 9. 小さな点: prompt §1 は Ref A の光源を「CW seed + EDFA + SHG」と書くが、Ref A の本文は「NKT Koheras Harmonik が基本波と第 2 高調波を出す」とだけ書いている（EDFA は図 2 にあるかもしれないが、図はテキスト抽出で読めなかった）。
    また 640 mW は「squeezer OPA 直後のポンプ出力の推定値」で、入力パワーではない。ASE（E17）とポンプ枯渇（E02）の扱いに効く。T01・T05 で図を確認する。
+   → **解決**（T01・T05: Fig. 2 で「Laser + EDFA + SHG」を確認。D48: 640 mW は出口のパワー、α と組の当てはめ値）。
