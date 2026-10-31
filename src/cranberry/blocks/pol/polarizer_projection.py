@@ -21,6 +21,8 @@ Toggles (all off ⇒ out_dp = 0, out_jones = (1, 0)):
 
 Params (all required, D34): ``in``, ``out_jones``, ``out_dp`` (slots), ``er_db`` (runtime),
 ``il_db``, ``segment`` (loss location), ``applies_to``, ``source``, ``toggles``.
+``er_lin`` / ``il_lin`` (power ratios 10^(dB/10), D56-1) may replace ``er_db`` / ``il_db``: a YAML
+preset's ``*_db`` keys are converted to ``*_lin`` on load (``config.db``; WP-I2 addition).
 """
 
 from __future__ import annotations
@@ -41,9 +43,12 @@ __all__ = ["PolarizerProjection", "make_polarizer_projection"]
 KIND = "polarizer_projection"
 
 
-def _step(S, Z, P, i_in, i_out, i_dp, p_er, drift, ext):  # noqa: N803
+def _step(S, Z, P, i_in, i_out, i_dp, p_er, drift, ext, er_lin):  # noqa: N803
     e0, e1 = (Z[i_in], Z[i_in + 1]) if drift else (1.0 + 0j, 0j)
-    r = 10.0 ** (-P[p_er] / 20.0) if ext else 0.0
+    if ext:
+        r = 1.0 / math.sqrt(P[p_er]) if er_lin else 10.0 ** (-P[p_er] / 20.0)
+    else:
+        r = 0.0
     n_in = abs(e0) ** 2 + abs(e1) ** 2
     a, b = e0, r * e1
     n_out = abs(a) ** 2 + abs(b) ** 2
@@ -66,10 +71,12 @@ class PolarizerProjection(BaseBlock):
 
     def __init__(self, params: Mapping[str, Any], name: str | None):
         name = name or KIND
-        require(params, "in", "out_jones", "out_dp", "er_db", "il_db", "segment", "applies_to", "source", block=name)
+        self._er = "er_lin" if "er_lin" in params and "er_db" not in params else "er_db"
+        self._il = "il_lin" if "il_lin" in params and "il_db" not in params else "il_db"
+        require(params, "in", "out_jones", "out_dp", self._er, self._il, "segment", "applies_to", "source", block=name)
         drift = bool(dict(params.get("toggles") or {}).get("pol_drift_before_polarizer", False))
         super().__init__(KIND, name, params, reads=(params["in"],) if drift else (),
-                         writes=(params["out_jones"], params["out_dp"]), runtime_params=("er_db",))
+                         writes=(params["out_jones"], params["out_dp"]), runtime_params=(self._er,))
         self.slot_units = {params["out_dp"]: "1"}
 
     def init(self, layout, rng) -> None:
@@ -85,13 +92,14 @@ class PolarizerProjection(BaseBlock):
                 raise TypeError(f"block {self.name!r}: {sl.name!r} must be a complex (2,) Jones-vector slot")
         i_in = layout.slot(self.params["in"]).offset if drift else 0
         i_out, i_dp = layout.slot(self.params["out_jones"]).offset, layout.slot(self.params["out_dp"]).offset
-        p_er = layout.param(self.param_name("er_db")).offset
-        self._args = (i_in, i_out, i_dp, p_er, drift, ext)
+        p_er = layout.param(self.param_name(self._er)).offset
+        er_lin = self._er == "er_lin"
+        self._args = (i_in, i_out, i_dp, p_er, drift, ext, er_lin)
         nb = _STEP_NB
 
         @numba.njit
         def kernel(S, Z, I, P):  # noqa: N803
-            nb(S, Z, P, i_in, i_out, i_dp, p_er, drift, ext)
+            nb(S, Z, P, i_in, i_out, i_dp, p_er, drift, ext, er_lin)
 
         self.kernel = kernel
 
@@ -101,7 +109,8 @@ class PolarizerProjection(BaseBlock):
 
     def losses(self) -> list[LossElement]:
         p = self.params
-        return [LossElement.from_il_db(f"{self.name}.il", float(p["il_db"]), kind="component",
+        il_db = float(p["il_db"]) if self._il == "il_db" else 10.0 * math.log10(float(p["il_lin"]))
+        return [LossElement.from_il_db(f"{self.name}.il", il_db, kind="component",
                                        applies_to=set(p["applies_to"]), source=str(p["source"]), enabled=True,
                                        segment=str(p["segment"]))]
 

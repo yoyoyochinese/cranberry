@@ -1,0 +1,41 @@
+# refD at one representative point of every sweep axis (single runs, integration tests).
+#
+# The point is the nominal / central value named by the source of each axis (D53 centre, T05/T08/T09/T15
+# nominal placeholders, datasheet typical values). It is NOT fitted to the real setup (D04): the Ref D
+# prediction is the band over the axes of refD.yaml (PLAN §6.5), and this file only picks one member.
+extends: refD
+
+offline:
+  params:
+    dL_m: 9.0                    # D53 centre
+    kappa1: 0.5                  # PNH1550R5A2 nominal 50:50 (D51-8)
+    kappa2: 0.5
+    coupler_excess_db: 0.3       # PNH1550R5A2 "< 0.3 dB typ" (D51-8)
+    il_915b_db: 0.0              # T15 placeholder T_opt = 1 (upper bound of the transmission)
+    h0_hz2_per_hz: 2.546e+4      # DX1 SC 80 kHz typ / π (D35, conv §7: Δν = π h0)
+    h_m1_hz2: 0.0                # white FM only: the SC linewidth spec is the typical FWHM itself (T05 §2.2)
+    k_T_rad_per_m_K: 44.0        # T08 §2.2 nominal
+    r_T_k_per_s: 1.0e-4          # T08 §6 example (915B range used up in ~4 min on 63 m)
+    tau_th_s: 300.0              # T08 §2.4 nominal
+    h_ref_rad2_hz: 0.04          # T08 §2.5 nominal (spool upper value, Williams 2008)
+    mech_gamma: 1.0              # T08 §2.5 nominal
+    mech_f_c_hz: 1000.0          # T08 §2.5 nominal
+    mech_rho_0: 0.0              # arms independent (no lab value, T08 §2.8)
+    D_pol_rad2_per_s: 1.0e-5     # geometric middle of T09 §3.6's 1e-8–1e-2
+    polarizer_er_db: 28.0        # Opneti ER ≥ 28 dB (D51-8)
+    K_T_rad_per_m_K: -2.05       # D51-2 nominal
+    dpsi_b0_rad: 1.5707963267948966   # static birefringent phase difference (unknown mod 2π): π/2, a generic non-degenerate point
+    theta_coupler_rad: 0.05617   # PER = 25 dB at both coupler ports (PNH1550R5A2 bound, D51-8)
+    responsivity_a_per_w: 1.0    # PDB p.19 typ
+    eps_r: 0.0                   # balanced PDs (T15 §6.1)
+    i_n_a_rthz: 6.86e-11         # PDB p.19 NEP × 1 A/W (devices/pdb450c.yaml value)
+    v_off0_v: 0.0                # PDB p.8 factory zero at 23 °C
+    adc_noise_vrms: 3.0e-4       # DSC1 p.2 (0.3 mV rms)
+    latency_s: 5.7e-6            # dsc1.yaml loop.latency_s value (T15 §2.7(b))
+    in_out_poles: true           # pairs with 5.7 µs (T15 §2.7(b))
+    r_914_ohm: 1.0e+6            # high-Z assumption (T15 §2.7(c))
+    anti_windup: none            # integrators run on at the CV limit (no documentation either way)
+    f_res_hz: 2.0e+4             # T15 §2.7(d) placeholder centre (20 kHz)
+    q_res: 10.0                  # T15 §2.7(d) placeholder centre (Q = 10)
+    loop_sign: 1.0               # negative feedback at +π/2 with positive DSC1 gains (T15 §2.2)
+    coupler_sign: 1.0            # b̂_1 → INPUT+ (conv §5)

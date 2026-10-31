@@ -15,8 +15,11 @@ s = ``coupler_sign`` ∈ {+1, −1}: which coupler output goes to INPUT+ (conv �
 flips the coupler terms but not the PD responsivity imbalance ε_R. γ_coh = exp(−σ²_HF/2) is the
 visibility loss from phase noise above the modelled band, taken from the ``BandLedger``
 (:func:`gamma_coh_from_ledger`); the modelled band must not be put into γ_coh again (T15 §2.6).
-Δχ: differential birefringent phase (runtime ``per_dchi_rad``; ponytail: a Jones-based Δχ from
-``segment_jones`` (WP-B7) can replace it via a slot input when that lands).
+Δχ: differential birefringent phase (runtime ``per_dchi_rad``). Optional slot inputs ``in_per_x`` /
+``in_per_dchi`` (WP-I2 addition, B7 request): when both are given (not null) and ``per_crosscoupling``
+is on, x and Δχ are read from these slots (e.g. ``per_fringe`` out_x / out_dchi, computed from the
+arm Jones matrices) instead of the runtime params, and they are declared in ``reads`` only then. Put
+``mu_abs = 1``, ``mu_phase_rad = 0`` in that case (per_fringe docstring).
 
 Noise: shot noise of both PDs S_I = 2eℜP_det(1 + δp), electronic i_n²; RIN enters through
 ``in_dp`` (relative power δp, toggle ``rin``), offset drift through ``in_voff`` (toggle
@@ -48,7 +51,8 @@ _P = ("p_in_w", "kappa1", "kappa2", "t_arm1", "t_arm2", "responsivity_a_per_w", 
       "i_n_a_rthz", "v_sat_v", "setpoint_v", "loop_sign")
 _T = ("shot_noise", "electronic_noise", "rin", "offset_drift", "optical_imbalance", "per_crosscoupling",
       "visibility_hf_averaging", "saturation")
-C_DCF = namedtuple("C_DCF", ("s_lo", "s_pr", "s_dp", "s_voff", "s_out", "s_err", "t", "buf", "idx", "fb", "mode",
+C_DCF = namedtuple("C_DCF", ("s_lo", "s_pr", "s_dp", "s_voff", "s_perx", "s_perd", "s_out", "s_err", "t", "buf",
+                             "idx", "fb", "mode",
                              "law", *(f"f_{k}" for k in _T), *(f"p_{k}" for k in _P)))
 
 
@@ -72,7 +76,8 @@ def _build(jit: bool):
             mu_re *= P[c.p_gamma_coh]
             mu_im *= P[c.p_gamma_coh]
         if c.f_per_crosscoupling:
-            x, dchi = P[c.p_per_x], P[c.p_per_dchi_rad]
+            x = S[c.s_perx] if c.s_perx >= 0 else P[c.p_per_x]
+            dchi = S[c.s_perd] if c.s_perd >= 0 else P[c.p_per_dchi_rad]
             pr, pi = 1.0 - x + x * math.cos(dchi), x * math.sin(dchi)
             mu_re, mu_im = mu_re * pr - mu_im * pi, mu_re * pi + mu_im * pr
         phid = S[c.s_lo] - S[c.s_pr]
@@ -105,11 +110,17 @@ class DcFringe(ErrBlock):
         for tog, key in (("rin", "in_dp"), ("offset_drift", "in_voff")):
             if tg.get(tog) and params[key] is None:
                 raise ValueError(f"block {name!r}: toggle {tog!r} is on but {key} is null")
+        per_on = bool(tg.get("per_crosscoupling"))
+        per_slots = per_on and params.get("in_per_x") is not None
+        if per_slots != (per_on and params.get("in_per_dchi") is not None):
+            raise ValueError(f"block {name!r}: give both in_per_x and in_per_dchi (or neither)")
         self.setup(
             self.KIND, name, params,
             inputs={"lo": (params["in_lo"], "rad"), "pr": (params["in_pr"], "rad"),
                     "dp": (params["in_dp"] if tg.get("rin") else None, "1"),
-                    "voff": (params["in_voff"] if tg.get("offset_drift") else None, "V")},
+                    "voff": (params["in_voff"] if tg.get("offset_drift") else None, "V"),
+                    "perx": (params["in_per_x"] if per_slots else None, "1"),
+                    "perd": (params["in_per_dchi"] if per_slots else None, "rad")},
             outputs={"out": (params["out"], (), "V"), "err": (params["out_err"], (), "V")},
             runtime=_P, toggles=_T,
             n_draws=int(bool(tg.get("shot_noise")) or bool(tg.get("electronic_noise"))),

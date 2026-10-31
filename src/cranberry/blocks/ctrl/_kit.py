@@ -175,16 +175,27 @@ LOSS_KEYS = ("insertion_loss_db", "loss_applies_to", "loss_source")
 def loss_elements(block: BaseBlock, toggle_on: bool) -> list:
     """``[LossElement]`` from ``insertion_loss_db`` (None → no element) on ``params['segment']`` (G06).
 
+    ``insertion_loss_lin`` (loss factor 10^(IL/10) ≥ 1, or None; D56-1) may replace
+    ``insertion_loss_db``: YAML presets cannot give a null under a dB name, and a numeric
+    ``insertion_loss_db`` is renamed to ``insertion_loss_lin`` on load (``config.db``; WP-I2 addition).
+
     Registered whatever the beam: the LossRegistry decides whether it lies on a squeezed / LO / probe
     path (prompt §5.5). ``toggle_on`` False keeps the record with η treated as 1.
     """
+    import math
+
     from cranberry.offline.loss_registry import LossElement
 
     prm = block.params
-    require(prm, "insertion_loss_db", block=block.name)
-    if prm["insertion_loss_db"] is None:
+    if "insertion_loss_lin" in prm and "insertion_loss_db" not in prm:
+        il = prm["insertion_loss_lin"]
+        il_db = None if il is None else 10.0 * math.log10(float(il))
+    else:
+        require(prm, "insertion_loss_db", block=block.name)
+        il_db = None if prm["insertion_loss_db"] is None else float(prm["insertion_loss_db"])
+    if il_db is None:
         return []
     require(prm, "loss_applies_to", "loss_source", "segment", block=block.name)
-    return [LossElement.from_il_db(f"{block.name}.il", float(prm["insertion_loss_db"]), kind="component",
+    return [LossElement.from_il_db(f"{block.name}.il", il_db, kind="component",
                                    applies_to=frozenset(prm["loss_applies_to"]), source=str(prm["loss_source"]),
                                    enabled=bool(toggle_on), segment=str(prm["segment"]))]
