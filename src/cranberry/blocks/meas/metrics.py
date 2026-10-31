@@ -53,7 +53,7 @@ Metric blocks (WP-F4)
                          include port 0); "all" with no topology ports selects nothing (G13: n/a)
         setpoint_rad : number (every port) or {k: number}
         t_settle_s   : optional (WP-I3 addition; absent = 0, the old behaviour): the running sums start at
-                       t ≥ t_settle_s (runtime parameter), so lock acquisition from a random initial phase
+                       t ≥ t_settle_s (runtime parameter), so lock the start-up transient (the initial state is deterministic, Δ(0) = 0; WP-I3/M2C-06)
                        is not part of the moments / noise levels nor of ``MetricI/II`` series (the ESA zero
                        span reads those); the δ slot itself, and ``RunResult.series``, cover every sample
 

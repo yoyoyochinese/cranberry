@@ -537,6 +537,15 @@
   4. `pulsed_bhd_kernel` は任意で `pulse_charge_profile`（ns モードで c_m を正しく）。
 - 日付: 2026-11-01 / Phase 5（M5）
 
+### D73 Phase 5 の M2（Ref C）の修正で決まったこと
+- 決定:
+  1. ゼロスパンは全レートで cos 2δ・sin 2δ を作ってから記録器のフィルタで間引いた系列を読む（M2C-01）。これで反エイリアスのフィルタの有無に依らない（時系列の dither で none・boxcar・fir とも −5.164 dB）。
+  2. `loop_stability_check` は任意の `stages` で積み重ねのループも扱う。refC に入れた（格子の 84/972 点が不安定、すべて f_12 = 3 kHz・f_u1 ≥ 9.65 kHz、刈り込まない）。オフラインの CHK の事象は `RunResult.events` に入る。
+  3. `measure.validity: [{slot, abs_max}]` で出力のクランプの割合を `RunResult.validity`・`valid`・要約に記録する（M2C-03）。refC は EOM の出力レンジを軸（`eom_range_v`）にした。PID の `sat` の旗は anti-windup が働く前の要求で判定する（clamp では積分器が限界のすぐ内側で止まり、以前は sat = 0 を返していた。調整役が `pid.py` を修正、回帰テストあり）。
+  4. **Ref C の名目点の変更（M2C-04、D69-1）:** Ref C Fig. 2 右（1 s、ロックなし）との比較の VT（VT-20(d): 時間の 90% 以上が squeezing から 0.2 rad 以内、1–300 Hz の rms ≤ 0.2 rad、10 ms 平滑の ptp ≤ 0.4 rad）を加え、これを満たす軸の点を名目にした: `rho_conduit` = 0.99、`mech_f_lo_hz` = 100 Hz（通る最も低い軸の点）。EOM ループの帯域 `f_u1` = √(1·3) kHz = 1.73 kHz（「kHz 領域」の読み方、合わせ込みではない）。0.1 rad には合わせていない。結果: dither 以外の残差 14.5 mrad、合計 57.4 mrad、30 MHz の squeezing −5.15 dB（ゼロスパン −5.18 dB）。
+  5. ESA の enbw = 1.0645（M2C-05）、`t_settle_s` は起動の過渡だけ（M2C-06）、時系列の dither の復調器の LPF は軸（`demod_lpf_hz`、+1.4% はモデルの選択、M2C-07）。Fig. 4 の比較は周波数ごとに 0.5 dB、0.69 GHz だけ 0.7 dB（D69-2）。
+- 日付: 2026-11-01 / Phase 5（M2）
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）

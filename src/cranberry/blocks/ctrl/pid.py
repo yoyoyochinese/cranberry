@@ -100,6 +100,10 @@ def _make_step(fo):
         pterm = kp * e if p_on else 0.0
         u_raw = pterm + i_new + j_new + d_new + off
         u = umin if u_raw < umin else (umax if u_raw > umax else u_raw)
+        # saturation is judged on the unconstrained demand before anti-windup acts: with clamp, the
+        # integrator is held so the recomputed u_raw sits just inside the limit while the output is pinned
+        # there (Phase 5 M2 review, WP-I3 fix report)
+        sat = 1 if u_raw > umax else (-1 if u_raw < umin else 0)
         if aw == 1 and u != u_raw and (u_raw - u) * ((i_new - i_old) + (j_new - j_old)) > 0.0:
             i_new, a_new, j_new = i_old, a_old, j_old
             u_raw = pterm + i_new + j_new + d_new + off
@@ -108,7 +112,7 @@ def _make_step(fo):
             i_new += h / P[po[10]] * (u - u_raw)
         S[x0], S[x0 + 1], S[x0 + 2], S[x0 + 3], S[x0 + 4] = e, i_new, d_new, a_new, j_new
         S[i_out] = u
-        I[i_sat] = 1 if u_raw > umax else (-1 if u_raw < umin else 0)
+        I[i_sat] = sat
 
     return step
 

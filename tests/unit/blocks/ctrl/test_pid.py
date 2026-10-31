@@ -192,3 +192,25 @@ def test_contract_and_validation():
     with pytest.raises(ValueError, match="tustin"):
         make([src(), pid_obj(disc="moku")])
     assert math.isfinite(leaf.h) and leaf.h == 1 / FS
+
+
+def test_sat_flag_set_while_clamped_under_clamp_antiwindup():
+    """Under ``anti_windup: clamp`` the integrator is held just inside the limit (the output parks below the
+    CV limit while the demand exceeds it): ``ctrl.<name>.sat`` must still report saturation, since control
+    authority is exhausted (Phase 5 M2 review follow-up; before the fix it read 0)."""
+    from cranberry.core.compile import run_reference
+    from cranberry.core.layout import SlotLayout
+    from cranberry.core.pipeline import build, spec_from_obj
+    from cranberry.core.state import Params, State
+
+    obj = [
+        {"block": "ramp", "name": "src", "params": {"out": "v.x", "waveform": "sawtooth", "amplitude_v": 0.0,
+                                                   "period_s": 1.0, "offset_v": 1.0, "toggles": {"enabled": True}}},
+        pid_obj(aw="clamp", ki_per_s=1.0e5, u_min_v=-1.0, u_max_v=1.0),
+    ]
+    lay = SlotLayout(FS)
+    blk = build(spec_from_obj(obj), lay, 1)
+    st, pr = State(lay), Params(lay)
+    run_reference(blk, st, pr, 200)
+    assert 0.9 < float(st["ctrl.p.u"]) <= 1.0
+    assert int(st["ctrl.p.sat"]) == 1
