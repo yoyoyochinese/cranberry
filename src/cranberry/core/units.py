@@ -55,6 +55,7 @@ V_SN: float = V_VAC
 #: Extending this table is an additive, non-breaking change (propose it in the WP report).
 UNIT_SUFFIXES: dict[str, str] = {
     "_per_w": "1/W",
+    "_lin": "1",
     "_hz": "Hz",
     "_s": "s",
     "_m": "m",
