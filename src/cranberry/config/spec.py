@@ -8,9 +8,10 @@ and the same seed gives bit-identical results (VT-F1).
 Top-level YAML keys ↔ fields::
 
     preset:   <str>                       # name of the preset this config started from (or null)
+    extends:  <preset name or path>       # base merged under this file by config.load (WP-F2b); never in a spec
     overlays: [<path or axis/value>, ...] # applied in order by WP-F2 (G12); kept for the record
     applied_overlays: [...]               # overlays already merged (written by dump_yaml; not re-applied)
-    run:      {duration_s, f_sim_hz, chunk_samples, seed}
+    run:      {duration_s, f_sim_hz, chunk_samples, seed, seed_mode?}   # seed_mode: per_point | common
     topology: {segments: [...], beams: [...], locks: [...], ports: [...], observers: [...], coef: ...}
     offline:  {...}                       # offline-stage inputs (sources, fibers, detectors, ...)
     pipeline: [...]                       # core.pipeline dict form → SeqSpec
@@ -18,7 +19,7 @@ Top-level YAML keys ↔ fields::
     measure:  {...}                       # measurement / metric settings
 
 D34: there are no code defaults for any modelling choice; every field of :class:`RunSettings` is
-required and presets give every value. ``topology``/``offline``/``measure`` are kept as plain mappings
+required and presets give every value (``seed_mode`` is required only by a sweep with axes). ``topology``/``offline``/``measure`` are kept as plain mappings
 here (parsed by WP-F6 ``path.topology.Topology.from_spec``, WP-F3 and WP-F4 respectively).
 """
 
@@ -26,7 +27,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from typing import Any
 
 from cranberry.core.block import BlockSpec
@@ -38,6 +39,8 @@ __all__ = [
     "RunSpec",
     "TOP_LEVEL_KEYS",
     "RUN_KEYS",
+    "RUN_OPTIONAL_KEYS",
+    "SEED_MODES",
     "spec_from_tree",
     "spec_to_tree",
     "iter_block_specs",
@@ -66,6 +69,11 @@ class RunSettings:
     f_sim_hz: float
     chunk_samples: int
     seed: int
+    #: Seed of the points of a sweep (D34 option, WP-F2b): ``"per_point"`` (seed derived from the
+    #: root seed and the point's coordinates) or ``"common"`` (every point uses the root seed: common
+    #: random numbers for parameter comparisons). None = not given; ``runner.sweep`` then refuses a
+    #: sweep with axes (D34: no default). Ignored by a single run.
+    seed_mode: str | None = None
 
     def __post_init__(self) -> None:
         if not self.duration_s > 0:
@@ -76,6 +84,8 @@ class RunSettings:
             raise ValueError("run.chunk_samples must be an int >= 1")
         if isinstance(self.seed, bool) or int(self.seed) != self.seed or self.seed < 0:
             raise ValueError("run.seed must be an int >= 0")
+        if self.seed_mode is not None and self.seed_mode not in SEED_MODES:
+            raise ValueError(f"run.seed_mode must be one of {list(SEED_MODES)}, got {self.seed_mode!r}")
 
     @property
     def n_samples(self) -> int:
@@ -97,13 +107,19 @@ class RunSpec:
     overlays: tuple[str, ...] = ()
 
 
-#: Allowed top-level keys of a config tree. ``overlays`` are applied by ``config.load`` (G12);
-#: ``applied_overlays`` records overlays already merged (written by ``dump_yaml``, never re-applied).
+#: Allowed top-level keys of a config tree. ``extends`` (base preset) and ``overlays`` are applied by
+#: ``config.load`` (G12, WP-F2b); ``applied_overlays`` records overlays already merged (written by
+#: ``dump_yaml``, never re-applied).
 TOP_LEVEL_KEYS: tuple[str, ...] = (
-    "preset", "overlays", "applied_overlays", "run", "topology", "offline", "pipeline", "toggles", "measure",
+    "preset", "extends", "overlays", "applied_overlays", "run", "topology", "offline", "pipeline", "toggles",
+    "measure",
 )
-#: Keys of ``run:``; all required (D34).
-RUN_KEYS: tuple[str, ...] = tuple(f.name for f in fields(RunSettings))
+#: Required keys of ``run:`` (D34).
+RUN_KEYS: tuple[str, ...] = ("duration_s", "f_sim_hz", "chunk_samples", "seed")
+#: Optional keys of ``run:`` (WP-F2b): ``seed_mode`` is required only by a sweep with axes.
+RUN_OPTIONAL_KEYS: tuple[str, ...] = ("seed_mode",)
+#: Values of ``run.seed_mode``.
+SEED_MODES: tuple[str, ...] = ("per_point", "common")
 
 
 def _is_plain_number(x: Any) -> bool:
@@ -123,6 +139,8 @@ def spec_from_tree(tree: Mapping[str, Any]) -> RunSpec:
         raise ConfigError(f"unknown top-level key(s) {unknown}; allowed: {list(TOP_LEVEL_KEYS)}")
     if tree.get("overlays"):
         raise ConfigError("'overlays' must be applied before building a RunSpec (use config.load)")
+    if "extends" in tree:
+        raise ConfigError("'extends' must be resolved before building a RunSpec (use config.load)")
     missing = [k for k in ("run", "pipeline") if k not in tree]
     if missing:
         raise ConfigError(f"missing required section(s) {missing} (D34: presets give every value)")
@@ -132,9 +150,12 @@ def spec_from_tree(tree: Mapping[str, Any]) -> RunSpec:
     missing = [k for k in RUN_KEYS if k not in run]
     if missing:
         raise ConfigError(f"missing run.{', run.'.join(missing)} (D34: no code defaults; presets give every value)")
-    unknown = [k for k in run if k not in RUN_KEYS]
+    unknown = [k for k in run if k not in RUN_KEYS + RUN_OPTIONAL_KEYS]
     if unknown:
-        raise ConfigError(f"unknown key(s) in run: {unknown}; allowed: {list(RUN_KEYS)}")
+        raise ConfigError(f"unknown key(s) in run: {unknown}; allowed: {list(RUN_KEYS + RUN_OPTIONAL_KEYS)}")
+    seed_mode = run.get("seed_mode")
+    if seed_mode is not None and seed_mode not in SEED_MODES:
+        raise ConfigError(f"run.seed_mode must be one of {list(SEED_MODES)}, got {seed_mode!r}")
     for k in RUN_KEYS:
         if not _is_plain_number(run[k]):
             raise ConfigError(
@@ -149,6 +170,7 @@ def spec_from_tree(tree: Mapping[str, Any]) -> RunSpec:
             f_sim_hz=float(run["f_sim_hz"]),
             chunk_samples=int(run["chunk_samples"]),
             seed=int(run["seed"]),
+            seed_mode=seed_mode,
         )
     except ValueError as e:
         raise ConfigError(str(e)) from None
@@ -199,6 +221,8 @@ def spec_to_tree(spec: RunSpec) -> dict[str, Any]:
     if spec.overlays:
         tree["applied_overlays"] = list(spec.overlays)
     tree["run"] = {k: getattr(spec.run, k) for k in RUN_KEYS}
+    if spec.run.seed_mode is not None:  # optional key: absent when not given (unchanged dumps / hashes)
+        tree["run"]["seed_mode"] = spec.run.seed_mode
     tree["topology"] = dict(spec.topology)
     tree["offline"] = dict(spec.offline)
     tree["pipeline"] = spec_to_obj(spec.pipeline)

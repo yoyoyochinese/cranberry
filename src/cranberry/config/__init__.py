@@ -9,8 +9,9 @@ Public interface (PLAN §4.2):
 
 Helpers: ``read_input`` (the input document recorded as ``config.input.yaml``), ``validate`` (D34
 checks of a single-run spec by instantiating every block), ``spec_hash``, ``sweep_markers``,
-``ConfigError``; tags in ``config.yaml_io``; evaluator in ``config.expr``; merge in
-``config.overlay``; references in ``config.resolve``.
+``ConfigError``; tags in ``config.yaml_io``; evaluator in ``config.expr``; merge, ``extends:`` and
+the ``!delete`` / ``!replace`` directives in ``config.overlay``; references in ``config.resolve``;
+dB → linear on load in ``config.db``.
 
 Pipeline from YAML → ``load`` → RunSpec; pipeline from Python blocks → ``to_spec`` → RunSpec. Both
 paths go through the same normalisation and :func:`~cranberry.config.resolve.resolve`, so equal
@@ -25,7 +26,14 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from cranberry.config.overlay import apply_overlays, display_ref, find_overlay
+from cranberry.config.overlay import (
+    apply_overlays,
+    check_no_directives,
+    display_ref,
+    expand_extends,
+    find_base,
+    find_overlay,
+)
 from cranberry.config.resolve import find_markers, normalize, path_str, resolve
 from cranberry.config.spec import (
     ConfigError,
@@ -81,27 +89,34 @@ def _overlay_refs(tree: Mapping[str, Any], overlays: Sequence[str | Path]) -> li
 
 def read_input(path_or_dict: str | Path | Mapping[str, Any], overlays: Sequence[str | Path] = ()) -> dict[str, Any]:
     """The input document of a run (``config.input.yaml``): the config as written, with ``overlays``
-    extended by the extra ``overlays`` and every reference made location independent, so that
-    ``load(read_input(x, o)) == load(x, o)``."""
+    extended by the extra ``overlays`` and every reference (``overlays``, ``extends``) made location
+    independent, so that ``load(read_input(x, o)) == load(x, o)``. dB values stay as written."""
     tree, base_dir = _read(path_or_dict)
     refs = [display_ref(find_overlay(r, base_dir)) for r in _overlay_refs(tree, overlays)]
     if refs:
         tree["overlays"] = refs
     else:
         tree.pop("overlays", None)
+    if "extends" in tree:
+        tree["extends"] = display_ref(find_base(tree["extends"], base_dir))
     return tree
 
 
 def load(path_or_dict: str | Path | Mapping[str, Any], overlays: Sequence[str | Path] = ()) -> RunSpec:
-    """Load a YAML file (or an already-parsed mapping), apply ``overlays`` in order (G12), resolve
-    callables, and return the ``RunSpec``.
+    """Load a YAML file (or an already-parsed mapping), apply ``extends`` and ``overlays`` (G12),
+    resolve callables, convert dB parameters to linear (G16-i), and return the ``RunSpec``.
 
-    Overlays: the config's own ``overlays:`` list first, then ``overlays``. Already merged overlays
-    (``applied_overlays:``, written by :func:`dump_yaml`) are only recorded. The preset is the file
-    itself; ``preset:`` is its name (D34: no default file). Sweep markers stay in the spec
-    (``runner.sweep`` expands them); :func:`validate` checks a single-run spec.
+    Order (``config.overlay``): the ``extends:`` base (recursively, its own overlays applied), this
+    file's keys merged on top (``!delete`` / ``!replace`` / ``null`` act on the base), then the
+    config's own ``overlays:`` list, then ``overlays``. Already merged overlays (``applied_overlays:``,
+    written by :func:`dump_yaml`) are only recorded. ``preset:`` is the display name (D34: no default
+    file). Sweep markers stay in the spec (``runner.sweep`` expands them; dB names stay dB until then,
+    ``config.db``); :func:`validate` checks a single-run spec.
     """
     tree, base_dir = _read(path_or_dict)
+    origin = () if base_dir is None or isinstance(path_or_dict, Mapping) else (Path(path_or_dict).resolve(),)
+    tree = expand_extends(tree, base_dir, _stack=origin)
+    check_no_directives(tree, "a config without a base (extends:)")
     refs = _overlay_refs(tree, overlays)
     tree.pop("overlays", None)
     merged, applied = apply_overlays(tree, refs, base_dir)
@@ -146,7 +161,7 @@ def to_spec(
     tree = {
         "preset": preset,
         "run": {"duration_s": run.duration_s, "f_sim_hz": run.f_sim_hz, "chunk_samples": run.chunk_samples,
-                "seed": run.seed},
+                "seed": run.seed, **({"seed_mode": run.seed_mode} if run.seed_mode is not None else {})},
         "topology": dict(topology or {}),
         "offline": dict(offline or {}),
         "pipeline": pipe_obj,

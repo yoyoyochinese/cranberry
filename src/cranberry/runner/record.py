@@ -3,11 +3,16 @@ seed, and commit hash"; PLAN §2.11, prompt §6). Owner: WP-F2.
 
 Layout of ``runs/<UTC time>_<preset>_<spechash8>/`` (``runs/`` is gitignored), file names fixed here.
 
-Typical use by the runner (WP-F1)::
+Use by the runner (``runner.run.run(spec, record_root=...)``, wired in WP-F2b)::
 
-    run_dir = record_run(spec, config_input=read_input(path, overlays))   # before the loop
+    run_dir = record_run(spec, root, config_input=read_input(path, overlays))   # before the loop
     ...
     write_record(run_dir, results={...arrays...}, metrics={...}, tables={...}, ...)  # after
+
+``config.input.yaml`` is the input as written (``extends``/overlays as references, dB values as
+written); ``config.resolved.yaml`` is the spec actually run. They load to the same spec unless the
+run was started with an override (CLI ``--seed``) or is a sweep point, which ``invocation.json``
+then states.
 
 Files are written once (exclusive create): a record is never silently overwritten. A run is
 reproduced from its directory with :func:`load_record` (VT-F4).
@@ -58,6 +63,9 @@ RECORD_FILES: dict[str, str] = {
     "metrics": "metrics.json",
     "loss_registry": "loss_registry.json",
     "band_ledger": "band_ledger.json",
+    # WP-F2b: how the run was started when the resolved config alone does not say it (CLI argv and
+    # overrides such as --seed, the coordinates of a sweep point, the seed mode).
+    "invocation": "invocation.json",
 }
 
 #: Distributions whose versions are listed first in env.json (all installed ones follow).

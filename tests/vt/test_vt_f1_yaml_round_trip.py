@@ -229,6 +229,25 @@ def test_same_seed_bit_identical_results():
     assert not np.array_equal(other["laser.dx1.phi"], r_yaml["laser.dx1.phi"])
 
 
+def test_extends_composition_equals_the_flat_file(tmp_path):
+    """WP-F2b: a config that ``extends`` a base and edits it (merge, ``!delete``, ``!replace``) gives
+    the same spec as the flat file; its dump carries no ``extends`` and reloads to the same spec."""
+    flat = config.load(loads_yaml(YAML))
+    base = YAML.replace("toggles: {env.noise.enabled: false}", "toggles: {laser.noise.enabled: false}")
+    base = base.replace("measure: {esa: {f_s_hz: 3.0e6}}", "measure: {esa: {f_s_hz: 1.0}, old: {x: 1}}")
+    (tmp_path / "base.yaml").write_text(base)
+    child = tmp_path / "child.yaml"
+    child.write_text("extends: ./base.yaml\n"
+                     "toggles: !replace {env.noise.enabled: false}\n"
+                     "measure:\n  esa: {f_s_hz: 3.0e6}\n  old: !delete\n")
+    spec = config.load(child)
+    assert spec == flat and config.spec_hash(spec) == config.spec_hash(flat)
+    text = config.dump_yaml(spec)
+    assert "\nextends:" not in text and config.load(loads_yaml(text)) == flat
+    assert config.load(config.read_input(child)) == flat
+    _assert_identical(_run_spec(spec), _run_spec(flat))
+
+
 def test_unnamed_lambda_cannot_round_trip():
     pipeline = _python_pipeline()
     pipeline[2] = make_vtf1_shaper({"in": "laser.dx1.phi", "out": "v.s1", "offset_rad": 0.0,

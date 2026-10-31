@@ -11,6 +11,15 @@ Tags (names are the contract; presets written by WP-I* use exactly these):
     !fn {name: <registered>, args: {...}}   registered callable (``core.registry.register_fn``) → :class:`Fn`
     !pi_frac <x>          x·π (e.g. setpoints)         → :class:`PiFrac`
 
+Overlay directives (:data:`OVERLAY_TAGS`; only meaningful in an overlay or in a file that
+``extends:`` a base, consumed by ``config.overlay.merge`` and never left in a ``RunSpec``)::
+
+    key: !delete          remove ``key`` from the base mapping (error if the base has no ``key``)
+    - !delete <label>     in a keyed list: remove the element whose ``id``/``name`` is <label>
+    - !delete {name: x}   ... naming the key field explicitly ({id: x} or {name: x})
+    key: !replace {...}   replace the base mapping (or list: !replace [...]) wholesale, no merge
+    - !replace {name: x, ...}   in a keyed list: replace element x wholesale (error if absent)
+
 A single run requires every sweep marker to be resolved to one value (``runner.sweep`` expands them).
 YAML is untrusted input: loading uses a ``yaml.SafeLoader`` subclass; ``!expr`` is evaluated only by
 the restricted evaluator, never by ``eval`` (G12). Duplicate mapping keys are an error, and the
@@ -42,6 +51,10 @@ __all__ = [
     "Expr",
     "Fn",
     "PiFrac",
+    "Delete",
+    "Replace",
+    "OVERLAY_TAGS",
+    "OVERLAY_DIRECTIVES",
     "SWEEP_MARKERS",
     "MAX_NODES",
     "load_yaml",
@@ -51,6 +64,8 @@ __all__ = [
 ]
 
 YAML_TAGS: tuple[str, ...] = ("!sweep", "!sweep_log", "!choice", "!expr", "!fn", "!pi_frac")
+#: Overlay directives (merge-time only; see the module docstring). WP-F2b addition.
+OVERLAY_TAGS: tuple[str, ...] = ("!delete", "!replace")
 
 #: Upper bound on the number of nodes of a loaded document after alias expansion ("billion laughs").
 MAX_NODES = 1_000_000
@@ -153,6 +168,42 @@ class PiFrac:
         if not _is_number(self.x):
             raise ValueError(f"!pi_frac needs a number, got {self.x!r}")
 
+
+@dataclass(frozen=True)
+class Delete:
+    """``!delete``: remove a mapping key (``label`` None) or a keyed-list element.
+
+    Attributes:
+        label: id/name of the list element to remove (None for a mapping key).
+        field: ``"id"`` or ``"name"`` when the element was named explicitly (``!delete {id: s2}``);
+            None = whichever key field the list is keyed by.
+    """
+
+    label: str | None = None
+    field: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.label is not None and not isinstance(self.label, str):
+            raise ValueError(f"!delete label must be a string, got {self.label!r}")
+        if self.field not in (None, "id", "name"):
+            raise ValueError(f"!delete key field must be 'id' or 'name', got {self.field!r}")
+        if self.field is not None and self.label is None:
+            raise ValueError("!delete {id|name: ...} needs a label")
+
+
+@dataclass(frozen=True)
+class Replace:
+    """``!replace <mapping or list>``: replace the base value (or keyed-list element) wholesale."""
+
+    value: Any
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.value, (Mapping, list, tuple)):
+            raise ValueError(f"!replace takes a mapping or a list, got {self.value!r}")
+
+
+#: Merge-time directives (never part of a resolved config).
+OVERLAY_DIRECTIVES = (Delete, Replace)
 
 #: Markers that define sweep axes (expanded by ``runner.sweep``).
 SWEEP_MARKERS = (Sweep, SweepLog, Choice)
@@ -283,6 +334,32 @@ def _construct_pi_frac(loader: _Loader, node: yaml.Node) -> PiFrac:
     return PiFrac(value)
 
 
+def _construct_delete(loader: _Loader, node: yaml.Node) -> Delete:
+    try:
+        if isinstance(node, yaml.ScalarNode):
+            text = loader.construct_scalar(node)
+            return Delete(text if text != "" else None)
+        if isinstance(node, yaml.MappingNode):
+            m = _construct_mapping(loader, node, deep=True)
+            if len(m) != 1 or next(iter(m)) not in ("id", "name"):
+                raise ValueError(f"!delete mapping form is {{id: <label>}} or {{name: <label>}}, got {m!r}")
+            (field_, label), = m.items()
+            return Delete(label, field_)
+        raise ValueError("!delete takes nothing (mapping key), a label, or {id|name: <label>}")
+    except ValueError as e:
+        raise _err(node, str(e)) from None
+
+
+def _construct_replace(loader: _Loader, node: yaml.Node) -> Replace:
+    if isinstance(node, yaml.SequenceNode):
+        return Replace(loader.construct_sequence(node, deep=True))
+    if isinstance(node, yaml.MappingNode):
+        return Replace(_construct_mapping(loader, node, deep=True))
+    raise _err(node, "!replace takes a mapping or a list (a scalar always replaces; write it without the tag)")
+
+
+_Loader.add_constructor("!delete", _construct_delete)
+_Loader.add_constructor("!replace", _construct_replace)
 _Loader.add_constructor("!sweep", _range_marker(Sweep, "!sweep"))
 _Loader.add_constructor("!sweep_log", _range_marker(SweepLog, "!sweep_log"))
 _Loader.add_constructor("!choice", _construct_choice)
@@ -308,6 +385,8 @@ def _check_size(obj: Any, limit: int = MAX_NODES) -> None:
             stack.extend(x.options)
         elif isinstance(x, (Expr, Fn)):
             stack.extend((x.where if isinstance(x, Expr) else x.args).values())
+        elif isinstance(x, Replace):
+            stack.append(x.value)
 
 
 def loads_yaml(text: str) -> Any:
@@ -378,7 +457,21 @@ def _represent_pi_frac(dumper: _Dumper, data: PiFrac) -> yaml.Node:
     return dumper.represent_scalar("!pi_frac", repr(data.x))
 
 
+def _represent_delete(dumper: _Dumper, data: Delete) -> yaml.Node:
+    if data.field is not None:
+        return dumper.represent_mapping("!delete", {data.field: data.label}, flow_style=True)
+    return dumper.represent_scalar("!delete", data.label or "")
+
+
+def _represent_replace(dumper: _Dumper, data: Replace) -> yaml.Node:
+    if isinstance(data.value, Mapping):
+        return dumper.represent_mapping("!replace", dict(data.value))
+    return dumper.represent_sequence("!replace", list(data.value))
+
+
 _Dumper.add_representer(float, _represent_float)
+_Dumper.add_representer(Delete, _represent_delete)
+_Dumper.add_representer(Replace, _represent_replace)
 _Dumper.add_representer(tuple, lambda d, data: d.represent_list(list(data)))
 _Dumper.add_representer(Sweep, _represent_range("!sweep"))
 _Dumper.add_representer(SweepLog, _represent_range("!sweep_log"))
@@ -411,6 +504,10 @@ def _jsonable(obj: Any) -> Any:
         return {"!fn": [obj.name, _jsonable(obj.args)]}
     if isinstance(obj, PiFrac):
         return {"!pi_frac": obj.x}
+    if isinstance(obj, Delete):
+        return {"!delete": [obj.label, obj.field]}
+    if isinstance(obj, Replace):
+        return {"!replace": _jsonable(obj.value)}
     if obj is None or isinstance(obj, (bool, int, float, str)):
         return obj
     raise TypeError(f"not a config value: {type(obj).__name__} {obj!r}")

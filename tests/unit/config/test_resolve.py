@@ -146,3 +146,45 @@ def test_parse_path_round_trips_path_str():
     assert parse_path(tree, "pipeline[1].stack.stages[0].params.x") == ("pipeline", 1, "stack", "stages", 0, "params", "x")
     with pytest.raises(ConfigError):
         parse_path(tree, "pipeline.nope.params")
+
+
+# ------------------------------------------------------------------------------------------ WP-F2b
+
+
+def test_fn_args_may_reference_config_values(blocks):
+    tree = loads_yaml("""
+opo: {L0: 0.25, k_half: 1.5}
+pipeline:
+  - {block: x, name: lock1.pid, params: {kp: 2.0}}
+  - block: x
+    name: sh
+    params:
+      kp_ref: 4.0
+      curve: !fn {name: cfgtest_affine, args: {a: !expr "opo.k_half * 2", b: !expr "opo.L0", mode: "opo.L0"}}
+      other: !fn {name: cfgtest_affine, args: {a: !expr "lock1.pid.params.kp", b: !expr {source: "kp_ref + a0", where: {a0: 1}}}}
+""")
+    out = resolve(tree)
+    curve = out["pipeline"][1]["params"]["curve"]
+    assert curve == Fn("cfgtest_affine", {"a": 3.0, "b": 0.25, "mode": "opo.L0"})  # plain strings stay strings
+    assert out["pipeline"][1]["params"]["other"] == Fn("cfgtest_affine", {"a": 2.0, "b": 5.0})
+    assert as_callable(Fn("cfgtest_affine", {"a": 3.0, "b": 0.25}), ("x",))(2.0) == 6.25
+    assert path_str(tree, ("pipeline", 1, "params", "curve", "args", "b")) == "pipeline.sh.params.curve.args.b"
+    assert parse_path(tree, "pipeline.sh.params.curve.args.b") == ("pipeline", 1, "params", "curve", "args", "b")
+    with pytest.raises(ConfigError, match=r"curve\.args\.a: !expr 'nope': cannot resolve name 'nope'"):
+        resolve({"p": {"curve": Fn("f", {"a": Expr("nope")})}})
+    with pytest.raises(ConfigError, match="circular"):
+        resolve({"p": {"x": Expr("p.f.args.a"), "f": Fn("f", {"a": Expr("p.x")})}})
+
+
+def test_expr_own_where_holds_sweep_markers_and_nested_exprs():
+    tree = loads_yaml("""
+a: {L_m: 8.4}
+b: {L_m: !expr {source: "a.L_m - dL", where: {dL: !sweep [0.0, 15.0, 4]}}}
+c: {L_m: !expr {source: "2 * h", where: {h: !expr "a.L_m / 2"}}}
+""")
+    out = resolve(tree)
+    assert out["c"]["L_m"] == pytest.approx(8.4)  # nested expression resolved first
+    assert out["b"]["L_m"] == Expr("a.L_m - dL", {"dL": Sweep(0.0, 15.0, 4)})  # deferred
+    assert [path_str(out, p) for p, _ in find_markers(out)] == ["b.L_m.where.dL"]
+    out["b"]["L_m"].where["dL"] = 4.4
+    assert resolve(out)["b"]["L_m"] == pytest.approx(4.0)

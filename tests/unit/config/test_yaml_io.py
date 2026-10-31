@@ -124,6 +124,20 @@ def test_single_document_only():
         loads_yaml("a: 1\n---\nb: 2\n")
 
 
+def test_overlay_directive_tags_load_and_round_trip():
+    from cranberry.config.yaml_io import OVERLAY_TAGS, Delete, Replace
+
+    text = "a: !delete\nl: [!delete s2, !delete {name: lock1.pid}, !replace {id: s1, L_m: 2.0}]\nm: !replace [1, 2]\n"
+    obj = loads_yaml(text)
+    assert obj == {"a": Delete(), "l": [Delete("s2"), Delete("lock1.pid", "name"), Replace({"id": "s1", "L_m": 2.0})],
+                   "m": Replace([1, 2])}
+    text2 = dump_yaml_obj(obj)
+    assert all(tag in text2 for tag in OVERLAY_TAGS) and loads_yaml(text2) == obj
+    for bad in ("a: !delete {key: x}\n", "a: !delete {id: x, name: y}\n", "a: !replace 1\n"):
+        with pytest.raises(yaml.YAMLError):
+            loads_yaml(bad)
+
+
 def test_canonical_json_key_order_independent():
     assert canonical_json({"a": 1, "b": Sweep(0, 1)}) == canonical_json({"b": Sweep(0, 1), "a": 1})
     with pytest.raises(TypeError):

@@ -82,3 +82,34 @@ def test_cli_loads_validates_and_delegates(tmp_path, capsys):
     bad.write_text("preset: x\n")
     assert cli.main(["run", str(bad)]) == 2
     assert "missing required section" in capsys.readouterr().err
+
+
+def test_cli_writes_records_only_with_out(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(CFG)
+    assert cli.main(["run", str(cfg)]) == 0
+    assert list(tmp_path.iterdir()) == [cfg]  # D34: no silent default directory
+    out = tmp_path / "records"
+    assert cli.main(["run", str(cfg), "--seed", "5", "--out", str(out)]) == 0
+    (run_dir,) = out.iterdir()
+    inv = json.loads((run_dir / "invocation.json").read_text())
+    assert inv["overrides"] == {"run.seed": 5} and inv["argv"][0] == "run"
+    assert record.load_record(run_dir).run.seed == 5
+    assert config.load(run_dir / "config.input.yaml").run.seed == 2  # the input as written
+    # sweep: one record per point; seed_mode is required once there is an axis
+    swept = tmp_path / "s.yaml"
+    swept.write_text(CFG.replace("sigma: 1.0", "sigma: !choice [1.0, 2.0]"))
+    assert cli.main(["sweep", str(swept), "--out", str(tmp_path / "sw")]) == 2
+    assert "seed_mode is required" in capsys.readouterr().err
+    swept.write_text(swept.read_text().replace("seed: 2}", "seed: 2, seed_mode: common}"))
+    assert cli.main(["sweep", str(swept), "--out", str(tmp_path / "sw")]) == 0
+    dirs = sorted((tmp_path / "sw").iterdir())
+    assert len(dirs) == 2
+    assert [json.loads((d / "invocation.json").read_text())["sweep_point"] for d in dirs] in (
+        [{"pipeline.n1.params.sigma": 1.0}, {"pipeline.n1.params.sigma": 2.0}],
+        [{"pipeline.n1.params.sigma": 2.0}, {"pipeline.n1.params.sigma": 1.0}],
+    )
+    assert {json.loads((d / "seeds.json").read_text())["root"] for d in dirs} == {2}  # common seed
+    with pytest.raises(SystemExit):  # --out only for run / sweep
+        cli.main(["ablate", str(cfg), "--out", str(out)])

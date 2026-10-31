@@ -7,17 +7,22 @@ independent of ``chunk_samples`` (VT-F2).
 
 Minimal path implemented by WP-F1 (wave 1):
 
-1. ``spec`` is a resolved ``RunSpec`` (a path / mapping is passed to ``config.load``, WP-F2).
-2. ``RunSpec.toggles`` overrides are written into the leaf specs (``apply_toggle_overrides``).
-3. ``build`` on a fresh ``SlotLayout(run.f_sim_hz)`` with root seed ``run.seed``; when recording is
+1. ``spec`` is a resolved ``RunSpec`` (a path / mapping is passed to ``config.load``, WP-F2) and is
+   checked with ``config.validate`` (D34: no sweep axes left, unique names, every block builds).
+2. ``RunSpec.toggles`` overrides are written into the leaf specs (``config.apply_toggles``).
+3. With ``record_root``, the run directory is created and the config / seeds / git / env parts are
+   written before the loop (``runner.record.record_run``; WP-F2b).
+4. ``build`` on a fresh ``SlotLayout(run.f_sim_hz)`` with root seed ``run.seed``; when recording is
    requested, a :class:`Recorder` leaf is appended after the pipeline.
-4. The time loop runs ``run.n_samples`` samples in chunks of ``run.chunk_samples`` (compiled loop
+5. The time loop runs ``run.n_samples`` samples in chunks of ``run.chunk_samples`` (compiled loop
    when every leaf has a kernel, else the pure-Python reference; ``mode`` selects explicitly).
    After each chunk the recorder buffer is harvested.
-5. ``RunResult`` with the recorded series, seeds and the final state.
+6. ``RunResult`` with the recorded series, seeds and the final state; with ``record_root`` the
+   results (``results.npz``: every recorded series + ``t_s``) are added to the run directory.
 
-Not yet wired (later WPs): the offline stage and tables (WP-F3), metrics / PSDs (WP-F4), the run
-directory record (WP-F2 ``runner.record``).
+Not yet wired (later WPs): the offline stage and tables (WP-F3), metrics / PSDs (WP-F4). Their record
+parts have hooks in :func:`_write_results` (``metrics``, ``tables``, ``loss_registry``,
+``band_ledger``).
 
 Recording (``RunSpec.measure["record"]``, optional; without it no series are recorded)::
 
@@ -210,17 +215,46 @@ def _as_runspec(spec: Any) -> RunSpec:
     return config.load(spec)  # WP-F2 (raises NotImplementedError until it lands)
 
 
-def run(spec: RunSpec | str | Path | Mapping[str, Any], *, mode: str = "auto", keep_state: bool = True) -> RunResult:
+def _write_results(run_dir: Path, result: RunResult) -> None:
+    """Add the results of ``result`` to its run directory (after the loop)."""
+    from cranberry.runner.record import write_record
+
+    parts: dict[str, Any] = {"results": {**result.series, "t_s": result.t_s}}
+    # Hooks for later WPs: they fill RunResult (or pass the objects here) and the parts follow.
+    if result.metrics is not None:  # WP-F4: metrics (i)/(ii), PSDs
+        parts["metrics"] = result.metrics
+    if result.table_hashes:  # WP-F3: offline tables used
+        parts["tables"] = dict(result.table_hashes)
+    # WP-F3: parts["loss_registry"] = <LossRegistry>, parts["band_ledger"] = <BandLedger> (to_json())
+    write_record(run_dir, **parts)
+
+
+def run(
+    spec: RunSpec | str | Path | Mapping[str, Any],
+    *,
+    mode: str = "auto",
+    keep_state: bool = True,
+    record_root: str | Path | None = None,
+    config_input: Any = None,
+    invocation: Mapping[str, Any] | None = None,
+) -> RunResult:
     """Run one fully resolved configuration (no sweep markers left).
 
     Args:
         spec: a ``RunSpec``; a path or mapping is loaded with ``config.load`` (WP-F2).
         mode: "auto" (compiled if every leaf has a kernel, else reference), "compiled", "reference".
         keep_state: store the final State in ``RunResult.final_state``.
+        record_root: write a run record under this directory (``runs/<UTC>_<preset>_<hash8>/``,
+            ``runner.record``); None (default) writes nothing (D34: no silent default directory).
+        config_input: the input document for ``config.input.yaml`` (``config.read_input(...)``);
+            None → read from ``spec`` when it is a path / mapping, else the spec itself.
+        invocation: extra context for ``invocation.json`` (CLI argv, overrides, sweep point).
     """
+    from cranberry import config
+    from cranberry.config.spec import RunSpec, apply_toggles
     from cranberry.core.compile import compile_loop, is_compilable, run_compiled, run_reference
     from cranberry.core.layout import SlotLayout
-    from cranberry.core.pipeline import Seq, apply_toggle_overrides, build, from_spec, iter_leaves
+    from cranberry.core.pipeline import Seq, build, from_spec, iter_leaves
     from cranberry.core.registry import ensure_loaded
     from cranberry.core.rng import root_seed_sequence, stream_key
     from cranberry.core.state import Params, State
@@ -230,8 +264,18 @@ def run(spec: RunSpec | str | Path | Mapping[str, Any], *, mode: str = "auto", k
     rs = _as_runspec(spec)
     settings = rs.run
     ensure_loaded()
+    config.validate(rs)
 
-    pipeline_spec = apply_toggle_overrides(rs.pipeline, rs.toggles)
+    run_dir: Path | None = None
+    if record_root is not None:
+        from cranberry.runner.record import record_run
+
+        if config_input is None and not isinstance(spec, RunSpec):
+            config_input = config.read_input(spec)
+        run_dir = record_run(rs, Path(record_root), config_input=config_input,
+                             **({"invocation": dict(invocation)} if invocation else {}))
+
+    pipeline_spec = apply_toggles(rs.pipeline, rs.toggles)
     root = from_spec(pipeline_spec)
     rec_cfg = (rs.measure or {}).get("record")
     recorder = None
@@ -273,12 +317,15 @@ def run(spec: RunSpec | str | Path | Mapping[str, Any], *, mode: str = "auto", k
     root_ss = root_seed_sequence(settings.seed)
     seeds: dict[str, Any] = {"root": root_ss.entropy}
     seeds.update({leaf.name: list(stream_key(leaf.name)) for leaf in iter_leaves(block) if leaf is not recorder})
-    return RunResult(
+    result = RunResult(
         spec=rs,
-        run_dir=None,
+        run_dir=run_dir,
         t_s=t_s,
         series=series,
         seeds=seeds,
         final_state=state if keep_state else None,
         mode="compiled" if compiled else "reference",
     )
+    if run_dir is not None:
+        _write_results(run_dir, result)
+    return result
