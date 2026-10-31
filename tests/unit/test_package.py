@@ -50,15 +50,21 @@ def test_cli_validates_arguments(tmp_path, capsys):
 
 
 @pytest.mark.parametrize(
-    ("cmd", "wp"), [("ablate", "WP-F"), ("decompose", "WP-F4"), ("convergence", "WP-F4")]
+    ("cmd", "missing"), [("ablate", None), ("decompose", "measure.decompose"), ("convergence", "quantities")]
 )
-def test_cli_delegates_and_names_wp(tmp_path, cmd, wp):
+def test_cli_delegates(tmp_path, cmd, missing):
     # WP-F2: the CLI now loads and validates the config; an incomplete one exits with status 2
     bad = tmp_path / "refD.yaml"
     bad.write_text("preset: refD\n")
     assert cli.main([cmd, str(bad)]) == 2
     good = tmp_path / "ok.yaml"
-    good.write_text("preset: ok\nrun: {duration_s: 1.0, f_sim_hz: 1.0e3, chunk_samples: 8, seed: 0}\npipeline: []\n")
-    # run/sweep are implemented (WP-F1/F2) and tested in tests/unit/config/test_record_cli.py
-    with pytest.raises(NotImplementedError, match=wp):
-        cli.main([cmd, str(good)])
+    good.write_text("preset: ok\nrun: {duration_s: 1.0e-2, f_sim_hz: 1.0e3, chunk_samples: 8, seed: 0}\n"
+                    "pipeline: [{block: tap, name: t, params: {tap_ratio: 0.1, p_probe_w: 1.0e-3, out: v.tap, "
+                    "segment: s, applies_to: [gbs], source: test, toggles: {enabled: true}}}]\n")
+    # run/sweep are implemented (WP-F1/F2) and tested in tests/unit/config/test_record_cli.py;
+    # ablate/decompose/convergence (WP-F4) delegate to the runner, which asks for its D34 settings
+    if missing is None:
+        assert cli.main([cmd, str(good)]) == 0
+    else:
+        with pytest.raises(KeyError, match=missing):
+            cli.main([cmd, str(good)])
