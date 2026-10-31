@@ -191,6 +191,7 @@ offline:
     qnl_c: !expr "1 + 10 ** (-clearance_db / 10)"
     qnl_p_mean: !expr "qnl_c * (f2_hz - f1_hz) + qnl_k * qnl_fh * (qnl_I1 - qnl_I2)"
     qnl_p_delta: !expr "qnl_k * qnl_fh * (qnl_I1 + qnl_I2)"
+    qnl_p_dark: !expr "10 ** (-clearance_db / 10) * (f2_hz - f1_hz)"   # ∫|H|²S_el df (flat |H| = 1): the part of p_mean not modulated by LO RAM (D66-4)
     qnl_q0: !expr "qnl_c**2 * (f2_hz - f1_hz) + 2 * qnl_c * qnl_k * qnl_fh * (qnl_I1 - qnl_I2) + qnl_k**2 * qnl_fh * (qnl_J11 - 2 * qnl_J12 + qnl_J22)"
     qnl_q1: !expr "-2 * qnl_c * qnl_k * qnl_fh * (qnl_I1 + qnl_I2) - 2 * qnl_k**2 * qnl_fh * (qnl_J11 - qnl_J22)"
     qnl_q2: !expr "qnl_k**2 * qnl_fh * (qnl_J11 + 2 * qnl_J12 + qnl_J22)"
@@ -415,6 +416,7 @@ pipeline:
       phi_opa_rad: !pi_frac -1.0         # Δ = φ_LO − θ_sq (header)
       p_mean: !expr "offline.params.qnl_p_mean"
       p_delta: !expr "offline.params.qnl_p_delta"
+      p_dark: !expr "offline.params.qnl_p_dark"
       q0: !expr "offline.params.qnl_q0"
       q1: !expr "offline.params.qnl_q1"
       q2: !expr "offline.params.qnl_q2"
