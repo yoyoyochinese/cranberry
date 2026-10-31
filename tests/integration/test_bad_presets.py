@@ -50,10 +50,12 @@ def test_every_bad_preset_states_what_it_demonstrates():
 def test_mw_same_polarization_probe_floods_the_squeezed_mode(built):
     base, mw = built(fs.nominal("F_liu20")), built(bad("bad_mw_probe_samepol"))
     s0, s1 = fs.stray_light(base), fs.stray_light(mw)
-    # 1 µW orthogonal (ε_pol = ε_xt + T_⊥ = 2e−3) → 1 mW same polarization: ×1e3 power × 500 polarization
-    assert s1["photons_per_mode"] / s0["photons_per_mode"] == pytest.approx(1e3 / 2e-3, rel=0.05)
+    # P̄ orthogonal (ε_pol = ε_xt + T_⊥ = 2e−3; nominal 1 nW, M6-03) → 1 mW same polarization: × power × 500 polarization
+    gain = fs.params(mw)["p_pr_avg_w"] / fs.params(base)["p_pr_avg_w"]
+    assert s1["photons_per_mode"] / s0["photons_per_mode"] == pytest.approx(gain / 2e-3, rel=0.05)
     assert s1["photons_per_mode"] > 1e3              # T17 §6: ≈ 435 per OPO mode at 63 m; ×20 length here
     assert "sbs_gain" in fs.chk_codes(mw)            # 10 mW peak in 1.27 km (T07 §5.1)
+    assert "stray_light_limit" in fs.chk_codes(mw)   # ≫ T17's 5.8e−4 per mode (M6-03 CHK)
 
 
 def test_switch_tree_and_all_fibre_losses(built):
@@ -141,9 +143,9 @@ def test_copropagating_probe_gawbs(built):
 DRIFT_RUN = {"f_sim_hz": 1.0e5}
 DRIFT_P = {"latency_s": 1.0e-5, "tec_rate_div": 1000, "tau_th_spool_s": 1.0}
 QUIET = {"laser.fm_white": False, "env.mech.ports.mech": False, "env.mech.lo.mech": False, "env.mech.dist.mech": False,
-         "env.mech.fs_lock.mech": False, "env.mech.fs_sq.mech": False, "dmx0.drive_phase_noise": False,
-         "dmx1.drive_phase_noise": False, "dmx0.bias_drift": False, "dmx1.bias_drift": False,
-         "opo.noise.length_noise": False}
+         "env.mech.fs_lock.mech": False, "env.mech.fs_sq.mech": False, "dmxsw.drive_phase_noise": False,
+         "dmxsw.bias_drift": False, "opo.noise.length_noise": False, "env.thermal.dist.drift": False,
+         "env.thermal.dist0.drift": False, "env.thermal.dist1.drift": False}
 
 
 def drift_run(preset, overlays=(), duration=3.0, params=None):

@@ -149,7 +149,7 @@ class Recorder(BaseBlock):
     def __call__(self, state, params):
         r = state.n
         if r < self.n_rows:
-            state[self.buf][r] = [float(state[s]) for s in self.params["ins"]]
+            state[self.buf][r] = [np.asarray(state[s]).item() for s in self.params["ins"]]  # scalar or 1-element slot
         return state
 
     def series(self, state) -> dict[str, np.ndarray]:

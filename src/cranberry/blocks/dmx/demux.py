@@ -20,7 +20,16 @@ WP-B8; T11 (``notes/time-demux-switch.md``), D08, D39, D51-6; PLAN §4.3 DMX / C
     T[k′, k] is the power of the slot targeted at port k that reaches port k′. In port k′ it arrives
     (j − j_target(k′))·T_rep away from the target bin, never in it (T11 §3.3): for gated detection the
     leak is a pure loss of the target mode and the leaked light is a stray-light output in non-target
-    bins (``leak_in`` = Σ_{k≠k′} T[k′, k], photons per frame = leak_in·sinh²r for equal slots).
+    bins. ``leak_in`` [k′] = light per frame in port k′'s non-target bins, in units of one slot (photons
+    per frame = leak_in·sinh²r for equal slots; M4-04):
+
+        leak_in[k′] = N_b · Σ_{k≠k′} T[k′, k]  +  n_guard · Σ_k T[k′, k]
+
+    The second term is the guard slots (n_guard·K pulses per frame that no port targets; M4 review
+    script 1(c): 11× the data leak for N_b = 3, n_guard = 1, ε = 0.01). Their routing is set by the switch
+    state at the edge; the worst case taken here is the state of the next block (the edge has already
+    moved), so the guard pulse after block k goes through the network like a slot targeted at the next
+    port, and Σ over the guard pulses of a frame is the full row Σ_k T[k′, k].
     ``switching: passive`` (Liu / Borealis delay loops, D39 (c)): no active stage, ε = 0, no
     feasibility check; t is the per-mode interferometer transmission. ``ln_fiber_tree`` / ``pockels_*``
     are presets of these values (PLAN §4.3), not code paths.
@@ -29,23 +38,39 @@ WP-B8; T11 (``notes/time-demux-switch.md``), D08, D39, D51-6; PLAN §4.3 DMX / C
     gap between two settings, (1 + n_guard)·T_rep (code ``demux_rise_time``), and the first stage toggles
     at f_rep/(2(N_b + n_guard)) ≤ f_tog,max (``demux_toggle_rate``).
 
-``demux_switch`` (time loop, port k's stages; T11 §3.5)
-    ψ_sw = Σ_s κ_pm (π δV_s/V_π + δΓ_b,s), written to ``act.<name>.dpsi`` and the segment driver
-    ``drv.<segment>.<driver>`` (the demux segment of the squeezed path; θ_sq → θ_sq + ψ_sw).
-    Bias δΓ_b,s = ``bias_offset_rad`` + random walk (σ_rw [rad/√s]) per stage (toggle ``bias_drift``);
-    it also writes the pass transmission Π_s cos²(δΓ_s/2) (δΓ_s = π δV_s/V_π + δΓ_b,s; the drive noise
-    enters at 2nd order) → ``pow.<name>.trans`` and the extra leak 1 − trans → ``leak.<name>.frac``.
-    Drive noise (toggle ``drive_phase_noise``): the port samples the drive once per frame T_F, so the
-    part above 1/(2T_F) aliases into pulse-to-pulse white jitter σ² = S·κ²π²⟨δV²⟩/V_π² (S stages).
+``demux_switch`` (time loop, the switch network of the represented ports; T11 §3.5, M4-01)
+    One block for all represented ports (e.g. reference port 0 + port k, G13). Port k's phase
+    ψ_sw,k = Σ_{s ∈ path(k)} κ_pm (π δV_{k,s}/V_π + δΓ_b,s) is written to ``act.<name>.dpsi[q]`` and to its
+    segment driver ``drv.<segment>.<driver>`` (the demux segment of that port's squeezed path; θ_sq → θ_sq + ψ_sw).
+    The switches are physical (:func:`switch_paths`): in a tree, port k passes the switch (d, k >> (S − d + 1))
+    at each depth d; in a chain, stages 1…k + 1. The common phase (the κ_pm term) of a switch is the same on
+    both outputs (MZM and PC + PBS alike, M4 review §5), so its slow bias drift is ONE state per physical
+    switch, shared by every port whose address path passes it; it cancels in Θ_k = θ_k − θ_0 for the shared
+    upper stages (the passage times differ by k·T_rep, short against the drift). With K = 32 the Θ_k bias
+    variance is 2(S − m)κ²σ_rw²t (m shared switches): 0 for port 1, 2 for ports 2–3, 8 for ports 16–31
+    (independent per-port walks would give 10 for every port).
+    Bias δΓ_b,s = ``bias_offset_rad`` + random walk (σ_rw [rad/√s]) per switch (toggle ``bias_drift``);
+    the block also writes each port's pass transmission Π_{s∈path} cos²(δΓ_s/2) (δΓ_s = π δV_s/V_π + δΓ_b,s;
+    the drive noise enters at 2nd order) → ``pow.<name>.trans[q]`` and the extra leak 1 − trans →
+    ``leak.<name>.frac[q]``. These two are **diagnostic records only** (M4-07): no block reads them, so the
+    time-varying bias loss is not in η_k (the LossRegistry is static) nor in the stray-light output (the
+    leak to other ports is ``demux_design``'s static ε). A static bias error belongs in ``demux_design``'s
+    ``t_stage`` / ER; a drift large enough to matter shows up here as trans < 1 in the record.
+    Drive noise (toggle ``drive_phase_noise``): each port samples the drive at its own pulses, once per
+    frame T_F, so the part above 1/(2T_F) aliases into pulse-to-pulse white jitter σ² = S_k·κ²π²⟨δV²⟩/V_π²
+    (S_k stages), independent per port and stage even on shared switches (different sampling times).
     ``drive_noise_mode: timeseries`` writes one white sample per block step (run the block at the
-    frame rate, ``rate_div``); ``declared`` writes none and declares σ² as out-of-band variance
-    (``bands()``, added once by the ledger; G05). The random-walk part above the block Nyquist
-    (κ²σ_rw²/(2π² f_N)) is declared in both modes.
+    frame rate, ``rate_div``); ``declared`` writes none and declares σ_k² as out-of-band variance on each
+    port segment (``bands()``, added once by the ledger; G05). The bias random walk declares nothing
+    above the block Nyquist frequency (M4-07 (b): the pulses read the walk at the samples).
 
 ``delay_line_k`` (port k's delay fiber; T11 §3.6, D51-6)
-    Timing error relative to the design, written to ``timing.<name>.dt`` [s]:
-    δt_k = δτ_k (``static_mismatch``) + κ_T L_k ⟨ΔT⟩ (``delay_thermal``; mean of the ``in_dT`` slot) +
-    k (N_b + n_guard) T_rep (δT_rep/T_rep) (``rep_rate_drift``, T11 §3.4).
+    Timing error relative to the design, written to ``timing.<name>.dt`` [s] (+ = arrives late):
+    δt_k = δτ_k (``static_mismatch``) + κ_T L_k ⟨ΔT⟩ (``delay_thermal``; mean of the ``in_dT`` slot) −
+    k (N_b + n_guard) T_rep (δT_rep/T_rep) (``rep_rate_drift``, T11 §3.4). The sign of the last term
+    (M4-02): when T_rep grows, the pulse of port k leaves k(N_b + n_guard)·δT_rep earlier than its target
+    time relative to port 0's (slot σ(k) = K − 1 − k) and crosses a fixed delay, so it arrives EARLY
+    (100 MHz, δT/T = 1e−6: port 31 vs port 0 = −310 fs).
     δL_k (dispersion length mismatch, D51-6) is kept apart from δτ_k: GDD mismatch β2·δL_k
     (:attr:`DelayLineK.gdd_mismatch_s2`) for the overlap tables (T03 / WP-B11). Fiber attenuation of
     L_k is registered on ``segment`` (``fiber_loss``; turn it off when B10's quantum map already
@@ -76,8 +101,8 @@ from cranberry.offline.loss_registry import LossElement
 from cranberry.offline.tables import Table, TableCache
 from cranberry.path.topology import C_M_PER_S
 
-__all__ = ["LAYOUTS", "SWITCHINGS", "DESIGN_COLUMNS", "port_length_m", "stage_counts", "transfer_matrix", "edge_leak",
-           "gaussian_overlap", "DemuxDesign", "DemuxSwitch", "DelayLineK", "make_demux_design", "make_demux_switch",
+__all__ = ["LAYOUTS", "SWITCHINGS", "DESIGN_COLUMNS", "port_length_m", "stage_counts", "transfer_matrix", "switch_paths",
+           "edge_leak", "gaussian_overlap", "DemuxDesign", "DemuxSwitch", "DelayLineK", "make_demux_design", "make_demux_switch",
            "make_delay_line_k"]
 
 LAYOUTS = ("tree", "chain")
@@ -213,10 +238,14 @@ class DemuxDesign(BaseBlock):
         k = np.arange(self.K)
         L = port_length_m(k, **{x: p[x] for x in _DELAY_KEYS})
         T = self.matrix()
-        n = stage_counts(self.K, p["layout"]) if self._toggles["enabled"] else np.zeros(self.K, dtype=int)
+        on = self._toggles["enabled"]
+        n = stage_counts(self.K, p["layout"]) if on else np.zeros(self.K, dtype=int)
+        row = T.sum(axis=1)
+        # per frame, units of one slot: N_b data slots per block + the guard slots (module docstring, M4-04)
+        leak = int(p["N_b"]) * (row - np.diag(T)) + (int(p["n_guard"]) * row if on else 0.0)
         return {"L_m": L, "tau_s": float(p["n_g"]) * L / C_M_PER_S, "n_stages": n.astype(float),
                 "eta_sw": np.diag(T).copy(), "eta_fiber": 10.0 ** (-float(p["alpha_db_per_m"]) * L / 10.0),
-                "leak_in": T.sum(axis=1) - np.diag(T), "gdd_s2": n * float(p["stage_gdd_s2"])}
+                "leak_in": leak, "gdd_s2": n * float(p["stage_gdd_s2"])}
 
     def tables(self, cache: TableCache | None = None) -> dict[str, Table]:
         def build():
@@ -253,28 +282,51 @@ class DemuxDesign(BaseBlock):
 
 # --- demux_switch ------------------------------------------------------------------------------------
 
+def switch_paths(K: int, layout: str, ports) -> tuple[list[tuple], list[list[int]]]:  # noqa: N803
+    """Physical switches on the address paths of ``ports`` (M4-01): (switch ids, per port the indices into them).
+
+    tree: the switch at depth d = 1…S on port k's path is (d, k >> (S − d + 1)) (depth 1 = most significant
+    address bit). Ports k and k′ share every switch above the depth of their highest differing bit, and that
+    switch too (it sends one to each output): ports 0 and 1 share all S switches, ports 0 and 2–3 the top S − 1,
+    ports 0 and 16–31 (K = 32) only the first. chain: stages s = 1…min(k + 1, K − 1) (every port passes the
+    stages before its own exit, so all ports share stage 1)."""
+    n = stage_counts(K, layout)
+    S = int(n[0]) if layout == "tree" else 0
+    ids: list[tuple] = []
+    paths: list[list[int]] = []
+    for k in ports:
+        sw = [(d, k >> (S - d + 1)) for d in range(1, S + 1)] if layout == "tree" else [(s,) for s in range(1, int(n[k]) + 1)]
+        for w in sw:
+            if w not in ids:
+                ids.append(w)
+        paths.append([ids.index(w) for w in sw])
+    return ids, paths
+
+
 def _make_switch_step(write):
-    def step(S, I, P, i_out, i_bias, i_tr, i_lk, ns, pk, pvpi, pdv, pb0, prw, sqh, on, bias_on, dn_ts,  # noqa: N803, E741
-             buf, idx, d_off, d_n, d_lo, d_hi, d_ring, d_head, d_scale):
-        psi, tr = 0.0, 1.0
-        if on:
-            for s in range(ns):
-                g = 0.0
-                if bias_on:
-                    r = S[i_bias + s] + P[prw] * sqh * S[buf + I[idx]]
-                    I[idx] += 1
-                    S[i_bias + s] = r
-                    g = P[pb0] + r
-                if dn_ts:
-                    g += math.pi * P[pdv] / P[pvpi] * S[buf + I[idx]]
-                    I[idx] += 1
-                psi += P[pk] * g  # g = δΓ_s = π δV/V_π + δΓ_b (T11 §3.5)
-                c = math.cos(0.5 * g)  # pass transmission cos²(δΓ/2); drive noise enters at 2nd order
-                tr *= c * c
-        S[i_out] = psi
-        S[i_tr] = tr
-        S[i_lk] = 1.0 - tr
-        write(S, I, d_off, d_n, d_lo, d_hi, d_ring, d_head, d_scale, psi)
+    def step(S, I, P, i_out, i_bias, i_tr, i_lk, n_ports, n_sw, path, ptr, pk, pvpi, pdv, pb0, prw, sqh, on,  # noqa: N803, E741
+             bias_on, dn_ts, buf, idx, d_off, d_n, d_lo, d_hi, d_ring, d_head, d_scale):
+        if on and bias_on:
+            for w in range(n_sw):  # one random walk per physical switch, shared by every port that passes it
+                S[i_bias + w] += P[prw] * sqh * S[buf + I[idx]]
+                I[idx] += 1
+        for q in range(n_ports):
+            psi, tr = 0.0, 1.0
+            if on:
+                for j in range(ptr[q], ptr[q + 1]):
+                    g = 0.0
+                    if bias_on:
+                        g = P[pb0] + S[i_bias + path[j]]
+                    if dn_ts:  # drive noise: sampled at the port's own pulse times → independent per port and stage
+                        g += math.pi * P[pdv] / P[pvpi] * S[buf + I[idx]]
+                        I[idx] += 1
+                    psi += P[pk] * g  # g = δΓ_s = π δV/V_π + δΓ_b (T11 §3.5)
+                    c = math.cos(0.5 * g)  # pass transmission cos²(δΓ/2); drive noise enters at 2nd order
+                    tr *= c * c
+            S[i_out + q] = psi
+            S[i_tr + q] = tr
+            S[i_lk + q] = 1.0 - tr
+            write(S, I, d_off[q], d_n[q], d_lo[q], d_hi[q], d_ring[q], d_head[q], d_scale[q], psi)
 
     return step
 
@@ -282,11 +334,14 @@ def _make_switch_step(write):
 class DemuxSwitch(KitBlock):
     """``demux_switch`` (module docstring).
 
-    Params (required, D34): ``segment``, ``driver``, ``n_sub``, ``sub``, ``ring_len`` (segment driver),
-    ``n_stages`` (port k's stages, from the design table), ``drive_noise_mode`` (timeseries | declared);
-    runtime ``kappa_pm``, ``v_pi_v``, ``drive_noise_v_rms``, ``bias_offset_rad``, ``bias_rw_rad_per_rts``.
-    Toggles: ``enabled`` (off ⇒ ψ = 0, trans 1, leak 0), ``drive_phase_noise``, ``bias_drift``.
-    ``bands()`` uses the spec values (noise magnitudes are not changed while running, D57-5).
+    Params (required, D34): ``K``, ``layout`` (tree | chain), ``ports`` (list of {``port`` (address k),
+    ``segment``, ``driver``, ``n_sub``, ``sub``, ``ring_len``}: the represented ports and their demux segment
+    drivers), ``drive_noise_mode`` (timeseries | declared); runtime ``kappa_pm``, ``v_pi_v``,
+    ``drive_noise_v_rms``, ``bias_offset_rad``, ``bias_rw_rad_per_rts``. Toggles: ``enabled`` (off ⇒ ψ = 0,
+    trans 1, leak 0), ``drive_phase_noise``, ``bias_drift``. Slots (index q = position in ``ports``):
+    ``act.<name>.dpsi`` / ``pow.<name>.trans`` / ``leak.<name>.frac`` of shape (n_ports,),
+    ``act.<name>.bias`` of shape (n_switches,) (order :attr:`switch_ids`). ``bands()`` uses the spec values
+    (noise magnitudes are not changed while running, D57-5).
     """
 
     KIND = "demux_switch"
@@ -297,62 +352,83 @@ class DemuxSwitch(KitBlock):
 
     def __init__(self, params: Mapping[str, Any], name: str | None):
         name = name or self.KIND
-        require(params, "n_stages", "drive_noise_mode", block=name)
-        if params["drive_noise_mode"] not in ("timeseries", "declared") or int(params["n_stages"]) < 1:
-            raise ValueError(f"block {name!r}: drive_noise_mode must be 'timeseries' | 'declared', n_stages >= 1")
-        self.drv = DrvTarget(params, name, "rad", split=True)
-        self.ns = int(params["n_stages"])
+        require(params, "K", "layout", "ports", "drive_noise_mode", block=name)
+        if params["drive_noise_mode"] not in ("timeseries", "declared") or params["layout"] not in LAYOUTS:
+            raise ValueError(f"block {name!r}: drive_noise_mode must be 'timeseries' | 'declared', layout one of {LAYOUTS}")
+        K, ports = int(params["K"]), list(params["ports"])
+        for i, e in enumerate(ports):
+            require(e, "port", *DrvTarget.KEYS, block=f"{name}.ports[{i}]")
+        addr = [int(e["port"]) for e in ports]
+        if not ports or len(set(addr)) != len(addr) or any(not 0 <= k < K for k in addr):
+            raise ValueError(f"block {name!r}: ports must list distinct addresses in [0, K), got {addr}")
+        self.switch_ids, self.paths = switch_paths(K, params["layout"], addr)
+        self.n_stages = [len(p) for p in self.paths]
+        if min(self.n_stages) < 1:
+            raise ValueError(f"block {name!r}: every port must pass at least one switch (K = {K})")
+        self.ports = addr
+        self.drvs = [DrvTarget(e, name, "rad", split=True) for e in ports]
         self.a = {k: f"{g}.{name}.{k}" for g, k in (("act", "dpsi"), ("act", "bias"), ("pow", "trans"), ("leak", "frac"))}
-        super().__init__(params, name, reads=(), writes=(*self.a.values(), self.drv.slot), runtime=self.RUNTIME)
+        super().__init__(params, name, reads=(), writes=(*self.a.values(), *(d.slot for d in self.drvs)),
+                         runtime=self.RUNTIME)
         tg = self.toggles
         self._bias = tg["enabled"] and tg["bias_drift"]
         self._dn_ts = tg["enabled"] and tg["drive_phase_noise"] and params["drive_noise_mode"] == "timeseries"
         self._h = None
 
     def init(self, layout, rng):
-        self.drv.check_rate(self.rate_div)
+        for d in self.drvs:
+            d.check_rate(self.rate_div)
         super().init(layout, rng)
         self._h = self.h
-        per = self.ns * (int(self._bias) + int(self._dn_ts))
+        per = len(self.switch_ids) * int(self._bias) + sum(self.n_stages) * int(self._dn_ts)
         self.draws = DrawBuffer(self.name, per, "standard_normal") if per else None
         if self.draws is not None:
             self.draws.init(layout, rng, self.rate_div)
             self.writes = (*self.writes, *self.draws.slot_names)
 
     def slots(self):
-        a = self.a
-        return [(a["dpsi"], (), np.float64, "rad", 0, 0.0), (a["bias"], (self.ns,), np.float64, "rad", 0, 0.0),
-                (a["trans"], (), np.float64, "1", 0, 1.0), (a["frac"], (), np.float64, "1", 0, 0.0), self.drv.slot_def()]
+        a, n = self.a, len(self.ports)
+        return [(a["dpsi"], (n,), np.float64, "rad", 0, 0.0),
+                (a["bias"], (len(self.switch_ids),), np.float64, "rad", 0, 0.0),
+                (a["trans"], (n,), np.float64, "1", 0, 1.0), (a["frac"], (n,), np.float64, "1", 0, 0.0),
+                *(d.slot_def() for d in self.drvs)]
 
     def make_args(self, layout):
         d = self.draws
         if d is not None:
             d.bind(layout)
+        path = np.array([w for p in self.paths for w in p], dtype=np.int64)
+        ptr = np.cumsum([0, *self.n_stages]).astype(np.int64)
+        da = [t.args(layout) for t in self.drvs]  # (off, n_sub, lo, hi, ring_len, head, scale) per port
+        cols = [np.array([x[j] for x in da], dtype=np.int64) for j in range(6)]
+        cols.append(np.array([x[6] for x in da], dtype=np.float64))
         return (self.o(layout, self.a["dpsi"]), self.o(layout, self.a["bias"]), self.o(layout, self.a["trans"]),
-                self.o(layout, self.a["frac"]), self.ns, *(self.p(layout, k) for k in self.RUNTIME),
-                math.sqrt(self.h), self.toggles["enabled"], self._bias, self._dn_ts,
-                -1 if d is None else d.buf_off, -1 if d is None else d.idx_off, *self.drv.args(layout))
+                self.o(layout, self.a["frac"]), len(self.ports), len(self.switch_ids), path, ptr,
+                *(self.p(layout, k) for k in self.RUNTIME), math.sqrt(self.h), self.toggles["enabled"], self._bias,
+                self._dn_ts, -1 if d is None else d.buf_off, -1 if d is None else d.idx_off, *cols)
 
     def prepare(self, state, params, n0, n_samples):
         if self.draws is not None:
             self.draws.refill(state, n0, n_samples)
 
-    def sigma_fast(self) -> float:
-        """Pulse-to-pulse drive jitter σ = √S κ π δV/V_π (spec values)."""
+    def sigma_fast(self, q: int = 0) -> float:
+        """Pulse-to-pulse drive jitter σ = √S_q κ π δV/V_π of port q (S_q stages; spec values)."""
         p = self.params
-        return math.sqrt(self.ns) * abs(float(p["kappa_pm"])) * math.pi * float(p["drive_noise_v_rms"]) / float(p["v_pi_v"])
+        return (math.sqrt(self.n_stages[q]) * abs(float(p["kappa_pm"])) * math.pi * float(p["drive_noise_v_rms"])
+                / float(p["v_pi_v"]))
 
     def bands(self) -> list[BandDecl]:
+        """One declaration per port segment: the drive jitter σ_q² in ``declared`` mode, else 0. The bias random
+        walk declares nothing above f_N (M4-07 (b)): the pulses read the walk at the block's samples, so a block
+        run at the frame rate is already exact, and a per-port declaration would lose the shared-switch
+        correlation (M4-01)."""
         if self._h is None:
             raise RuntimeError(f"block {self.name!r}: bands() needs init (block rate unknown)")
         p, tg = self.params, self.toggles
+        decl = tg["enabled"] and tg["drive_phase_noise"] and p["drive_noise_mode"] == "declared"
         f_n = 0.5 / self._h
-        var = 0.0
-        if tg["enabled"] and tg["drive_phase_noise"] and p["drive_noise_mode"] == "declared":
-            var += self.sigma_fast() ** 2
-        if self._bias:
-            var += self.ns * (float(p["kappa_pm"]) * float(p["bias_rw_rad_per_rts"])) ** 2 / (2.0 * math.pi**2 * f_n)
-        return [BandDecl(self.name, "phase", (str(p["segment"]),), 0.0, f_n, "rad", variance_outside=var)]
+        return [BandDecl(self.name, "phase", (str(e["segment"]),), 0.0, f_n, "rad",
+                         variance_outside=self.sigma_fast(q) ** 2 if decl else 0.0) for q, e in enumerate(p["ports"])]
 
 
 # --- delay_line_k ------------------------------------------------------------------------------------
@@ -416,7 +492,7 @@ class DelayLineK(KitBlock):
             s = layout.slot(p["in_dT"])
             i_dt, n_dt, ring = s.offset, max(1, int(np.prod(s.shape, dtype=np.int64))), int(s.ring_len)
             i_head = s.head if ring > 0 else -1
-        rep_k = self.k * (int(p["N_b"]) + int(p["n_guard"])) / float(p["f_rep_hz"])
+        rep_k = -self.k * (int(p["N_b"]) + int(p["n_guard"])) / float(p["f_rep_hz"])  # longer T_rep → early (M4-02)
         return (self.o(layout, self.out), i_dt, n_dt, ring, i_head, float(p["kappa_t_s_per_m_k"]) * self.L_m, rep_k,
                 self.p(layout, "dtau_s"), self.p(layout, "rep_rel_drift"), tg["static_mismatch"],
                 tg["delay_thermal"] and i_dt >= 0, tg["rep_rate_drift"])

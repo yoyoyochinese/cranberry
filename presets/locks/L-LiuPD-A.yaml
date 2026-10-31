@@ -1,7 +1,9 @@
 # Lock topology L-LiuPD-A (scheme A of the Liu ⊕ Ref A integration; D30, D42, T14 §8.3 (A); 00_summary §2.4):
 # a phase-detection OPA near the squeezer locks the COMMON reference light (source of probe reference and LO) to the
 # pump; every port keeps its Liu-type lock (F_common). The common term θ_sq(demux) − φ_ref(demux) is then fixed
-# without tapping the squeezed light (metric (i) improves; metric (ii) unchanged). Non-common paths PDR (reference →
+# without tapping the squeezed light (metric (i) improves). Metric (ii) is not blind to the squeezer side: in the time-
+# multiplexed train the squeezer-side phase enters Θ_k weighted by 4 sin²(πfΔτ_k) (M6-08), so a lock that reduces it
+# (crystal option (d), L-LiuPD-A_xtal_d) improves metric (ii) as well. Non-common paths PDR (reference →
 # PD-OPA) and PDP (pump → PD-OPA) enter one to one (T14 §3.5; F has no lock-2 A−/A+ reduction).
 # Model: the PD-OPA's Φ1 = 2φ_ref − φ_p (T14 §3.2) in θ-units (pump beams carry ½φ_p, F_common) is the DC
 # homodyne of the beams pdr / pdp [AE stand-in for the 2 f_sh heterodyne of Ref A]; actuator: PZT mirror on REF.
@@ -126,4 +128,8 @@ pipeline:
 measure:
   decompose:
     groups:
-      common_points: [env.mech.dist.mech, env.mech.pd.mech]
+      # the base list (M6-02 temperature zones, window row) + the PD-OPA paths and this lock's sensor / electronics
+      # (it holds the common reference: component 2; quantisation in a group, M6-06)
+      common_points: [env.mech.dist.mech, env.thermal.dist.drift, env.thermal.dist0.drift, env.thermal.dist1.drift,
+                      env.dist.window.enabled, env.mech.pd.mech, lpd.det.shot_noise, lpd.det.electronic_noise,
+                      lpd.adc.quantization, lpd.dac.quantization]

@@ -11,6 +11,7 @@ Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 * ``segment_mech_noise``     (``mech``: h/f², peaks, inter-segment ρ(f), spatial structure)
 * ``segment_thermodynamic``  (``mech``, optional: Wanser + thermomechanical)
 * ``gawbs_phase_jitter``     (``mech``, optional: ledger only)
+* ``declared_phase_variance`` (``mech``: one explicit ledger row, e.g. a window band below the record; M6-02)
 
 Coloured noise: ``_lgs`` (exactly discretised linear Gaussian sections, one RNG sub-stream per bank).
 Contract: core.block (factory interface, reads/writes, losses(), bands(), toggles, D34 no defaults).

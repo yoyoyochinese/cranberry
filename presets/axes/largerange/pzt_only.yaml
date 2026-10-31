@@ -13,3 +13,8 @@ pipeline:
         - name: pid1s
           params:
             toggles: {feedback: false}
+offline:
+  blocks:
+    - name: chk.lock_stability     # the stability check without the TEC stage (M6-01)
+      params:
+        stages: !replace []

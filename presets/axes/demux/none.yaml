@@ -5,9 +5,6 @@ offline:
       params:
         toggles: {enabled: false}
 pipeline:
-  - name: dmx0
-    params:
-      toggles: {enabled: false}
-  - name: dmx1
+  - name: dmxsw
     params:
       toggles: {enabled: false}

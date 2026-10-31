@@ -95,12 +95,12 @@ def test_feasibility_warnings():
 def test_switch_off_is_identity_and_bias_static():
     b, st, pr = blk(dt.switch(toggles={"enabled": False}, bias_offset_rad=0.3))
     run_reference(b, st, pr, 5)
-    assert st["act.sw.dpsi"] == 0.0 and st["pow.sw.trans"] == 1.0 and st["leak.sw.frac"] == 0.0
+    assert st["act.sw.dpsi"][0] == 0.0 and st["pow.sw.trans"][0] == 1.0 and st["leak.sw.frac"][0] == 0.0
     b, st, pr = blk(dt.switch(n_stages=2, toggles={"drive_phase_noise": False, "bias_drift": True},
                               bias_offset_rad=0.1, kappa_pm=0.5))
     run_reference(b, st, pr, 3)
-    assert st["act.sw.dpsi"] == pytest.approx(2 * 0.5 * 0.1, rel=1e-15)
-    assert st["pow.sw.trans"] == pytest.approx(math.cos(0.05) ** 4, rel=1e-15)
+    assert st["act.sw.dpsi"][0] == pytest.approx(2 * 0.5 * 0.1, rel=1e-15)
+    assert st["pow.sw.trans"][0] == pytest.approx(math.cos(0.05) ** 4, rel=1e-15)
     np.testing.assert_allclose(st["drv.dmx.eom"], [0.1])
 
 
@@ -117,8 +117,25 @@ def test_switch_bands():
     assert b.sigma_fast() == pytest.approx(0.0100, rel=1e-3)
     b, _, _ = blk(dt.switch(mode="timeseries"), fs=1e6)
     assert b.bands()[0].variance_outside == 0.0
+    # the bias random walk declares nothing above f_N (M4-07 (b): the samples are exact)
     b, _, _ = blk(dt.switch(mode="timeseries", toggles={"bias_drift": True}, bias_rw_rad_per_rts=1e-3), fs=1e6)
-    assert b.bands()[0].variance_outside == pytest.approx(5 * 1e-6 / (2 * math.pi**2 * 5e5), rel=1e-12)
+    assert b.bands()[0].variance_outside == 0.0
+    # one declaration per port segment, σ_q² with the port's own stage count (chain: port k passes k + 1 stages)
+    b, _, _ = blk(dt.switch(mode="declared", K=8, layout="chain", ports=[dt.switch_port(0, "d0"), dt.switch_port(5, "d5")]))
+    assert [d.targets for d in b.bands()] == [("d0",), ("d5",)]
+    np.testing.assert_allclose([d.variance_outside for d in b.bands()], [1 * 2e-5, 6 * 2e-5], rtol=2e-3)
+
+
+def test_switch_paths_are_physical_switches():
+    from cranberry.blocks.dmx.demux import switch_paths
+
+    ids, paths = switch_paths(32, "tree", [0, 1, 2, 16, 31])
+    shared = [len(set(paths[0]) & set(p)) for p in paths[1:]]
+    assert shared == [5, 4, 1, 1]                      # ports 0/1 share every switch, 0/16 only the first
+    assert len(ids) == 5 + 0 + 1 + 4 + 3               # union of the paths (31 shares depths 1–2 with 16)
+    ids, paths = switch_paths(8, "chain", [0, 3, 7])
+    assert [len(p) for p in paths] == [1, 4, 7] and len(ids) == 7    # stage_counts: min(k + 1, K − 1)
+    assert set(paths[0]) <= set(paths[1]) <= set(paths[2])
 
 
 def test_delay_line_timing_and_compiled():

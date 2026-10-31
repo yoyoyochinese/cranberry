@@ -1,0 +1,21 @@
+# Fibre axis: PM port fibres with one 90° splice (fast ↔ slow axes swapped) at the fraction pm_splice_frac of the length
+# (D32 PM option; 00_summary §2.3 "PM の軸の入れ替え（90° 融着）の位置"; Phase 5 M6-10). The orthogonal Liu probe and the
+# squeezed light exchange axes at the splice, so for the spatially UNIFORM drivers of F_k (ambient dT and the TEC) their
+# axis-difference phase K_T·L·ΔT, its group-delay coefficient K_τ and the birefringent group delay b_g all scale with
+# the axis balance (L_before − L_after)/L = 2x − 1: x = 0.5 cancels the uniform PM axis drift (the point of the splice;
+# with it the TEC offload no longer leaks laser drift, M6-04), x = 1 is no splice. Not valid for non-uniform drivers
+# (the per-subsegment strain is axis-independent in the model, so it is unaffected). The splice is one more connection
+# (n_conn + 1 in eta_conn; an overlay cannot add a loss element with observer null, D74-7).
+offline:
+  params:
+    pm_splice_frac: !sweep [0.5, 1.0, 3]   # splice position along F_k [AE] (0.5 = mid-span)
+    pm_axis_balance: !expr "2 * pm_splice_frac - 1"
+    eta_conn: !expr "10 ** (-(n_conn + 1) * il_conn_db / 10)"   # the splice: one more fusion connection per port
+topology:
+  segments:
+    - {id: F0, pol_params: {K_T_rad_per_m_K: !expr "offline.params.pm_axis_balance * offline.params.K_T_pm_rad_per_m_K",
+                            K_tau_s_per_m_K: !expr "offline.params.pm_axis_balance * -1.78e-15",
+                            b_g_s_per_m: !expr "offline.params.pm_axis_balance * 1.36e-12"}}
+    - {id: F1, pol_params: {K_T_rad_per_m_K: !expr "offline.params.pm_axis_balance * offline.params.K_T_pm_rad_per_m_K",
+                            K_tau_s_per_m_K: !expr "offline.params.pm_axis_balance * -1.78e-15",
+                            b_g_s_per_m: !expr "offline.params.pm_axis_balance * 1.36e-12"}}

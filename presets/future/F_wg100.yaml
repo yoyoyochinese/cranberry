@@ -41,7 +41,6 @@ offline:
     # --- demux: Pockels-cell block switch (T11 §2, pockels_pbs_tree) ---------------------------------------------------
     dmx_layout: tree
     dmx_switching: active
-    dmx_n_stages: 5
     dmx_t_stage: !sweep [0.96, 0.99, 3]
     dmx_er_db: !sweep [20.0, 23.0, 3]
     dmx_t_rise_s: !sweep [8.0e-9, 1.0e-8, 3]   # edge + 6σ_j + τ_mode must fit (1 + n_guard)·T_rep = 10 ns: 10 ns warns (CHK)

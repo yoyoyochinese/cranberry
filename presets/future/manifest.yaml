@@ -23,6 +23,7 @@ overlays_all:
   - path_build/LL
   - fiber/pm
   - fiber/smf
+  - fiber/pm_splice90
   - probe/power_100pW
   - probe/power_1nW
   - probe/power_1uW
@@ -38,6 +39,8 @@ overlays_all:
   - probe/sep_wdm
   - probe/sep_coupler
   - probe/detect_after_demux
+  - probe/detect_heterodyne
+  - probe/detect_dither
   - probe/actuator_downstream
   - largerange/pzt_only
   - largerange/spool_temp

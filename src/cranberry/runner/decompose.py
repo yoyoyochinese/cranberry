@@ -15,11 +15,20 @@ Procedure (WP-F4; T04 §4)
       sources that stay on (streams keyed by block name, G11), so in a linear loop
       Θ_all(t) = Σ_c Θ_c(t) sample by sample and Var(Θ_all) = Σ_c Var(Θ_c) up to the sample
       cross-covariances of independent sources.
-    * variances are Var(Θ_k) (mean removed) from the metric probes' full-rate accumulators.
+    * variances are Var(Θ_k) (mean removed) from the metric probes' full-rate accumulators **plus the
+      ledger part** (Phase 5 M6-06): the out-of-band variance the ``BandLedger`` adds to metric
+      ``ii.port<k>`` for the run's beams (above the block Nyquist frequencies, and any explicit
+      declaration such as a window row), evaluated in the same run. Every noise source declares its band
+      only while its toggle is on, so the component run c carries exactly the ledger rows of its group,
+      and the all-on total carries all of them (the f_N split of conv §6 is invisible to the sum).
+      Toggle keys that are not noise sources but change the loop's own error (ADC / DAC quantisation:
+      the DAC limit cycle, D65-3) belong to a group like any other key — the future presets put them in
+      ``locked_path_residual`` (loop electronics); left out they would be counted in every run.
     * ``validity``: [{slot, abs_max}] — a run is invalid when |slot| ≥ abs_max at any recorded sample
       (saturation flags / counters, actuator outputs at their limit, lock-loss counters written by the
       CTRL / ACT / lock_supervisor blocks). The slots are added to ``measure.record`` (decim 1 when
-      the spec records nothing). Invalid in any run, or linearity off by more than ``tolerance``
+      the spec records nothing). Invalid in any run (or a ``loop_unstable`` CHK event, which makes
+      ``RunResult.valid`` False, M6-01), or linearity off by more than ``tolerance``
       → ``status = "decomposition_invalid"`` with the reason.
 
 Config (``RunSpec.measure.decompose``, or the keyword arguments)::
@@ -39,6 +48,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from cranberry.blocks.meas.metrics import METRIC_II_COMPONENTS, MetricIIComponents
+from cranberry.runner.run import INVALIDATING_CHK
 
 if TYPE_CHECKING:
     from cranberry.config.spec import RunSpec
@@ -61,6 +71,15 @@ def validity_violations(result: RunResult, validity: Sequence[Mapping[str, Any]]
         if np.any(np.abs(x) >= lim):
             out.append(f"{slot} reached |x| >= {lim:g} (max {float(np.max(np.abs(x))):g})")
     return out
+
+
+def _var_with_ledger(result: RunResult, k: int) -> float:
+    """Var(Θ_k) of the time loop + the ledger's out-of-band variance of metric ii.port<k> (module docstring)."""
+    m = result.metrics.metric_ii[k]
+    name = f"ii.port{k}"
+    led = result.offline.band_ledger if result.offline is not None else None
+    hf = led.hf_variance(name, m.beams) if led is not None and name in result.offline.metric_names else 0.0
+    return float(m.stats.var) + float(hf)
 
 
 def decompose_metric_ii(
@@ -119,10 +138,13 @@ def decompose_metric_ii(
         bad = validity_violations(r, validity)
         if bad:
             reasons.append(f"{'all-on' if key is None else key} run: saturation / lock loss: " + "; ".join(bad))
+        unstable = sorted({e["source"] for e in r.events if e.get("code") in INVALIDATING_CHK})
+        if unstable:
+            reasons.append(f"{'all-on' if key is None else key} run: linearly unstable loop ({', '.join(unstable)})")
     out: dict[int, MetricIIComponents] = {}
     for k, m in all_on.metrics.metric_ii.items():
-        total = float(m.stats.var)
-        var = {c: (float(runs[c].metrics.metric_ii[k].stats.var) if c in runs else 0.0) for c in METRIC_II_COMPONENTS}
+        total = _var_with_ledger(all_on, k)
+        var = {c: (_var_with_ledger(runs[c], k) if c in runs else 0.0) for c in METRIC_II_COMPONENTS}
         s = sum(var.values())
         ratio = s / total if total > 0 else (1.0 if s == 0 else float("inf"))
         why = list(reasons)

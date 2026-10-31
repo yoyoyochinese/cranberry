@@ -25,4 +25,4 @@ pipeline:
 measure:
   decompose:
     groups:
-      laser_decorrelation_oob: [laser.fm_white, laser2.fm_white]
+      laser_decorrelation_oob: [laser.fm_white, laser.fm_flicker, laser.drift, laser2.fm_white]   # (M6-04 drift / 1/f)

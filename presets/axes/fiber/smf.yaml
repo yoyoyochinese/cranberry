@@ -32,6 +32,32 @@ offline:
     - name: stray1
       params:
         probe: {polarization: smf_orthogonal}   # 1/3 + (2/3)T_⊥ (T10 §3.4.3)
+    # PMD mode-overlap penalty of the SMF port fibres (T09 §1.7; M4-05): timing_reference is the F_common axis
+    # pmd_timing_reference (nominal `centered` = timing aligned on the mode centroid, D51-6; `psp` = T09's
+    # conservative upper bound, ≈ 2× the loss at small DGD). Pulse FWHM: tau_mode_s (the ps pulse of the waveguide
+    # presets; the ns OPO modes make PMD negligible, and their 99 % span overstates the FWHM, i.e. understates it).
+    - block: pmd_mode_overlap
+      name: pmd0
+      params:
+        D_PMD_s_per_sqrt_m: !expr "offline.params.D_pmd_s_per_sqrt_m"
+        L_m: !expr "offline.params.L_0_m"
+        tau_p_fwhm_s: !expr "offline.params.tau_mode_s"
+        timing_reference: !expr "offline.params.pmd_timing_reference"
+        segment: F0
+        applies_to: [gbs, bhd]
+        source: "T09 §1.7 worst equal PSP split (D_PMD UNVERIFIED); M4-05 timing reference"
+        toggles: {pol_pmd: true}
+    - block: pmd_mode_overlap
+      name: pmd1
+      params:
+        D_PMD_s_per_sqrt_m: !expr "offline.params.D_pmd_s_per_sqrt_m"
+        L_m: !expr "offline.params.L_k_m"
+        tau_p_fwhm_s: !expr "offline.params.tau_mode_s"
+        timing_reference: !expr "offline.params.pmd_timing_reference"
+        segment: F1
+        applies_to: [gbs, bhd]
+        source: "T09 §1.7 worst equal PSP split (D_PMD UNVERIFIED); M4-05 timing reference"
+        toggles: {pol_pmd: true}
 pipeline:
   - name: squeezer
     seq:
