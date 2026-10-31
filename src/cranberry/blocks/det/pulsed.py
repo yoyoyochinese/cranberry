@@ -13,6 +13,10 @@ Responses: ``first_order`` (bandwidth B, h ∝ e^{−2πBt}: c_m = e^{−2πBm/f
 
 Toggles: ``pulsed_crosstalk`` (off ⇒ c = [1]), ``circuit_noise`` (off ⇒ C_pulse = inf).
 
+Consistency check (D46/D50, CHK — never stops the run): if ``mode_length_s`` is given (not null) and
+``window_s`` < ``mode_length_s``, a ``gate_shorter_than_mode`` warning goes to ``chk_log``. It is a
+check, not a modelling choice, so leaving the key out simply skips it (D34 concerns modelling choices).
+
 Params (all required, D34): f_rep_hz, response {model: first_order, bandwidth_hz} |
 {model: second_order, f0_hz, q}, window_s, n_taps, sigma_el_e, n_lo_photons, qe, toggles.
 """
@@ -28,6 +32,7 @@ import numpy as np
 import scipy.signal
 
 from cranberry.core.block import BaseBlock, Block, require
+from cranberry.core.checks import ChkLog
 from cranberry.core.registry import register_block
 
 __all__ = ["PulsedBhdKernel", "make_pulsed_bhd_kernel", "RESPONSE_MODELS", "c1_first_order", "rho_adjacent",
@@ -89,6 +94,12 @@ class PulsedBhdKernel(BaseBlock):
         super().__init__(self.KIND, name, params)
         p = params
         self._c = crosstalk_coefficients(p["response"], float(p["f_rep_hz"]), float(p["window_s"]), int(p["n_taps"]))
+        self.chk_log = ChkLog()
+        mode_len = p.get("mode_length_s")
+        if mode_len is not None and float(p["window_s"]) < float(mode_len):
+            self.chk_log.warn("gate_shorter_than_mode", name,
+                              f"gate {p['window_s']} s < mode length {mode_len} s (D46/D50)",
+                              window_s=float(p["window_s"]), mode_length_s=float(mode_len))
 
     @property
     def c(self) -> np.ndarray:

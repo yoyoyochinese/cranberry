@@ -141,3 +141,25 @@ def test_offline_blocks_compiled_equals_reference():
     a, b = run(run_reference), run(run_compiled)
     np.testing.assert_allclose(a.S, b.S, rtol=1e-12, atol=0)
     assert a.n == b.n == 50
+
+
+def test_pulsed_kernel_gate_shorter_than_mode_warns():
+    """D46/D50 consistency check (ported from WP-B11's stand-in kernel when the two were merged)."""
+    import warnings
+
+    from cranberry.blocks.det.testing import pulsed_kernel
+    from cranberry.core.checks import ChkWarning
+    from cranberry.core.registry import make_block as _mk
+
+    def build(**over):
+        d = pulsed_kernel(**over)
+        return _mk(BlockSpec(d["block"], d["name"], d["params"]))
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        short = build(window_s=5e-9, f_rep_hz=20e6, mode_length_s=25e-9)
+        ok = build(window_s=30e-9, f_rep_hz=20e6, mode_length_s=25e-9)
+        unchecked = build(window_s=5e-9, f_rep_hz=20e6)
+    assert [e.code for e in short.chk_log.events] == ["gate_shorter_than_mode"]
+    assert not ok.chk_log.events and not unchecked.chk_log.events
+    assert any(issubclass(x.category, ChkWarning) for x in w)
