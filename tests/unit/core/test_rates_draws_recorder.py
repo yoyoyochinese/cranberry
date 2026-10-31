@@ -239,6 +239,40 @@ def test_recorder_antialias_suppresses_folding():
     assert amp["boxcar"] < 0.05 and amp["fir"] < 0.02
 
 
+@pytest.mark.parametrize("compiled", [False, True])
+@pytest.mark.parametrize("mode", ["none", "boxcar", "fir"])
+def test_recorder_cos_sin2_formed_before_decimation(mode, compiled):
+    """Phase 5 M2C-01: ``cos_sin2`` records cos 2x / sin 2x formed every base sample and then filtered,
+    so the mean of the recorded cos 2x is the full-rate ⟨cos 2x⟩ (J0(2a) for x = a sin) whatever the
+    anti-alias mode, while cos 2(filtered x) would lose the fast jitter (boxcar: ≈ 1)."""
+    import cranberry.core.testing  # noqa: F401
+    from scipy.special import j0
+
+    from cranberry.core.pipeline import from_spec, spec_from_obj
+    from cranberry.core.testing import toy
+    from cranberry.runner.run import antialias_taps
+
+    fs, d, a, n = 1.0e4, 10, 0.3, 20000
+    rec = Recorder(["v.s"], decim=d, chunk_samples=n, antialias=mode, cos_sin2=["v.s"])
+    lay = SlotLayout(fs)
+    sine = from_spec(spec_from_obj(toy("toy_sine", "s", out="v.s", unit="V", amp=a, freq_hz=0.98 * fs / d)))
+    blk = build(Seq([sine, rec]), lay, 0)
+    st, p = State(lay), Params(lay)
+    (run_compiled if compiled else run_reference)(blk, st, p, n)
+    out = rec.split(rec.harvest(st), lay)
+    assert set(out) == {"v.s", "v.s.cos2", "v.s.sin2"}
+    x = a * np.sin(2 * np.pi * 0.98 * fs / d * np.arange(n) / fs)
+    taps = antialias_taps(mode, d)
+    full_c, full_s = np.cos(2 * x), np.sin(2 * x)
+    if taps is not None:  # causal FIR, zero history before n = 0
+        full_c, full_s = (np.convolve(y, taps)[:n] for y in (full_c, full_s))
+    np.testing.assert_allclose(out["v.s.cos2"], full_c[::d], atol=1e-9)
+    np.testing.assert_allclose(out["v.s.sin2"], full_s[::d], atol=1e-9)
+    assert np.mean(out["v.s.cos2"][100:]) == pytest.approx(j0(2 * a), abs=5e-3)
+    with pytest.raises(ValueError, match="not recorded"):
+        Recorder(["v.s"], decim=d, chunk_samples=n, cos_sin2=["v.t"])
+
+
 def test_record_without_antialias_warns_once_when_decimating():
     import warnings
 

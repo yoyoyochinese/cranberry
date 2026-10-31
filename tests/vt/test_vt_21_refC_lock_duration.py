@@ -17,7 +17,12 @@ within 1 % (T16 V12's "± 1 sample" is for an ideal integrator; here the stack's
 prediction). Until then |Δ| stays < 10 mrad; afterwards the mirror (range R2) and the EOM (±π/4 V/V_π) take
 the rest and Δ leaves the lock (|Δ| > π/4) at d = R3 + R2 + R1 within 5 %. Halving R3 shortens the lock
 accordingly. At the nominal point (32.5 rad, 5e−6 K/s, τ_th = 300 s) the same relation gives ≈ 6.7 min, the
-"several minutes" of Ref C (analytic, not simulated).
+"several minutes" of Ref C (analytic, not simulated). This is a CONSISTENCY CHECK, not a prediction (Phase 5
+M2C-06): the differential spool drift dr_T = 5e−6 K/s is an [AE] value chosen so that the 32.5 rad placeholder
+range lasts "several minutes" [Ref C §4]. The relation is deterministic; the stochastic part of the
+stretcher's load (the free-running random walk of the fibre noise it also follows) spreads the lock time by
+its stationary rms / drift rate: ±27 s with the T08 placeholder fibre noise (4.9 rad / 0.18 rad/s), ≲ 0.3 s
+with the Fig. 2-constrained nominal of M2C-04 (≈ 0.05 rad free-running rms, VT-20 (d)).
 """
 
 import importlib.util
@@ -72,7 +77,7 @@ def test_vt21_refC_lock_lost_at_stretcher_range(r3):
     assert np.max(np.abs(delta[settled])) < 0.01
     assert float(np.interp(t_loss, t, res.series["act.stretcher.dpsi"])) == pytest.approx(r3_eff, rel=1e-3)
     # the faster stages hold it a little longer, then Δ leaves the lock point
-    r1 = math.pi / p["v_pi_v"] * p["out_range_v"]
+    r1 = math.pi / p["v_pi_v"] * p["eom_range_v"]                       # EOM drive range (M2C-03 axis)
     t_break = t[np.argmax(np.abs(delta) > np.pi / 4)]
     assert t_break == pytest.approx(t_reach(r3 + p["mirror_range_rad"] + r1, rho, TAU), rel=0.05)
 

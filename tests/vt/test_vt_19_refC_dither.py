@@ -9,8 +9,10 @@ e^{2r} = 12.4 in the single-mode form), all noise sources off, loop closed:
     = −5.18 dB; without the dither entry in the metric (σ = 0) −5.63 dB (T04 §9.1, ±0.01 dB);
 (b) time-series dither (presets/axes/refC_dither/timeseries.yaml: dither on the EOM drive, RF-rate QNL and
     demodulator): the loop still locks and the residual itself is the dither: rms 0.0555 rad ±2 % (the
-    demodulator's finite LPF lets a little 1 MHz ripple through the loop, +1.4 %), R′−(30 MHz) equal to
-    (a) within ±0.05 dB (T04 V5's time-domain tolerance);
+    demodulator's finite LPF lets a little 1 MHz ripple through the loop, +1.4 % at the [AE] corner
+    demod_lpf_hz = 100 kHz: a MODEL CHOICE, not Ref C physics; demod_lpf_hz is a named axis, M2C-07, D67-7;
+    the ±2 % band holds at the nominal corner only), R′−(30 MHz) equal to (a) within ±0.05 dB (T04 V5's
+    time-domain tolerance);
 (c) 0.1 rad total with Ref C noise sources: the preset's own laser-phase-noise path (white FM h0 with a
     2 m LO/squeezed path mismatch, T05 §3.5: σ² ≈ 2π² h0 τ, mostly above the loop band → BandLedger)
     sized to 0.1 rad total gives R′−(30 MHz) = −4.32 dB (T04 §9.1) ±0.05 dB (σ within ±5 %).

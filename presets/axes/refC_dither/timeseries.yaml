@@ -7,6 +7,11 @@
 # Demodulation phase: the dither reaches Δ one loop sample after it is written (D55-1: drivers act on the
 # next sample), i.e. with phase lag 2π f_m / f_sim; the reference is rotated by the same amount (the
 # experimenter's demodulation-phase adjustment).
+# Demodulator low-pass (M2C-07, D67-7): the log detector's large DC (≈ 2 V) is moved to 1 MHz by the 2cos reference
+# and ≈ 1 % passes the 2-pole LPF at the [AE] corner demod_lpf_hz = 100 kHz into the EOM drive, synchronous with the
+# dither: the effective dither is +1.4 % above m/√2 (VT-19 (b)). This is a consequence of the LPF model choice
+# (named axis `demod_lpf_hz` of refC; Moku:Pro's lock-in LPF bandwidth / order are settable and unpublished),
+# not physics of Ref C; the analytic mode has no such term.
 
 toggles:
   qnl.rf_rate_mode: true
