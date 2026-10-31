@@ -70,6 +70,9 @@ Measurement-stage hooks (WP-I1, D58-6; :func:`evaluate_measurements`, after the 
       the LossRegistry elements listed in ``exclude_losses`` (the detector's electronic / imbalance
       elements: ``bhd_frontend`` adds them itself, D58-1); ``frontend.psd(f, R)`` gives the signal /
       LO-only / dark PSDs (T04 §5.5, T13).
+    * ``cw_sideband`` sources (noise levels are arrays over the source grid ``f_s_hz``, WP-I3 addition):
+      the zero span reads them at the block's own centre ``f_s_hz``, the swept spectrum at every bin
+      (linear interpolation on the source grid, which must cover the span; θ_off(f_s) included).
     * pulse sample: ``evaluate(r_slots, c=kernel.c, clearance_lin=kernel.clearance_pulse)``.
 
     Random numbers: ``core.rng.stream(run.seed, "measure.<hook>.<entry>")`` (G11). Results go to
@@ -467,6 +470,20 @@ def _quadrature_variance(nl: Mapping[str, Any], stats: Any, quadrature_rad: floa
     return 0.5 * (vm + vp) - 0.5 * (vp - vm) * chi
 
 
+def _at_fs(nl: Mapping[str, Any], f_hz: float, what: str) -> Mapping[str, Any]:
+    """Noise levels of a ``cw_sideband`` metric at sideband frequency ``f_hz`` (scalar levels unchanged)."""
+    grid = nl.get("f_s_hz")
+    if grid is None or np.ndim(nl["v_minus"]) == 0:
+        return nl
+    grid = np.asarray(grid, dtype=float)
+    if not grid[0] <= f_hz <= grid[-1]:
+        raise ValueError(f"{what}: f = {f_hz:.6g} Hz outside the source grid [{grid[0]:.6g}, {grid[-1]:.6g}] Hz")
+    out = dict(nl)
+    for k in ("v_minus", "v_plus", "theta_off_rad"):
+        out[k] = float(np.interp(f_hz, grid, np.broadcast_to(np.asarray(nl[k], dtype=float), grid.shape)))
+    return out
+
+
 def _need(entry: Any, keys: Sequence[str], what: str) -> None:
     if not isinstance(entry, Mapping):
         raise TypeError(f"{what} must be a mapping, got {entry!r}")
@@ -480,6 +497,7 @@ def _zero_span(blk: Any, cfg: Mapping[str, Any], metrics: Any, f_record_hz: floa
 
     _need(cfg, ("block", "metric", "quadrature_rad"), what)
     nl, m = _metric_entry(metrics, cfg["metric"], what)
+    nl = _at_fs(nl, float(blk.params["f_s_hz"]), what)
     delta = np.asarray(getattr(m, "delta_rad", np.zeros(0)), dtype=float)
     if f_record_hz is None or delta.size < 2:
         raise ValueError(f"{what}: the zero span reads the recorded metric series (needs measure.record)")
@@ -516,11 +534,20 @@ def _swept(blk: Any, cfg: Mapping[str, Any], blocks: Mapping[str, Any], metrics:
             raise KeyError(f"{what}.exclude_losses: {unknown} not on path {nl['loss_path']!r} ({nl['loss_target']})")
         kept = loss_registry.elements_on(nl["loss_path"], nl["loss_target"])
         eta = float(np.prod([e.eta for e in kept if e.id not in excl]))
-    v = _quadrature_variance(nl, m.stats, float(cfg["quadrature_rad"]), eta)
-    r_lin = v / V_SN
+    q = float(cfg["quadrature_rad"])
+    if nl.get("f_s_hz") is not None and np.ndim(nl["v_minus"]) > 0:  # cw_sideband: R(f) on the bins
+        f_bins = np.asarray(blk.f_hz, dtype=float)
+        v = np.array([_quadrature_variance(_at_fs(nl, f, what), m.stats, q, eta) for f in f_bins])
+        r_lin = v / V_SN
 
-    def part(key):
-        return lambda f: fe.psd(f, r_lin)[key]
+        def part(key):
+            return lambda f: fe.psd(f, np.interp(f, f_bins, r_lin))[key]
+    else:
+        v = _quadrature_variance(nl, m.stats, q, eta)
+        r_lin = v / V_SN
+
+        def part(key):
+            return lambda f: fe.psd(f, r_lin)[key]
 
     r = dict(blk.evaluate(part("signal"), part("shot"), part("dark"), rng=rng))
     r.update({"v_prime": v, "r_lin": r_lin, "eta": eta})

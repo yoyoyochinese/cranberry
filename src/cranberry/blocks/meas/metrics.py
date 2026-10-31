@@ -52,6 +52,10 @@ Metric blocks (WP-F4)
                        metric_ii: "all" | [k ≥ 1, ...] | {k: {squeezed: <beam>}} (the mapping must
                          include port 0); "all" with no topology ports selects nothing (G13: n/a)
         setpoint_rad : number (every port) or {k: number}
+        t_settle_s   : optional (WP-I3 addition; absent = 0, the old behaviour): the running sums start at
+                       t ≥ t_settle_s (runtime parameter), so lock acquisition from a random initial phase
+                       is not part of the moments / noise levels nor of ``MetricI/II`` series (the ESA zero
+                       span reads those); the δ slot itself, and ``RunResult.series``, cover every sample
 
     Port keys k of these mappings (and of ``measure.metrics`` / ``overlap`` / ``stray_light``) are
     ints or digit strings; a ``RunSpec`` (config tree) requires string keys, e.g. ``{"0": {...}}``.
@@ -389,12 +393,17 @@ class MetricProbe(BaseBlock):
             else:
                 self.setpoints[p.port] = float(sp)
         self.pairs = pairs
+        self.has_settle = "t_settle_s" in params  # absent: no settle param, no read of t (pre-WP-I3 block)
+        self.t_settle_s = float(params.get("t_settle_s", 0.0))
+        if not self.t_settle_s >= 0.0:
+            raise ValueError(f"block {name!r}: t_settle_s must be >= 0")
         self.short = METRIC_KINDS[kind]
         self.name = name  # slot names are needed before BaseBlock.__init__ (which sets it again)
-        reads = list(dict.fromkeys(f"beam.{b}.phi" for p in pairs for b in (p.plus, p.minus)))
+        reads = [*(["t"] if self.has_settle else []),
+                 *dict.fromkeys(f"beam.{b}.phi" for p in pairs for b in (p.plus, p.minus))]
         writes = [w for p in pairs for w in (self.slot(p.port), self.acc_slot(p.port))]
         super().__init__(kind, name, params, reads=reads, writes=writes)
-        self.slot_units = {s: "rad" for s in reads}
+        self.slot_units = {s: "rad" for s in reads if s != "t"}
         self.slot_units.update({self.slot(p.port): "rad" for p in pairs})
 
     # names --------------------------------------------------------------------------------------
@@ -409,6 +418,10 @@ class MetricProbe(BaseBlock):
 
     def setpoint_param(self, port: int) -> str:
         return f"{self.name}.port{port}.setpoint_rad"
+
+    @property
+    def settle_param(self) -> str:
+        return f"{self.name}.t_settle_s"
 
     def beams_of(self, pair: _Pair) -> dict[str, float]:
         """Signed beam combination of the metric (ledger / losses)."""
@@ -510,6 +523,8 @@ class MetricProbe(BaseBlock):
             layout.add(self.slot(p.port), (), np.float64, "rad")
             layout.add(self.acc_slot(p.port), (5,), np.float64, "1")
             layout.add_param(self.setpoint_param(p.port), self.setpoints[p.port], (), "rad")
+        if self.has_settle:
+            layout.add_param(self.settle_param, self.t_settle_s, (), "s")
 
     def bind(self, layout) -> None:
         cols = [(layout.slot(f"beam.{p.plus}.phi").offset, layout.slot(f"beam.{p.minus}.phi").offset,
@@ -520,6 +535,8 @@ class MetricProbe(BaseBlock):
         self._cols = cols
         n = len(self.pairs)
         half_pi, pi = 0.5 * math.pi, math.pi
+        T, TS = (layout.slot("t").offset, layout.param(self.settle_param).offset) if self.has_settle else (-1, -1)
+        self._t_cols = (T, TS)
 
         @numba.njit
         def kernel(S, Z, I, P):  # noqa: N803
@@ -527,6 +544,8 @@ class MetricProbe(BaseBlock):
                 x = S[PLUS[j]] - S[MINUS[j]] - P[SP[j]]
                 d = half_pi - ((half_pi - x) % pi)
                 S[OUT[j]] = d
+                if T >= 0 and S[T] < P[TS]:
+                    continue
                 a = ACC[j]
                 S[a] += 1.0
                 S[a + 1] += d
@@ -542,6 +561,8 @@ class MetricProbe(BaseBlock):
             x = S[plus] - S[minus] - P[sp]
             d = 0.5 * math.pi - ((0.5 * math.pi - x) % math.pi)
             S[out] = d
+            if self._t_cols[0] >= 0 and S[self._t_cols[0]] < P[self._t_cols[1]]:
+                continue
             S[a] += 1.0
             S[a + 1] += d
             S[a + 2] += d * d
@@ -659,6 +680,8 @@ def evaluate_metrics(
         for p in b.pairs:
             stats = PhaseStats.from_acc(state[b.acc_slot(p.port)])
             ser = np.asarray(series.get(b.slot(p.port), np.zeros(0)), dtype=float)
+            if b.t_settle_s > 0.0 and ser.size:  # the measured series starts with the moments (t_settle_s)
+                ser = ser[np.asarray(t_s, dtype=float)[: ser.size] >= b.t_settle_s]
             beams = b.beams_of(p)
             sp = b.setpoints[p.port]
             if b.short == "i":

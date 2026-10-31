@@ -1,0 +1,36 @@
+# refC at one representative point of every sweep axis (single runs, integration tests, VT-19/20/21).
+#
+# The point is the value each source names as nominal / central (T02 V-C1, T08 nominal placeholders, T14 §6.3
+# and T16 §7.2 placeholders, fpga_generic values). It is NOT fitted to Ref C's measured residual: the paper's
+# ≈ 0.1 rad total is a comparison band (VT-20), not a target the axes were tuned to.
+extends: refC
+
+offline:
+  params:
+    x: 0.56                      # Fig. 4 / Fig. 5 right pump level (T02 V-C1: 10.0 dB at 30 MHz with θ̃ = 0.1 rad)
+    eta_fiber_link: 0.9294118    # = 0.79/0.85: total = the fitted 21 % [Ref C Fig. 5] (T02 V-C1)
+    dL_m: 0.0                    # "same type and length" [Ref C §2]
+    k_T_rad_per_m_K: 44.0        # T08 §2.2 nominal
+    r_T_conduit_k_per_s: 1.0e-4  # T08 §2.4 nominal (common to both fibres: cancels up to the τ_th lag)
+    r_T_spool_k_per_s: 1.0e-4    # T08 §2.4 nominal
+    dr_T_spool_k_per_s: 5.0e-6   # differential spool drift sized to "several minutes" with the 32.5 rad placeholder [AE]
+    tau_th_conduit_s: 300.0      # T08 §2.4 nominal
+    tau_th_spool_s: 300.0        # T08 §2.4 nominal
+    h_ref_conduit_rad2_hz: 4.0   # Williams 2008 real link (T08 §6.2)
+    h_ref_spool_rad2_hz: 0.04    # spool (T08 §6.2)
+    mech_gamma: 1.0              # T08 §2.5 nominal
+    mech_f_c_hz: 1000.0          # T08 §2.5 nominal
+    rho_conduit: 0.0             # uncorrelated: the conservative end (T08 §6.2: h_diff ≈ 1.5 rad²·Hz)
+    rho_spool: 0.0               # separate spools [AE]
+    f_rho_hz: 1000.0             # [AE] (refD value)
+    h0_hz2_per_hz: 64.0          # Ref A stand-in 0.2 kHz/π (UNVERIFIED); irrelevant at dL = 0
+    latency_s: 1.0e-6            # T16 §4.5 Ref C stand-in upper value
+    dac_bits: 16                 # fpga_generic
+    f_u1_hz: 1.0e+4              # T14 §6.3 placeholder (10 kHz)
+    f_12_hz: 300.0               # [AE] middle of the axis; keeps the EOM (±0.39 rad) out of saturation under the nominal fibre noise
+    f_23_hz: 1.0                 # [AE] "Hz to sub-Hz" [Ref C §2]
+    mirror_range_rad: 10.0       # [AE]
+    mirror_f_res_hz: 1.5e+4      # T16 §3.3 middle of 10–20 kHz
+    mirror_q: 10.0               # [AE] (T15 placeholder Q)
+    stretcher_range_rad: 32.5    # 915B-like placeholder (T16 §7.2)
+    dip_r: 0.5                   # [AE] centre of the axis: the clearance at 0.69 GHz is of the measured order (refC.yaml)

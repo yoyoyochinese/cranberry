@@ -1,0 +1,23 @@
+# Ref C dither in the TIME SERIES instead of analytically (PLAN §5.3 "timeseries or analytic J0, not both";
+# T14 §2.1 RF-rate mode; T16 V15). Overlay on refC / refC_nominal (VT-19 cross-check).
+#
+# The 1 MHz, 200 mVpp dither is added to the EOM drive (sine_injection `dither`, [Ref C Fig. 3]), so Δ(t)
+# itself carries m sin(2π f_m t); quantum_noise_power and the demodulator run at the RF rate (f_sim = 4 MHz
+# > 2 f_m). The metric therefore sees the dither in its moments and the analytic χ_dither is dropped.
+# Demodulation phase: the dither reaches Δ one loop sample after it is written (D55-1: drivers act on the
+# next sample), i.e. with phase lag 2π f_m / f_sim; the reference is rotated by the same amount (the
+# experimenter's demodulation-phase adjustment).
+
+toggles:
+  qnl.rf_rate_mode: true
+  dem.rf_rate_mode: true
+  dither.enabled: true
+
+offline:
+  params:
+    demod_phase_rad: !expr "-0.5 * pi - 2 * pi * f_dither_hz / run.f_sim_hz"
+
+measure:
+  metrics:
+    i:
+      dither_m_rad: []                 # the dither is in the time series (no double counting)
