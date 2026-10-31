@@ -1,5 +1,8 @@
 # T17 パルス励起 OPO 光源（pulsed-opo-source）
 
+> **訂正（2026-11-01、DECISIONS D60-5・D70-2）:** x_ss = 2.5 で r₀ = 1.038（1.029 ではない）、Gaussian の LO の重なり 0.955、矩形 0.866、R± は Borealis −7.72 / +8.82 dB、Liu −8.95 / +9.22 dB。
+
+
 - Phase: 1（追加の deep dive、D43）／ 日付: 2026-10-31
 - 担当: Borealis 型（Madsen et al. 2022）と Liu 2026 型の「パルスで励起するしきい値以下の PPKTP ヘミリシック OPO」。
   時間モード、FSR モードの除去、OPO の長さロック、ポンプの安定化と位相ロック。T02・T03・T06・T07・T10・T11・T12 の結論がどう変わるか。
