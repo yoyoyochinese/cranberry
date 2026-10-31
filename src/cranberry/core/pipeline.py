@@ -18,9 +18,23 @@ Semantics (G09):
 * Composites are Blocks too: ``reads`` / ``writes`` are unions; ``losses()`` / ``bands()`` are
   concatenations; nesting depth is unlimited; a composite may live in its own YAML file.
 
-Build-time checks (:func:`check_pipeline`, WP-F1): (1) every read slot has a writer (or is a
-reserved slot ``t`` / ``n``), (2) no same-sample cycle except through ``delay_buffer``,
-(3) parallel branches write disjoint slots, (4) unit tags of wired slots agree.
+Build-time checks (:func:`check_pipeline`, WP-F1; all violations are collected and raised together
+as :class:`PipelineCheckError`):
+
+0. wiring: leaf names are unique; every slot a leaf reads or writes is registered in the layout.
+1. every read slot has a writer in the pipeline (or is a reserved slot ``t`` / ``n``, or is listed
+   in ``external``: written from outside the pipeline, e.g. by a test harness).
+2. feedback only through ``delay_buffer``. Execution order is the depth-first leaf order. A read
+   is *forward* when a writer of the slot runs earlier in the same sample, *own state* when the
+   reader is the only writer, and a *back edge* otherwise (it sees the previous sample's value;
+   the loop closure contributes one sample of delay, see ``core.delay``). With edges
+   writer → reader, every cycle must pass through a ``delay_buffer`` leaf (no zero-delay /
+   algebraic loop), and every back edge must close a cycle; one that does not is a
+   *read-before-write* ordering error (an unmodelled one-sample delay).
+3. ``Parallel`` branches are independent: their write sets are disjoint and no branch reads a slot
+   written by a sibling branch (so the result does not depend on the declaration order, G09).
+4. unit tags: for every slot in a leaf's optional ``slot_units`` mapping, the expected tag equals
+   the tag registered in the layout.
 
 Pipeline YAML / dict form (round trip via :func:`spec_to_obj` / :func:`spec_from_obj`, VT-F1)::
 
@@ -36,7 +50,7 @@ individually (``iter_leaves``) with ``core.rng.stream(root, leaf.name)`` (G11).
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Union
 
@@ -67,6 +81,8 @@ __all__ = [
     "iter_leaves",
     "build",
     "check_pipeline",
+    "PipelineCheckError",
+    "apply_toggle_overrides",
 ]
 
 #: Block kind of the delay buffer, the only legal feedback path (G09).
@@ -200,6 +216,8 @@ class Composite:
         """No-op: composites own nothing; the builder initialises leaves (see module docstring)."""
 
     def bind(self, layout: SlotLayout) -> None:
+        """Bind every child and keep ``layout`` (``core.compile.compile_loop`` reads it from the root)."""
+        self.layout = layout
         for c in self.children:
             c.bind(layout)
 
@@ -310,12 +328,205 @@ def iter_leaves(block: Block) -> Iterator[Block]:
         yield block
 
 
-def build(pipeline_spec: PipelineSpec, layout: SlotLayout, root_seed: int) -> Block:
-    """Build a runnable pipeline: ``from_spec`` → ``leaf.init(layout, stream(root_seed, leaf.name))``
-    for every leaf → :func:`check_pipeline` → ``layout.freeze()`` → ``bind``. Implemented by WP-F1."""
-    raise NotImplementedError("core.pipeline.build is implemented by WP-F1")
+class PipelineCheckError(ValueError):
+    """One or more build-time checks failed; ``violations`` lists every message."""
+
+    def __init__(self, violations: Sequence[str]):
+        self.violations = list(violations)
+        super().__init__("pipeline check failed:\n  - " + "\n  - ".join(self.violations))
 
 
-def check_pipeline(block: Block, layout: SlotLayout) -> None:
-    """The four build-time checks of the module docstring; raises on violation. Implemented by WP-F1."""
-    raise NotImplementedError("core.pipeline.check_pipeline is implemented by WP-F1")
+def _walk(block: Block) -> Iterator[Block]:
+    yield block
+    if isinstance(block, Composite):
+        for c in block.children:
+            yield from _walk(c)
+
+
+def _leaf_writes(block: Block) -> set[str]:
+    return {w for leaf in iter_leaves(block) for w in leaf.writes}
+
+
+def _leaf_reads(block: Block) -> set[str]:
+    return {r for leaf in iter_leaves(block) for r in leaf.reads}
+
+
+def check_pipeline(block: Block, layout: SlotLayout, *, external: Iterable[str] = ()) -> None:
+    """Run the build-time checks of the module docstring on a pipeline whose leaves are initialised
+    (all slots registered in ``layout``); raise :class:`PipelineCheckError` listing every violation.
+
+    Args:
+        block: root of the pipeline.
+        layout: the layout the leaves were initialised into (frozen or not).
+        external: slot names written from outside the pipeline (exempt from check 1).
+    """
+    from cranberry.core.layout import RESERVED_SLOTS
+
+    leaves = list(iter_leaves(block))
+    exempt = set(external) | set(RESERVED_SLOTS)
+    errs: list[str] = []
+
+    # (0) wiring: unique names, registered slots
+    counts: dict[str, int] = {}
+    for leaf in leaves:
+        counts[leaf.name] = counts.get(leaf.name, 0) + 1
+    errs += [f"duplicate leaf name {n!r} ({c}x): names key RNG streams and runtime params"
+             for n, c in counts.items() if c > 1]
+    for leaf in leaves:
+        for role, names in (("reads", leaf.reads), ("writes", leaf.writes)):
+            errs += [f"{leaf.name!r} {role} unregistered slot {s!r}" for s in names if s not in layout]
+
+    # (3) parallel branches are independent
+    for node in _walk(block):
+        if not isinstance(node, Parallel):
+            continue
+        wsets = [_leaf_writes(c) for c in node.children]
+        rsets = [_leaf_reads(c) for c in node.children]
+        for i, ci in enumerate(node.children):
+            for j, cj in enumerate(node.children):
+                if i == j:
+                    continue
+                if j > i and wsets[i] & wsets[j]:
+                    errs.append(f"parallel {node.name!r}: branches {ci.name!r} and {cj.name!r} both write "
+                                f"{sorted(wsets[i] & wsets[j])}")
+                if rsets[i] & wsets[j]:
+                    errs.append(f"parallel {node.name!r}: branch {ci.name!r} reads {sorted(rsets[i] & wsets[j])} "
+                                f"written by sibling branch {cj.name!r} (result would depend on branch order)")
+
+    # (4) unit tags
+    for leaf in leaves:
+        for slot, unit in (getattr(leaf, "slot_units", None) or {}).items():
+            if slot in layout and layout.slot(slot).unit != unit:
+                errs.append(f"{leaf.name!r} expects unit {unit!r} for slot {slot!r}, "
+                            f"layout has {layout.slot(slot).unit!r}")
+
+    # (1) every read has a writer; (2) dataflow graph, edges writer -> reader
+    writers: dict[str, list[int]] = {}
+    for i, leaf in enumerate(leaves):
+        for w in dict.fromkeys(leaf.writes):
+            writers.setdefault(w, []).append(i)
+    edges: dict[int, set[int]] = {i: set() for i in range(len(leaves))}
+    back: list[tuple[int, int, str]] = []
+    for i, leaf in enumerate(leaves):
+        for r in dict.fromkeys(leaf.reads):
+            ws = writers.get(r, [])
+            others = [j for j in ws if j != i]
+            if not others:
+                if not ws and r not in exempt:
+                    errs.append(f"{leaf.name!r} reads {r!r}, which no block writes (check 1)")
+                continue  # own state, external or reserved
+            prior = [j for j in others if j < i]
+            if prior:
+                edges[max(prior)].add(i)
+            else:
+                j = max(ws)
+                edges[j].add(i)
+                back.append((j, i, r))
+
+    def reachable(src: int, dst: int, skip: set[int]) -> bool:
+        stack, seen = [src], {src}
+        while stack:
+            u = stack.pop()
+            if u == dst:
+                return True
+            for v in edges[u]:
+                if v not in seen and v not in skip:
+                    seen.add(v)
+                    stack.append(v)
+        return False
+
+    delay_nodes = {i for i, leaf in enumerate(leaves) if leaf.kind == DELAY_BUFFER_KIND}
+    for j, i, r in back:
+        if not reachable(i, j, set()):
+            errs.append(f"read-before-write: {leaves[i].name!r} reads {r!r} before its writer {leaves[j].name!r} "
+                        "runs (it would see the previous sample); reorder the pipeline or route feedback "
+                        "through a delay_buffer")
+        elif j not in delay_nodes and i not in delay_nodes and reachable(i, j, delay_nodes):
+            errs.append(f"zero-delay feedback loop: {leaves[i].name!r} reads {r!r} from {leaves[j].name!r} on a "
+                        "cycle without a delay_buffer (algebraic loop, G09)")
+    if errs:
+        raise PipelineCheckError(errs)
+
+
+def build(
+    pipeline_spec: PipelineSpec | Block,
+    layout: SlotLayout,
+    root_seed: Any,
+    *,
+    external: Iterable[str] = (),
+) -> Block:
+    """Build a runnable pipeline.
+
+    Steps: ``from_spec`` (skipped when a never-built Block tree is passed) →
+    ``leaf.init(layout, core.rng.stream(root_seed, leaf.name))`` for every leaf in execution order →
+    :func:`check_pipeline` → ``layout.freeze()`` → ``bind``; the root keeps ``layout`` as
+    ``root.layout``.
+
+    Args:
+        pipeline_spec: pipeline spec tree, or a Block tree made by factories that was never built.
+        layout: an unfrozen ``SlotLayout`` (may already hold externally written slots).
+        root_seed: run seed (int >= 0 or SeedSequence, G11).
+        external: slots written from outside the pipeline (see :func:`check_pipeline`).
+
+    Returns:
+        The root Block; allocate ``State(layout)`` / ``Params(layout)`` to run it.
+    """
+    from cranberry.core.rng import stream
+
+    block = pipeline_spec if isinstance(pipeline_spec, Block) else from_spec(pipeline_spec)
+    names = [leaf.name for leaf in iter_leaves(block)]
+    dups = sorted({n for n in names if names.count(n) > 1})
+    if dups:
+        raise PipelineCheckError([f"duplicate leaf name {n!r}: names key RNG streams and runtime params"
+                                  for n in dups])
+    for leaf in iter_leaves(block):
+        leaf.init(layout, stream(root_seed, leaf.name))
+    check_pipeline(block, layout, external=external)
+    layout.freeze()
+    block.bind(layout)
+    if not isinstance(block, Composite):
+        block.layout = layout  # type: ignore[attr-defined]
+    return block
+
+
+def apply_toggle_overrides(spec: PipelineSpec, toggles: Mapping[str, bool]) -> PipelineSpec:
+    """Return ``spec`` with ``RunSpec.toggles`` entries ``"<leaf name>.<toggle>": bool`` written into
+    the matching leaf's ``params["toggles"]`` (used by ``run``; ``ablate`` builds on it). Unknown
+    leaves raise KeyError; unknown toggle names are rejected by the block factory."""
+    import dataclasses
+
+    leaf_names: set[str] = set()
+
+    def collect(s: PipelineSpec) -> None:
+        if isinstance(s, BlockSpec):
+            leaf_names.add(s.name)
+        elif isinstance(s, (SeqSpec, ParallelSpec)):
+            for c in s.children:
+                collect(c)
+        elif isinstance(s, StackSpec):
+            for c in (*s.stages, *s.actuators):
+                collect(c)
+
+    collect(spec)
+    by_leaf: dict[str, dict[str, bool]] = {}
+    for key, val in toggles.items():
+        leaf, _, tog = key.rpartition(".")
+        if leaf not in leaf_names:
+            raise KeyError(f"toggle override {key!r}: no leaf named {leaf!r}")
+        by_leaf.setdefault(leaf, {})[tog] = bool(val)
+
+    def walk(s: PipelineSpec) -> PipelineSpec:
+        if isinstance(s, BlockSpec):
+            if s.name not in by_leaf:
+                return s
+            params = dict(s.params)
+            params["toggles"] = {**dict(params.get("toggles") or {}), **by_leaf[s.name]}
+            return dataclasses.replace(s, params=params)
+        if isinstance(s, (SeqSpec, ParallelSpec)):
+            return dataclasses.replace(s, children=tuple(walk(c) for c in s.children))
+        if isinstance(s, StackSpec):
+            return dataclasses.replace(s, stages=tuple(walk(c) for c in s.stages),
+                                       actuators=tuple(walk(c) for c in s.actuators))
+        raise TypeError(f"not a pipeline spec: {s!r}")
+
+    return walk(spec) if by_leaf else spec

@@ -18,15 +18,38 @@ Blocks must use only these streams, never the global ``numpy.random`` state (PLA
 (WP-F1, ``core.pipeline.build``) passes ``stream(root, block.name)`` to ``Block.init``. A block that
 needs several independent sub-streams derives them with :func:`substream` (order-independent too).
 The root entropy and each stream's key are what ``runs/<id>/seeds.json`` records (WP-F2).
+
+Random numbers inside the compiled loop (WP-F1): kernels cannot call a ``Generator``, so a block
+that needs per-step random numbers owns a :class:`DrawBuffer`. Before each piece of the time loop
+(``Block.prepare``, ``core.rates``) the buffer is refilled in Python with **exactly** the number of
+draws the block consumes in that piece, drawn sequentially from the block's own stream; the
+kernel (and the pure-Python step) read the buffer one entry at a time. Because the stream is
+consumed sequentially and never over-drawn, the realisation is bit-identical for every chunk or
+piece length (G11, VT-F2), and identical between the compiled and the reference loop (VT-44).
 """
 
 from __future__ import annotations
 
 import hashlib
+from typing import TYPE_CHECKING
 
 import numpy as np
 
-__all__ = ["stream_key", "child_seed_sequence", "stream", "substream", "root_seed_sequence"]
+from cranberry.core.rates import PIECE_SAMPLES, max_steps_in, n_steps_in
+
+if TYPE_CHECKING:
+    from cranberry.core.layout import SlotLayout
+    from cranberry.core.state import State
+
+__all__ = [
+    "stream_key",
+    "child_seed_sequence",
+    "stream",
+    "substream",
+    "root_seed_sequence",
+    "DRAW_DISTS",
+    "DrawBuffer",
+]
 
 _KEY_WORDS = 4
 
@@ -77,3 +100,78 @@ def substream(parent: np.random.Generator, label: str) -> np.random.Generator:
         entropy=seed_seq.entropy, spawn_key=tuple(seed_seq.spawn_key) + stream_key(label)
     )
     return np.random.Generator(np.random.PCG64(child))
+
+
+#: Distributions a :class:`DrawBuffer` can pre-draw: ``Generator`` method names (float64 output).
+DRAW_DISTS: tuple[str, ...] = ("standard_normal", "random")
+
+
+class DrawBuffer:
+    """Pre-drawn random numbers for one block, readable from kernels (G11; see module docstring).
+
+    Slots (registered by :meth:`init`): ``rng.<owner>[.<label>].buf`` float64 of shape
+    ``(capacity * per_step,)`` and ``rng.<owner>[.<label>].idx`` int64 (next unread entry).
+
+    Kernel use (offsets from :meth:`bind`)::
+
+        w = S[buf_off + I[idx_off]]; I[idx_off] += 1        # one draw
+
+    Python reference use: :meth:`take`.
+
+    Args:
+        owner: block name (slot names and error messages).
+        per_step: draws consumed per step of the owning block (>= 1).
+        dist: one of :data:`DRAW_DISTS`.
+        label: optional sub-name when a block owns several buffers.
+    """
+
+    def __init__(self, owner: str, per_step: int, dist: str, label: str | None = None):
+        if dist not in DRAW_DISTS:
+            raise ValueError(f"dist must be one of {DRAW_DISTS}, got {dist!r}")
+        if isinstance(per_step, bool) or int(per_step) != per_step or per_step < 1:
+            raise ValueError(f"per_step must be an int >= 1, got {per_step!r}")
+        self.owner = owner
+        self.per_step = int(per_step)
+        self.dist = dist
+        prefix = f"rng.{owner}" if label is None else f"rng.{owner}.{label}"
+        self.buf_name = f"{prefix}.buf"
+        self.idx_name = f"{prefix}.idx"
+        self.rng: np.random.Generator | None = None
+        self.rate_div = 1
+        self.capacity = 0
+        self.buf_off = -1
+        self.idx_off = -1
+
+    @property
+    def slot_names(self) -> tuple[str, str]:
+        return (self.buf_name, self.idx_name)
+
+    def init(self, layout: SlotLayout, rng: np.random.Generator, rate_div: int) -> None:
+        """Register the slots for a block stepping every ``rate_div`` samples; keep ``rng``."""
+        self.rng = rng
+        self.rate_div = int(rate_div)
+        self.capacity = max_steps_in(PIECE_SAMPLES, self.rate_div)
+        layout.add(self.buf_name, (self.capacity * self.per_step,), np.float64, "1")
+        layout.add(self.idx_name, (), np.int64, "1")
+
+    def bind(self, layout: SlotLayout) -> None:
+        self.buf_off = layout.slot(self.buf_name).offset
+        self.idx_off = layout.slot(self.idx_name).offset
+
+    def refill(self, state: State, n0: int, n_samples: int) -> None:
+        """Draw exactly the entries consumed in base samples [n0, n0 + n_samples) and reset the index."""
+        if self.rng is None:
+            raise RuntimeError(f"DrawBuffer {self.buf_name!r} used before init")
+        if n_samples > PIECE_SAMPLES:
+            raise ValueError(f"piece of {n_samples} samples exceeds PIECE_SAMPLES={PIECE_SAMPLES}")
+        count = n_steps_in(n0, n_samples, self.rate_div) * self.per_step
+        buf = state.view(self.buf_name)
+        getattr(self.rng, self.dist)(out=buf[:count])
+        state.view(self.idx_name)[...] = 0
+
+    def take(self, state: State) -> float:
+        """Python reference: return the next entry and advance the index."""
+        idx = state.view(self.idx_name)
+        i = int(idx)
+        idx[...] = i + 1
+        return float(state.view(self.buf_name)[i])

@@ -89,8 +89,11 @@ def make_block(spec: BlockSpec) -> Block:
     """Instantiate a leaf block from its spec: ``factory(spec.params, name=spec.name)`` + rate_div.
 
     The factory receives ``rate_div`` through the spec only; the returned block's ``spec`` must
-    equal the input spec (round-trip contract, VT-F1).
+    equal the input spec (round-trip contract, VT-F1). An unknown kind triggers one
+    :func:`ensure_loaded` before failing (so ``build`` works without an explicit import).
     """
+    if spec.kind not in _BLOCKS:
+        ensure_loaded()
     factory = get_factory(spec.kind)
     block = factory(dict(spec.params), name=spec.name)
     if spec.rate_div != 1:

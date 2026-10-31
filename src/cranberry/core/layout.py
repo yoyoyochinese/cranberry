@@ -36,6 +36,8 @@ Slot naming scheme (contract):
   ``delay.lock1``          delay-buffer ring                             S           V
   ``lock.lockD.state``     lock state / event counter                    I           1
   ``metric.port1.delta``   metric (i) sample                             S           rad
+  ``rng.n1.buf``           pre-drawn random numbers of block ``n1``      S           1
+  ``rec.recorder.buf``     runner's decimated recording buffer           S           1
   =======================  ===========================================  ==========  ======
 
   ``<owner>`` is the block/segment/beam/lock id (block names may themselves contain dots, e.g.
@@ -44,8 +46,10 @@ Slot naming scheme (contract):
 
 * Ring buffers (history for emission-time evaluation, delay lines; PLAN §2.6): ``ring_len > 0``
   allocates storage of shape ``(ring_len, *shape)`` and one int64 head index (not a named slot;
-  read via ``Slot.head`` / ``State.ring_head``). Head semantics (which row is "now", advance
-  order) are defined by WP-F1 in ``core.delay``.
+  read via ``Slot.head`` / ``State.ring_head``). Head semantics (``core.delay``): the head is the
+  row holding the **newest** sample; a push advances the head by one (mod ``ring_len``) and then
+  writes that row; the value ``d`` samples older than the newest is row ``(head - d) % ring_len``.
+  The head starts at 0 and every row starts at ``init``.
 
 * Runtime parameters are named ``<block name>.<param key>`` (e.g. ``lock1.pid.kp``) and live in P.
   Only float64 runtime parameters exist; anything that changes array sizes or kernel structure is a
@@ -69,11 +73,14 @@ import numpy as np
 
 __all__ = ["SLOT_GROUPS", "RESERVED_SLOTS", "Slot", "SlotLayout", "LayoutFrozenError"]
 
-#: Allowed first components of slot names (PLAN §2.3.2 State fields, plus ``rf`` from §4.3 NOISE).
+#: Allowed first components of slot names (PLAN §2.3.2 State fields, plus ``rf`` from §4.3 NOISE,
+#: ``rng`` for pre-drawn random-number buffers (``core.rng.DrawBuffer``) and ``rec`` for the
+#: runner's recorder buffers; the last two added by WP-F1).
 SLOT_GROUPS: frozenset[str] = frozenset(
     {
         "t", "n", "laser", "drv", "psi", "tau_g", "J", "beam", "pump", "opa", "opo", "rf",
         "v", "dem", "ctrl", "delay", "act", "timing", "leak", "lock", "metric",
+        "rng", "rec",
     }
 )
 #: Slots that every layout has, written by the runner.
