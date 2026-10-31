@@ -197,5 +197,5 @@ def test_framework_stubs_name_their_wp():
     assert {"delay_buffer", "segment_phase", "beam_assembler", "metric_i", "metric_ii"} <= set(registry.registered_kinds())
     with pytest.raises(MissingParameterError):  # delay_buffer is implemented (WP-F1); D34: params required
         registry.make_block(BlockSpec("delay_buffer", "d", {}))
-    with pytest.raises(NotImplementedError, match="WP-F6"):
+    with pytest.raises(MissingParameterError):  # segment_phase is implemented (WP-F6); D34: params required
         registry.make_block(BlockSpec("segment_phase", "sp", {}))
