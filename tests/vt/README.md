@@ -22,13 +22,13 @@ Rules (PLAN §6.1, §6.3):
 | [~] | VT-03 | 1 | CW limit (pulsed blocks identity), GNLSE CW shortcut | unit + integ | B9, B11 | M5 | `test_vt_03_cw_limit.py` |
 | [x] | VT-04 | 2 | Fig. 5 (4 curves × 8 points, P_opt) | unit + integ | B1, I1 | M1 | `test_vt_04_refA_fig5.py` |
 | [~] | VT-05 | 3 | `offline.gaussian`, `LossRegistry`, `pure_loss`, circuit noise = loss, OPO / pulsed OPO parts | unit | F3 (M0), B5, B6, B11 | M0–M5 | `test_vt_05_pure_loss.py` |
-| [ ] | VT-06 | 4 | linearized fiber, OPA g → 0, OPO x = 0, pulsed OPO (initial vacuum term) | unit | B10, B1, B6, B11 | M1–M5 | `test_vt_06_vacuum_limits.py` |
+| [~] | VT-06 | 4 | linearized fiber, OPA g → 0, OPO x = 0, pulsed OPO (initial vacuum term) | unit | B10, B1, B6, B11 | M1–M5 | `test_vt_06_vacuum_limits.py` |
 | [x] | VT-07 | 5 | `fiber_gnlse` soliton | unit | B9 | M5 | `test_vt_07_gnlse_soliton.py` |
 | [x] | VT-08 | 5 | `fiber_gnlse` recurrence | unit | B9 | M5 | `test_vt_08_gnlse_recurrence.py` |
 | [x] | VT-09 | 5 | `fiber_gnlse` step halving (error 1/16) | unit | B9 | M5 | `test_vt_09_gnlse_step_halving.py` |
 | [x] | VT-10 | 5 | `fiber_gnlse` photon number with Raman | unit | B9 | M5 | `test_vt_10_gnlse_photon_number.py` |
-| [ ] | VT-11 | 6 | `raman_noise_table` (thermal part → 0 only, D48) | unit | B10 | M5 | `test_vt_11_raman_noise.py` |
-| [ ] | VT-12 | 6 | `gawbs_table` | unit | B10 | M5 | `test_vt_12_gawbs.py` |
+| [x] | VT-11 | 6 | `raman_noise_table` (thermal part → 0 only, D48) | unit | B10 | M5 | `test_vt_11_raman_noise.py` |
+| [x] | VT-12 | 6 | `gawbs_table` | unit | B10 | M5 | `test_vt_12_gawbs.py` |
 | [ ] | VT-13 | 7 | generic linear loop (M0, `SimController.measure_transfer_function`), Ref D z-domain (M1) | integ | F1, F5, B4, I2 | M0, M1 | `test_vt_13_closed_loop_tf.py` |
 | [ ] | VT-14 | 7 | feedback off → free-running (Ref D) | integ | I2, F6 | M1 | `test_vt_14_refD_free_running.py` |
 | [~] | VT-15 | 7 | integrator loop residual, lock-2 reduction (A−/A+) | integ | B4, I1 | M1 | `test_vt_15_integrator_residual.py` |
@@ -47,7 +47,7 @@ Rules (PLAN §6.1, §6.3):
 | [~] | VT-33 | — | phase → squeezing, ESA, metric invariance / decomposition (V11, V12), HF add-on (V13) | unit + integ | F4, B5 | M1 (V1–V10, V13), M4 (V11, V12) | `test_vt_33_phase_to_squeezing.py` |
 | [~] | VT-34 | — | laser (delay, coherence, fractional delay, Liu static compensation, filter cavity, ASE, CMRR) | unit + integ | B2, F6 | M1, M4 | `test_vt_34_laser.py` |
 | [x] | VT-35 | — | GNLSE extras | unit | B9 | M5 | `test_vt_35_gnlse_extra.py` |
-| [ ] | VT-36 | — | fiber quantum extras | unit | B10 | M5 | `test_vt_36_fiber_quantum_extra.py` |
+| [x] | VT-36 | — | fiber quantum extras | unit | B10 | M5 | `test_vt_36_fiber_quantum_extra.py` |
 | [~] | VT-37 | — | environmental noise (coefficients and signs, PSD, correlation, counter-propagation, axis coefficients) | unit | B2, F6 | M1, M2, M4 | `test_vt_37_environmental_noise.py` |
 | [~] | VT-38 | — | polarization | unit | B7 | M4 | `test_vt_38_polarization.py` |
 | [~] | VT-39 | — | probe cancellation breakdown | integ | B8, F6, B7 | M4 | `test_vt_39_probe_cancellation.py` |
