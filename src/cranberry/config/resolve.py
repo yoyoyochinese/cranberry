@@ -21,10 +21,25 @@ A ``where:`` binding is a literal, a marker (``!sweep`` ...: the expression is *
 still needs it (resolved configs carry values, not bindings). References must point at scalar values
 or at other expressions, never at whole mappings/lists or ``!fn`` values.
 
+An ``!expr``'s *own* ``where`` (long form) may also hold a sweep marker or a nested ``!expr``: the
+marker is a sweep axis at ``<path of the expr>.where.<name>`` (found by :func:`find_markers`,
+expanded by ``runner.sweep``) and a nested expression is resolved first (WP-F2b).
+
+``!fn`` arguments (WP-F2b) may contain references: write the argument as an ``!expr`` (a bare
+reference is ``!expr "opo.L0"``); it is resolved like any other expression, with the names looked up
+from the mapping holding the ``!fn`` (and the sibling arguments), and the value replaces it in
+``args``. Plain strings in ``args`` stay strings (registered functions may take string options)::
+
+    loss: !fn {name: refB_loss_vs_x, args: {L0: !expr "opo.L0", k: !expr "2 * k_half"}}
+
+Paths into these are ``<path>.where.<name>`` / ``<path>.args.<name>`` (:func:`path_str`,
+:func:`parse_path`, :func:`get_path`, :func:`set_path` step into ``Expr.where`` / ``Fn.args``).
+
 After resolution: expressions without ``args`` are replaced by their value; expressions with
 ``args`` stay :class:`~cranberry.config.yaml_io.Expr` markers whose ``where`` holds the resolved
 constants (blocks turn them into functions with :func:`as_callable`); ``!pi_frac x`` becomes the
-float x·π; sweep markers and expressions depending on them are left untouched.
+float x·π; sweep markers and expressions depending on them are left untouched. A fully resolved tree
+(no sweep axis left) then has its dB-named parameters converted to linear (``config.db``, G16-i).
 """
 
 from __future__ import annotations
@@ -39,6 +54,7 @@ from typing import Any
 
 import numpy as np
 
+from cranberry.config.db import linearize
 from cranberry.config.expr import CONSTANTS, ExprError, ExprFunction, compile_expr, free_names, safe_eval
 from cranberry.config.spec import ConfigError
 from cranberry.config.yaml_io import SWEEP_MARKERS, Choice, Expr, Fn, PiFrac, _check_size
@@ -65,10 +81,19 @@ _MARKERS = (*SWEEP_MARKERS, Expr, Fn, PiFrac)
 # ------------------------------------------------------------------------------------ tree navigation
 
 
+def _child(node: Any, p: Any) -> Any:
+    """``node[p]``; also steps into an ``!expr``'s own ``where`` and a ``!fn``'s ``args`` (WP-F2b)."""
+    if isinstance(node, Expr) and p == "where":
+        return node.where
+    if isinstance(node, Fn) and p == "args":
+        return node.args
+    return node[p]
+
+
 def get_path(tree: Any, path: TreePath) -> Any:
     node = tree
     for p in path:
-        node = node[p]
+        node = _child(node, p)
     return node
 
 
@@ -94,7 +119,7 @@ def path_str(tree: Any, path: TreePath) -> str:
             out += f".{label}" if label is not None else f"[{p}]"
         else:
             out += f".{p}"
-        node = node[p]
+        node = _child(node, p)
     return out.lstrip(".") or "<root>"
 
 
@@ -147,6 +172,8 @@ def _navigate(tree: Any, path: TreePath, toks: Sequence[Any]) -> TreePath | None
             if hit is None:
                 return None
             path, node, i = path + (hit[0],), node[hit[0]], i + hit[1]
+        elif (isinstance(node, Expr) and t == "where") or (isinstance(node, Fn) and t == "args"):
+            path, node, i = path + (t,), _child(node, t), i + 1
         else:
             return None
     return path
@@ -185,7 +212,8 @@ def _lookup(tree: Any, scope: TreePath, parts: list[str], skip_where_at: TreePat
 
 
 def _walk(tree: Any, path: TreePath = ()):
-    """Yield (path, node) depth-first; does not descend into marker objects."""
+    """Yield (path, node) depth-first; descends into an ``!expr``'s own ``where`` and a ``!fn``'s
+    ``args`` (so sweep markers and expressions there are found), not into other markers."""
     yield path, tree
     if isinstance(tree, Mapping):
         for k, v in tree.items():
@@ -193,6 +221,12 @@ def _walk(tree: Any, path: TreePath = ()):
     elif isinstance(tree, list):
         for i, v in enumerate(tree):
             yield from _walk(v, path + (i,))
+    elif isinstance(tree, Expr):
+        for k, v in tree.where.items():
+            yield from _walk(v, path + ("where", k))
+    elif isinstance(tree, Fn):
+        for k, v in tree.args.items():
+            yield from _walk(v, path + ("args", k))
 
 
 def find_markers(tree: Any, types: tuple[type, ...] = SWEEP_MARKERS) -> list[tuple[TreePath, Any]]:
@@ -216,16 +250,6 @@ def _value_at(tree: Any, target: TreePath, where: str) -> Any:
     return node
 
 
-def _literal(value: Any, where: str) -> Any:
-    if isinstance(value, SWEEP_MARKERS):
-        return _DEFERRED
-    if isinstance(value, PiFrac):
-        return value.x * math.pi
-    if isinstance(value, (Mapping, list, Expr, Fn)):
-        raise ConfigError(f"{where}: binding must be a value, a sweep marker or a dotted reference string")
-    return value
-
-
 def _bind(tree: Any, path: TreePath, expr: Expr, where: str) -> dict[str, tuple[str, Any]]:
     container = path[:-1]
     out: dict[str, tuple[str, Any]] = {}
@@ -244,7 +268,9 @@ def _bind(tree: Any, path: TreePath, expr: Expr, where: str) -> dict[str, tuple[
             else:
                 if rest:
                     raise ConfigError(f"{where}: {name!r} navigates into a literal binding")
-                out[name] = ("value", b)
+                # a literal (or marker / nested !expr) bound in the expression's own where: a path into
+                # it, so a !sweep there is a sweep axis and a nested !expr is resolved first (WP-F2b)
+                out[name] = ("path", path + ("where", key))
         elif name in expr.args:
             out[name] = ("arg", None)
         else:
@@ -297,9 +323,7 @@ def resolve(tree: Mapping[str, Any]) -> dict[str, Any]:
         for name, (kind, target) in bindings[p].items():
             if kind == "arg":
                 continue
-            if kind == "value":
-                v = _literal(target, where)
-            elif target in results:
+            if target in results:
                 v = results[target]
                 if isinstance(v, Expr):
                     raise ConfigError(f"{where}: {name!r} refers to a callable !expr ({path_str(tree, target)})")
@@ -330,7 +354,9 @@ def resolve(tree: Mapping[str, Any]) -> dict[str, Any]:
 
     tree = _convert_pi_frac(tree)
     _strip_where(tree, (), deferred_paths)
-    return tree
+    if find_markers(tree):  # sweep axes left: keep dB names as written (config.db, "When")
+        return tree
+    return linearize(tree)
 
 
 def _convert_pi_frac(node: Any) -> Any:

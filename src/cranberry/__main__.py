@@ -4,6 +4,11 @@ Commands: ``run``, ``sweep``, ``ablate``, ``decompose``, ``convergence``. Argume
 the config is loaded, overlaid and validated by ``cranberry.config`` (WP-F2; an invalid config prints
 the reason and exits with status 2), then the work is delegated to the runner functions (WP-F1 /
 WP-F4). Until those land, the delegated call raises ``NotImplementedError`` naming the responsible WP.
+
+``run`` / ``sweep`` write run records (``runner.record``) only when ``--out DIR`` is given (e.g.
+``--out runs/``): one directory per run, with the input as written (``config.input.yaml``), the
+resolved config, seeds, git, env, results and ``invocation.json`` (argv, ``--seed`` override, sweep
+point). There is no silent default directory (D34).
 """
 
 from __future__ import annotations
@@ -53,6 +58,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--overlay", "-o", type=_yaml_file, action="append", default=[], metavar="YAML",
                        help="overlay YAML applied in order (G12); repeatable")
         p.add_argument("--seed", type=_seed, default=None, help="override run.seed (root of all RNG streams)")
+        if name in ("run", "sweep"):
+            p.add_argument("--out", type=Path, default=None, metavar="DIR",
+                           help="write a run record per run under DIR (e.g. runs/); without it nothing is written")
         if name == "ablate":
             p.add_argument("--toggle", action="append", default=[], metavar="BLOCK.TOGGLE",
                            help="toggle to switch off (default: all toggles); repeatable")
@@ -63,6 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
     args = build_parser().parse_args(argv)
 
     from dataclasses import replace
@@ -85,14 +94,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"cranberry: invalid configuration {args.config}: {e}", file=sys.stderr)
         return 2
 
+    record: dict = {}
+    if getattr(args, "out", None) is not None:  # D34: records only where asked (no silent default dir)
+        record = {
+            "record_root": args.out,
+            "config_input": config.read_input(args.config, args.overlay),
+            "invocation": {"argv": argv, "overrides": {} if args.seed is None else {"run.seed": args.seed}},
+        }
     if args.command == "run":
         from cranberry.runner.run import run
 
-        run(spec)  # WP-F1
+        run(spec, **record)  # WP-F1
     elif args.command == "sweep":
         from cranberry.runner.sweep import sweep
 
-        sweep(spec)  # each point via runner.run (WP-F1)
+        sweep(spec, **record)  # each point via runner.run (WP-F1)
     elif args.command == "ablate":
         from cranberry.runner.ablate import ablate
 

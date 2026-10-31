@@ -4,7 +4,8 @@ the environment and the results, and the run can be reproduced from the record a
 bit-identical results).
 
 Test blocks (kind ``vtf4_noise``) stand in for physics blocks; the loop is the pure-Python reference
-step (``runner.run`` from WP-F1 is exercised additionally once it exists).
+step, and ``runner.run(spec, record_root=...)`` (WP-F1 + WP-F2b wiring) is checked end to end: it
+writes the record itself and re-running the recorded config reproduces the stored results.
 """
 
 import json
@@ -144,16 +145,52 @@ def test_python_built_run_records_spec_as_input(tmp_path):
         record.write_record(run_dir, git={})
 
 
-def test_with_runner_run_when_available():
+def test_runner_run_without_record_root_writes_nothing(tmp_path, monkeypatch):
     from cranberry.runner.run import run
 
-    spec = config.load(config.yaml_io.loads_yaml(CONFIG))
-    try:
-        result = run(spec)
-    except NotImplementedError as e:
-        assert "WP-F1" in str(e)
-        pytest.skip("runner.run not implemented yet (WP-F1)")
-    if result.run_dir is not None:
-        for key in ("config_input", "config_resolved", "seeds", "git", "env"):
-            assert (result.run_dir / record.RECORD_FILES[key]).is_file(), key
-        assert record.load_record(result.run_dir) == spec
+    monkeypatch.chdir(tmp_path)
+    result = run(config.load(config.yaml_io.loads_yaml(CONFIG)))
+    assert result.run_dir is None and list(tmp_path.iterdir()) == []  # D34: no silent default directory
+
+
+REC_OVERLAY = "measure: {record: {slots: [laser.dx1.phi, drv.arm1.dT], decim: 1}}\n"
+
+
+def test_recorded_runner_run_end_to_end(tmp_path):
+    """WP-F2b: ``run(spec, record_root=...)`` writes the complete record, and re-running the recorded
+    config reproduces the stored results bit for bit (also equal to the reference loop)."""
+    from cranberry.runner.run import run
+
+    cfg, ov = _files(tmp_path)
+    rec = tmp_path / "cfg" / "rec.yaml"
+    rec.write_text(REC_OVERLAY)
+    spec = config.load(cfg, overlays=[ov, rec])
+    result = run(spec, record_root=tmp_path / "runs", config_input=config.read_input(cfg, [ov, rec]))
+    run_dir = result.run_dir
+    assert run_dir is not None and run_dir.parent == tmp_path / "runs" and "_vtf4_" in run_dir.name
+    for key in ("config_input", "config_resolved", "seeds", "git", "env", "results"):
+        assert (run_dir / record.RECORD_FILES[key]).is_file(), key
+    seeds = json.loads((run_dir / "seeds.json").read_text())
+    assert seeds["root"] == 7 == spec.run.seed
+    assert json.loads((run_dir / "git.json").read_text())["commit"]
+    assert config.load(run_dir / "config.input.yaml") == spec == record.load_record(run_dir)
+
+    stored = np.load(run_dir / "results.npz")
+    assert set(stored.files) == {"laser.dx1.phi", "drv.arm1.dT", "t_s"}
+    replay = run(record.load_record(run_dir))  # from the record alone
+    reference = _simulate(spec)
+    for k in ("laser.dx1.phi", "drv.arm1.dT"):
+        assert stored[k].tobytes() == replay.series[k].tobytes() == result.series[k].tobytes(), k
+        assert stored[k].tobytes() == reference[k].tobytes(), k  # runner == reference loop
+    assert stored["t_s"].tobytes() == replay.t_s.tobytes()
+    assert np.std(stored["laser.dx1.phi"]) > 0
+
+
+def test_runner_run_from_a_path_records_the_file_as_input(tmp_path):
+    from cranberry.runner.run import run
+
+    cfg, _ = _files(tmp_path)
+    result = run(cfg, record_root=tmp_path / "runs")
+    text_in = (result.run_dir / "config.input.yaml").read_text()
+    assert "!expr" in text_in  # the input as written, not the resolved spec
+    assert config.load(result.run_dir / "config.input.yaml") == config.load(cfg) == record.load_record(result.run_dir)
