@@ -171,12 +171,15 @@ def drv_write(S, I, off, n_sub, lo, hi, ring_len, head, scale, value):  # noqa: 
 
 drv_write_nb = numba.njit(inline="always")(drv_write)
 
-#: Params of the optional insertion-loss registration (G06).
+#: Params of the optional insertion-loss registration (G06). ``insertion_loss_lin`` (loss factor
+#: 10^(IL/10) ≥ 1) is the name a YAML ``insertion_loss_db`` gets on load (G16-i, ``config.db``); give
+#: exactly one of the two (WP-I1 addition: before it, a loaded preset could not satisfy the dB key).
 LOSS_KEYS = ("insertion_loss_db", "loss_applies_to", "loss_source")
 
 
 def loss_elements(block: BaseBlock, toggle_on: bool) -> list:
-    """``[LossElement]`` from ``insertion_loss_db`` (None → no element) on ``params['segment']`` (G06).
+    """``[LossElement]`` from ``insertion_loss_db`` or ``insertion_loss_lin`` (None → no element) on
+    ``params['segment']`` (G06).
 
     ``insertion_loss_lin`` (loss factor 10^(IL/10) ≥ 1, or None; D56-1) may replace
     ``insertion_loss_db``: YAML presets cannot give a null under a dB name, and a numeric
@@ -190,15 +193,19 @@ def loss_elements(block: BaseBlock, toggle_on: bool) -> list:
     from cranberry.offline.loss_registry import LossElement
 
     prm = block.params
-    if "insertion_loss_lin" in prm and "insertion_loss_db" not in prm:
-        il = prm["insertion_loss_lin"]
-        il_db = None if il is None else 10.0 * math.log10(float(il))
-    else:
-        require(prm, "insertion_loss_db", block=block.name)
-        il_db = None if prm["insertion_loss_db"] is None else float(prm["insertion_loss_db"])
-    if il_db is None:
+    given = [k for k in ("insertion_loss_db", "insertion_loss_lin") if k in prm]
+    if len(given) != 1:
+        raise MissingParameterError(f"block {block.name!r}: give exactly one of insertion_loss_db / "
+                                    f"insertion_loss_lin (D34), got {given}")
+    key = given[0]
+    if prm[key] is None:
         return []
     require(prm, "loss_applies_to", "loss_source", "segment", block=block.name)
-    return [LossElement.from_il_db(f"{block.name}.il", il_db, kind="component",
-                                   applies_to=frozenset(prm["loss_applies_to"]), source=str(prm["loss_source"]),
-                                   enabled=bool(toggle_on), segment=str(prm["segment"]))]
+    common = dict(kind="component", applies_to=frozenset(prm["loss_applies_to"]), source=str(prm["loss_source"]),
+                  enabled=bool(toggle_on), segment=str(prm["segment"]))
+    if key == "insertion_loss_db":
+        return [LossElement.from_il_db(f"{block.name}.il", float(prm[key]), **common)]
+    factor = float(prm[key])
+    if not factor >= 1.0:
+        raise ValueError(f"block {block.name!r}: insertion_loss_lin is a loss factor >= 1, got {factor!r}")
+    return [LossElement(id=f"{block.name}.il", eta=1.0 / factor, **common)]

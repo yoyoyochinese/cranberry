@@ -87,9 +87,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             points = expand(spec)
             for p in points:
-                config.validate(p.spec)
+                config.validate(_as_run_validates(p.spec))
         else:
-            config.validate(spec)
+            config.validate(_as_run_validates(spec))
     except config.ConfigError as e:
         print(f"cranberry: invalid configuration {args.config}: {e}", file=sys.stderr)
         return 2
@@ -122,6 +122,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         convergence(spec, args.what or CONVERGENCE_CHECKS)  # WP-F4
     return 0
+
+
+def _as_run_validates(spec):
+    """The spec as ``runner.run`` validates it: ``RunSpec.topology`` injected into the topology-taking
+    leaves and toggle overrides of ``offline.blocks`` set aside (WP-I1 fix: before it, every preset
+    relying on topology injection, e.g. refA, was rejected by the CLI although ``run`` accepts it)."""
+    from dataclasses import replace
+
+    from cranberry.runner.run import inject_topology, offline_block_specs
+
+    off = {b.name for b in offline_block_specs(spec)}
+    toggles = {k: v for k, v in spec.toggles.items() if k.rpartition(".")[0] not in off}
+    return replace(spec, pipeline=inject_topology(spec.pipeline, spec.topology), toggles=toggles)
 
 
 if __name__ == "__main__":

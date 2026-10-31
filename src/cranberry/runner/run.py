@@ -42,6 +42,41 @@ Offline stage and measurement (WP-F4)
       fills ``RunResult.metrics`` (``metrics.json``); the out-of-band ledger variance enters there, in
       ``phase_to_quadrature`` only (G05).
 
+Measurement-stage hooks (WP-I1, D58-6; :func:`evaluate_measurements`, after the metrics)
+    Blocks of the measurement stage (``esa_zero_span``, ``esa_swept_spectrum``, ``pulse_sample``;
+    WP-B5) have no-op kernels; the runner calls their ``evaluate`` on the results of the loop. They are
+    named in ``offline.blocks`` (or the pipeline). Every entry key is required (D34)::
+
+      measure:
+        esa:
+          <entry>:                       # esa_zero_span: V′(t) from the recorded metric series
+            {block, metric, quadrature_rad}
+          <entry>:                       # esa_swept_spectrum: R through a bhd_frontend
+            {block, metric, quadrature_rad, frontend, exclude_losses}
+        pulse_sample:
+          <entry>: {block, kernel, r_slots}   # r_slots: K items, each a number R (shot-noise units)
+                                              # or {metric, quadrature_rad}
+
+    ``metric`` names a metric with noise levels (``measure.metrics``), e.g. ``i.port0``;
+    ``quadrature_rad`` is added to the measured angle Δ = Δ_set + δ − θ_off (0: the locked quadrature,
+    π/2: the same jitter around the orthogonal one, prompt §7-1). The variance uses the metric's loss-
+    applied V∓ and its χ_HF, χ_dither (``phase_to_quadrature``; nothing is added twice):
+
+    * zero span: V′(t) = (V− + V+)/2 − (V+ − V−)/2 · cos 2Δ(t) · χ_HF χ_dither, Δ(t) from the recorded
+      (decimated) metric series, sampled every ``decim/f_sim``; the record must cover ``sweep_time_s``
+      (T04 §5.1). A phase-scanned trace is the same entry on a run with the lock off and a ramp
+      (Ref A Fig. 3).
+    * swept spectrum: R = V′/V_SN with ⟨cos 2Δ⟩ from the full-rate metric moments and η recomputed without
+      the LossRegistry elements listed in ``exclude_losses`` (the detector's electronic / imbalance
+      elements: ``bhd_frontend`` adds them itself, D58-1); ``frontend.psd(f, R)`` gives the signal /
+      LO-only / dark PSDs (T04 §5.5, T13).
+    * pulse sample: ``evaluate(r_slots, c=kernel.c, clearance_lin=kernel.clearance_pulse)``.
+
+    Random numbers: ``core.rng.stream(run.seed, "measure.<hook>.<entry>")`` (G11). Results go to
+    ``RunResult.measurements[<hook>][<entry>]`` (the block's ``evaluate`` dict plus ``v_prime`` /
+    ``r_lin``) and, when recording, to ``results.npz`` as ``measure.<hook>.<entry>.<field>`` (numeric
+    fields).
+
 Recording (``RunSpec.measure["record"]``, optional; without it no series are recorded)::
 
     measure:
@@ -54,6 +89,7 @@ supported; ``series[name]`` has shape ``(n_records, *slot.shape)``.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -85,6 +121,8 @@ __all__ = [
     "inject_topology",
     "offline_block_specs",
     "build_offline_stage",
+    "MEASUREMENT_HOOKS",
+    "evaluate_measurements",
 ]
 
 #: ``run(..., mode=)`` values.
@@ -93,7 +131,9 @@ RUN_MODES: tuple[str, ...] = ("auto", "compiled", "reference")
 #: Block kinds that take the ``topology`` param and receive ``RunSpec.topology`` when it is absent
 #: (WP-F4, F6 proposal). WPs adding such kinds extend this set.
 TOPOLOGY_KINDS: frozenset[str] = frozenset(
-    {"segment_phase", "beam_assembler", "lock_error", "metric_i", "metric_ii", "segment_jones", "opo_angle_map"}
+    {"segment_phase", "beam_assembler", "lock_error", "metric_i", "metric_ii", "segment_jones", "opo_angle_map",
+     # segment noise sources (WP-B2 kinds, added by WP-I1: they take the topology param too)
+     "segment_mech_noise", "segment_thermodynamic", "segment_thermal"}
 )
 
 
@@ -114,6 +154,8 @@ class RunResult:
         final_state: the State after the last sample (WP-F1 addition; None if not kept).
         mode: "compiled" or "reference" (the loop actually used; WP-F1 addition).
         offline: the offline stage (source outputs, LossRegistry, BandLedger; WP-F4 addition).
+        measurements: {hook: {entry: result}} of the measurement-stage hooks (``measure.esa``,
+            ``measure.pulse_sample``; WP-I1 addition, :func:`evaluate_measurements`).
     """
 
     spec: RunSpec
@@ -128,6 +170,7 @@ class RunResult:
     final_state: State | None = None
     mode: str = ""
     offline: OfflineStage | None = None
+    measurements: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def summary(self) -> dict[str, float]:
         """Flat {name: scalar} for ablation / convergence tables (WP-F4): ``MetricsResult.summary()``
@@ -389,6 +432,181 @@ class Recorder(BaseBlock):
         return out
 
 
+#: Measurement-stage hooks of ``RunSpec.measure`` and the block kinds they drive (WP-I1, D58-6).
+MEASUREMENT_HOOKS: dict[str, tuple[str, ...]] = {
+    "esa": ("esa_zero_span", "esa_swept_spectrum"),
+    "pulse_sample": ("pulse_sample",),
+}
+
+
+def _metric_entry(metrics: Any, name: str, what: str) -> tuple[Mapping[str, Any], Any]:
+    """(noise levels, metric result object) of metric ``name`` (``i.port<k>`` / ``ii.port<k>``)."""
+    if metrics is None or name not in metrics.noise_levels:
+        known = [] if metrics is None else sorted(metrics.noise_levels)
+        raise KeyError(f"{what}: metric {name!r} has no noise levels (needs a metric probe and measure.metrics; "
+                       f"known: {known})")
+    short, _, port = name.partition(".port")
+    table = metrics.metric_i if short == "i" else metrics.metric_ii
+    return metrics.noise_levels[name], table[int(port)]
+
+
+def _quadrature_variance(nl: Mapping[str, Any], stats: Any, quadrature_rad: float, eta: float | None = None) -> float:
+    """V′ [conv units] of a metric at Δ_set + ``quadrature_rad`` from its full-rate moments, with the
+    loss-applied V∓ of its noise levels (η replaced by ``eta`` when given) and its χ_HF χ_dither (same
+    algebra as ``phase_to_quadrature``: ⟨cos 2Δ⟩ = cos 2a⟨cos 2δ′⟩ − sin 2a⟨sin 2δ′⟩, δ′ = δ − θ_off)."""
+    from cranberry.core.units import V_VAC
+
+    vm, vp = float(nl["v_minus"]), float(nl["v_plus"])
+    if eta is not None:
+        e0 = float(nl["eta"])
+        vm, vp = ((v - (1.0 - e0) * V_VAC) / e0 * eta + (1.0 - eta) * V_VAC for v in (vm, vp))
+    a = float(nl["setpoint_rad"]) + float(quadrature_rad)
+    st = stats.shifted(float(nl["theta_off_rad"]))
+    c = math.cos(2 * a) * float(st.mean_cos2) - math.sin(2 * a) * float(st.mean_sin2)
+    chi = c * float(nl["chi_hf"]) * float(nl["chi_dither"])
+    return 0.5 * (vm + vp) - 0.5 * (vp - vm) * chi
+
+
+def _need(entry: Any, keys: Sequence[str], what: str) -> None:
+    if not isinstance(entry, Mapping):
+        raise TypeError(f"{what} must be a mapping, got {entry!r}")
+    missing = [k for k in keys if k not in entry]
+    if missing:
+        raise KeyError(f"{what} needs {missing} (D34: no defaults)")
+
+
+def _zero_span(blk: Any, cfg: Mapping[str, Any], metrics: Any, f_record_hz: float | None, rng, what: str) -> dict:
+    from cranberry.core.units import V_SN
+
+    _need(cfg, ("block", "metric", "quadrature_rad"), what)
+    nl, m = _metric_entry(metrics, cfg["metric"], what)
+    delta = np.asarray(getattr(m, "delta_rad", np.zeros(0)), dtype=float)
+    if f_record_hz is None or delta.size < 2:
+        raise ValueError(f"{what}: the zero span reads the recorded metric series (needs measure.record)")
+    dt = 1.0 / f_record_hz
+    if (delta.size - 1) * dt < float(blk.params["sweep_time_s"]):
+        raise ValueError(f"{what}: record of {(delta.size - 1) * dt:.4g} s is shorter than sweep_time_s "
+                         f"{blk.params['sweep_time_s']} s")
+    big = float(nl["setpoint_rad"]) + delta - float(nl["theta_off_rad"]) + float(cfg["quadrature_rad"])
+    vm, vp = float(nl["v_minus"]), float(nl["v_plus"])
+    v_t = 0.5 * (vm + vp) - 0.5 * (vp - vm) * np.cos(2.0 * big) * float(nl["chi_hf"]) * float(nl["chi_dither"])
+    r = dict(blk.evaluate(v_t, dt_s=dt, rng=rng))
+    r["v_prime"] = float(np.mean(v_t))
+    r["r_lin"] = r["v_prime"] / V_SN
+    return r
+
+
+def _swept(blk: Any, cfg: Mapping[str, Any], blocks: Mapping[str, Any], metrics: Any, loss_registry: Any, rng,
+           what: str) -> dict:
+    from cranberry.core.units import V_SN
+
+    _need(cfg, ("block", "metric", "quadrature_rad", "frontend", "exclude_losses"), what)
+    nl, m = _metric_entry(metrics, cfg["metric"], what)
+    fe = blocks.get(cfg["frontend"])
+    if fe is None or fe.kind != "bhd_frontend":
+        raise KeyError(f"{what}.frontend: no bhd_frontend block {cfg['frontend']!r}")
+    eta = float(nl["eta"])
+    excl = list(cfg["exclude_losses"])
+    if excl:
+        if loss_registry is None or nl["loss_path"] is None:
+            raise ValueError(f"{what}: exclude_losses needs the metric's LossRegistry path")
+        on_path = loss_registry.elements_on(nl["loss_path"], nl["loss_target"], include_disabled=True)
+        unknown = sorted(set(excl) - {e.id for e in on_path})
+        if unknown:
+            raise KeyError(f"{what}.exclude_losses: {unknown} not on path {nl['loss_path']!r} ({nl['loss_target']})")
+        kept = loss_registry.elements_on(nl["loss_path"], nl["loss_target"])
+        eta = float(np.prod([e.eta for e in kept if e.id not in excl]))
+    v = _quadrature_variance(nl, m.stats, float(cfg["quadrature_rad"]), eta)
+    r_lin = v / V_SN
+
+    def part(key):
+        return lambda f: fe.psd(f, r_lin)[key]
+
+    r = dict(blk.evaluate(part("signal"), part("shot"), part("dark"), rng=rng))
+    r.update({"v_prime": v, "r_lin": r_lin, "eta": eta})
+    return r
+
+
+def _pulse(blk: Any, cfg: Mapping[str, Any], blocks: Mapping[str, Any], metrics: Any, rng, what: str) -> dict:
+    from cranberry.core.units import V_SN
+
+    _need(cfg, ("block", "kernel", "r_slots"), what)
+    ker = blocks.get(cfg["kernel"])
+    if ker is None or ker.kind != "pulsed_bhd_kernel":
+        raise KeyError(f"{what}.kernel: no pulsed_bhd_kernel block {cfg['kernel']!r}")
+    r_slots = []
+    for i, item in enumerate(cfg["r_slots"]):
+        if isinstance(item, Mapping):
+            _need(item, ("metric", "quadrature_rad"), f"{what}.r_slots[{i}]")
+            nl, m = _metric_entry(metrics, item["metric"], f"{what}.r_slots[{i}]")
+            r_slots.append(_quadrature_variance(nl, m.stats, float(item["quadrature_rad"])) / V_SN)
+        else:
+            r_slots.append(float(item))
+    r = dict(blk.evaluate(np.array(r_slots), c=ker.c, clearance_lin=ker.clearance_pulse, rng=rng))
+    r["r_slots"] = np.array(r_slots)
+    return r
+
+
+def evaluate_measurements(
+    measure: Mapping[str, Any],
+    blocks: Mapping[str, Any],
+    *,
+    metrics: Any,
+    loss_registry: Any,
+    f_record_hz: float | None,
+    seed: int,
+) -> dict[str, dict[str, Any]]:
+    """Run the measurement-stage hooks of ``measure`` after the loop (module docstring).
+
+    Args:
+        measure: ``RunSpec.measure``.
+        blocks: {name: block} of the offline blocks and pipeline leaves.
+        metrics: the run's ``MetricsResult`` (noise levels, recorded metric series, full-rate moments).
+        loss_registry: the offline stage's LossRegistry (``exclude_losses``).
+        f_record_hz: sample rate of the recorded series (f_sim / decim); None without recording.
+        seed: run seed (RNG streams ``measure.<hook>.<entry>``).
+    """
+    from cranberry.core.rng import stream
+
+    out: dict[str, dict[str, Any]] = {}
+    for hook, kinds in MEASUREMENT_HOOKS.items():
+        entries = (measure or {}).get(hook)
+        if not entries:
+            continue
+        if not isinstance(entries, Mapping):
+            raise TypeError(f"measure.{hook} must be a mapping {{entry: {{...}}}}")
+        res: dict[str, Any] = {}
+        for entry, cfg in entries.items():
+            what = f"measure.{hook}.{entry}"
+            _need(cfg, ("block",), what)
+            blk = blocks.get(cfg["block"])
+            if blk is None or blk.kind not in kinds:
+                raise KeyError(f"{what}.block: no block {cfg['block']!r} of kind {kinds} in offline.blocks / pipeline")
+            rng = stream(seed, what)
+            if blk.kind == "esa_zero_span":
+                res[str(entry)] = _zero_span(blk, cfg, metrics, f_record_hz, rng, what)
+            elif blk.kind == "esa_swept_spectrum":
+                res[str(entry)] = _swept(blk, cfg, blocks, metrics, loss_registry, rng, what)
+            else:
+                res[str(entry)] = _pulse(blk, cfg, blocks, metrics, rng, what)
+        out[hook] = res
+    return out
+
+
+def _measurement_arrays(measurements: Mapping[str, Mapping[str, Any]]) -> dict[str, np.ndarray]:
+    """Numeric fields of the hook results as ``measure.<hook>.<entry>.<field>`` arrays (results.npz)."""
+    arrays: dict[str, np.ndarray] = {}
+    for hook, entries in measurements.items():
+        for entry, r in entries.items():
+            for k, v in r.items():
+                if v is None or isinstance(v, str):
+                    continue
+                a = np.asarray(v)
+                if a.dtype.kind in "biuf":
+                    arrays[f"measure.{hook}.{entry}.{k}"] = a
+    return arrays
+
+
 def _as_runspec(spec: Any) -> RunSpec:
     from cranberry.config.spec import RunSpec
 
@@ -403,7 +621,8 @@ def _write_results(run_dir: Path, result: RunResult) -> None:
     """Add the results of ``result`` to its run directory (after the loop)."""
     from cranberry.runner.record import write_record
 
-    parts: dict[str, Any] = {"results": {**result.series, "t_s": result.t_s}}
+    parts: dict[str, Any] = {"results": {**result.series, "t_s": result.t_s,
+                                         **_measurement_arrays(result.measurements)}}
     # Hooks for later WPs: they fill RunResult (or pass the objects here) and the parts follow.
     if result.metrics is not None:  # WP-F4: metrics (i)/(ii), PSDs
         parts["metrics"] = result.metrics
@@ -536,6 +755,12 @@ def run(
         metrics = evaluate_metrics(
             leaves, state, t_s=t_s, series=series, topology=offline.topology, source_outputs=offline.source_outputs,
             loss_registry=offline.loss_registry, band_ledger=offline.band_ledger, measure=rs.measure)
+    measurements: dict[str, dict[str, Any]] = {}
+    if any((rs.measure or {}).get(h) for h in MEASUREMENT_HOOKS):
+        named = {b.name: b for b in (*offline_blocks, *leaves)}
+        f_rec = settings.f_sim_hz / recorder.rate_div if recorder is not None else None
+        measurements = evaluate_measurements(rs.measure, named, metrics=metrics, loss_registry=offline.loss_registry,
+                                             f_record_hz=f_rec, seed=settings.seed)
     result = RunResult(
         spec=rs,
         run_dir=run_dir,
@@ -547,6 +772,7 @@ def run(
         final_state=state if keep_state else None,
         mode="compiled" if compiled else "reference",
         offline=offline,
+        measurements=measurements,
     )
     if run_dir is not None:
         _write_results(run_dir, result)

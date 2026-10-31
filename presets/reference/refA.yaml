@@ -1,0 +1,495 @@
+# Ref A (Hirota, Kashiwazaki et al., Opt. Express 34, 7958 (2026), D51-1): broadband PPLN waveguide OPA,
+# 10.1 dB squeezing, phase-detection OPA lock topology `L-A` (00_summary §2.1, §2.4; PLAN §5.1). WP-I1.
+#
+# Every value carries a provenance tag: [Ref A §x] paper, Dnn decision, Txx note, [AE] agent estimate,
+# UNVERIFIED (no primary source; stand-in recorded in PROCESS_LOG per D23). No value is a default (D34):
+# `refA_tap` (conventional tap, `L-tap`), the Fig. 5 variants (presets/axes/refA_curve/*) and any sweep
+# override these values.
+#
+# Frame conventions (D55 rule 4, D56-4): beam phases carry no nominal β·L; static nominal phases are
+# absorbed into set points and demodulation phases. The beam `sqz` is a bookkeeping beam for the
+# squeezing angle θ_sq at the BHD: it is emitted by the laser phase φ_L and picks up ½ × the pump-path
+# coefficients (φ_p = 2φ_L + ψ_pump, θ_sq = φ_p/2 + const, conv §4) and the fundamental coefficients
+# on SQ. The pump beam `p_det` is emitted by `pump.shg.phi` = 2φ_L (Koheras Harmonik SH output, [Ref A
+# §3.1]). The π/2 between the probe (amplified quadrature at lock 1's zero) and the LO (squeezed
+# quadrature at lock 2's zero) is carried by `bhdbeat.phi_opa_rad = -π` with `dem2.phi_d_rad = -π/2`.
+#
+# How θ ≈ 9 mrad (prompt §7-1) is reached (VT-02): the residual of Δ = φ_LO − θ_sq is dominated by the
+# seed-laser phase noise that the LO filter cavity low-passes and the squeezed light (via the pump) does
+# not (T05 §6: |1 − H_FC|² S_φ, total π·h0/Δν_FC; Ref A §4.1 itself names the seed-laser noise as the
+# limit). With the Koheras white FM h0 = 0.2 kHz/π (T05 §2.3 stand-in, UNVERIFIED) the remaining unknown
+# Δν_FC (no literature value, swept per D49) is set to 3.3 MHz [AE, tuned], which gives θ = 9.0 mrad together
+# with the 16.8 ns LO–squeezed path-delay mismatch (emission time, T05 §3.1). The
+# lock loops (integral servos, unity gain 20 kHz [AE]) suppress only the slow path noise (T08 fibre
+# acoustics on the probe / LO fibres); lock-2 sensor noise (BHD shot noise, T14 §3.4) adds ≈ 0.5 mrad
+# in quadrature, lock-1 noise enters Δ scaled by A−/A+ = 1/123 (T14 §3.4).
+
+preset: refA
+
+run:
+  duration_s: 0.2          # ≥ ESA zero-span sweep time 0.15 s (T04 §5.1 reading of Ref A Fig. 3) [AE]
+  f_sim_hz: 2.0e+7         # above G10's 2–10 MHz: the f_sim×2 check (PLAN §6.4) fails at 10 MHz (R′− moves 0.04 dB:
+                           # white-FM random walk + FC low pass near Nyquist) and passes at 20 MHz (0.006 dB) [WP-I1]
+  chunk_samples: 262144    # results independent of it (VT-F2)
+  seed: 20261031           # [AE]
+
+topology:
+  segments:
+    # Lengths of Ref A's paths are not published: [AE] table-top values. n_g: fibre 1.468 (T08), air 1.0003,
+    # LN 2.2 (5 % MgO:LN group index near 1.55 µm, [AE]). β2/β3 = 0 (CW, no dispersion effect, T03).
+    - {id: SHG, kind: free_space, L_m: 1.0, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}           # SH output → dichroic [Ref A Fig. 2]
+    - {id: PR, kind: pm, L_m: 5.0, n_g: 1.468, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {},
+       drivers: {strain: uniform, eom: uniform}}                                          # coupler → AOMs → EOM1 → collimator (fibre) [Ref A §3.1]
+    - {id: LO, kind: pm, L_m: 5.0, n_g: 1.468, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {},
+       drivers: {strain: uniform, eom: uniform, stretcher: uniform}}                      # coupler → EOM2 (fibre) [Ref A §3.1]; stretcher = Fig. 3 scan (PZT) [AE]
+    - {id: FC, kind: component, L_m: 0.3, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}           # LO filter cavity [Ref A §3.1]; ψ written by `fc`
+    - {id: CMB, kind: free_space, L_m: 0.3, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}           # dichroic → tapping mirror (pump + probe) [Ref A §3.1]
+    - {id: NC_det, kind: free_space, L_m: 0.2, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}           # non-common path to PD-OPA (E68, T14 §3.5)
+    - {id: NC_sq, kind: free_space, L_m: 0.2, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}           # non-common path to the squeezer (E68)
+    - {id: XTAL_det, kind: crystal, L_m: 0.045, n_g: 2.2, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}           # PD-OPA waveguide, 45 mm assumed equal [Ref A §3.1]
+    - {id: XTAL_sq, kind: crystal, L_m: 0.045, n_g: 2.2, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}           # squeezer PPLN waveguide 45 mm [Ref A §3.1]
+    - {id: SQ, kind: free_space, L_m: 1.0, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}           # squeezer → BHD (squeezed + residual probe)
+  beams:
+    - {id: p_det, source: shg, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.1, observer: opa_det,
+       path: [{segment: SHG, direction: 1}, {segment: CMB, direction: 1}, {segment: NC_det, direction: 1},
+              {segment: XTAL_det, direction: 1}]}                                         # PD-OPA pump [AE power]
+    - {id: pr_det, source: koheras, freq_offset_hz: 1.0e+6, jones_in: [1, 0], power_w: 1.0e-3, observer: opa_det,
+       path: [{segment: PR, direction: 1}, {segment: CMB, direction: 1}, {segment: NC_det, direction: 1},
+              {segment: XTAL_det, direction: 1}]}                                         # Ω_sh = 1 MHz [Ref A §3.1]; "a few mW" [Ref A §2]
+    - {id: sqz, source: koheras, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: bhd,
+       path: [{segment: SHG, direction: 1}, {segment: CMB, direction: 1}, {segment: NC_sq, direction: 1},
+              {segment: XTAL_sq, direction: 1}, {segment: SQ, direction: 1}]}             # bookkeeping beam θ_sq (header)
+    - {id: pr_bhd, source: koheras, freq_offset_hz: 1.0e+6, jones_in: [1, 0], power_w: 1.3e-11, observer: bhd,
+       path: [{segment: PR, direction: 1}, {segment: CMB, direction: 1}, {segment: NC_sq, direction: 1},
+              {segment: XTAL_sq, direction: 1}, {segment: SQ, direction: 1}]}             # probe through the squeezer (T14 §3.4)
+    - {id: lo, source: koheras, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0154, observer: bhd,
+       path: [{segment: LO, direction: 1}, {segment: FC, direction: 1}]}                  # LO 15.4 mW [Ref A §4.2]
+  observers:
+    - {id: opa_det, kind: interaction}
+    - {id: bhd, kind: detector}
+  locks:   # L-A (00_summary §2.4): lock 1 = Φ1^det at the PD-OPA, lock 2 = Δ at the BHD (true errors, `le`)
+    - {id: lock1, combo: {pr_det: 2.0, p_det: -1.0}, setpoint_rad: 0.0, observer: opa_det}
+    - {id: lock2, combo: {lo: 1.0, sqz: -1.0}, setpoint_rad: 0.0, observer: bhd}
+  ports: []          # port-less reference config: metric (i) under port 0, metric (ii) n/a (G13)
+  coef:
+    # strain → phase: fibre k_ε L = 0.78·2π·1.468/λ0 · L (conv §4, T16 ξ_eo, T08); λ0 = 1545.32 nm [Ref A §3.1]
+    - {segment: PR, driver: strain, beam: "*", effect: phase, value: !expr "0.78 * 2 * pi * 1.468 / 1545.32e-9 * 5.0"}
+    - {segment: PR, driver: strain, beam: "*", effect: group_delay, value: 0.0}
+    - {segment: LO, driver: strain, beam: "*", effect: phase, value: !expr "0.78 * 2 * pi * 1.468 / 1545.32e-9 * 5.0"}
+    - {segment: LO, driver: strain, beam: "*", effect: group_delay, value: 0.0}
+    # actuators write phase [rad] into their drivers: coefficient 1 (conv §9)
+    - {segment: PR, driver: eom, beam: "*", effect: phase, value: 1.0}
+    - {segment: PR, driver: eom, beam: "*", effect: group_delay, value: 0.0}
+    - {segment: LO, driver: eom, beam: "*", effect: phase, value: 1.0}
+    - {segment: LO, driver: eom, beam: "*", effect: group_delay, value: 0.0}
+    - {segment: LO, driver: stretcher, beam: "*", effect: phase, value: 1.0}
+    - {segment: LO, driver: stretcher, beam: "*", effect: group_delay, value: 0.0}
+
+offline:
+  blocks:
+    - block: opa_waveguide          # squeezer (T01; D48: lumped loss reading of §7-1)
+      name: sqz_opa
+      params:
+        model: lumped                # D48 (distributed_loss is the option, R′+ −0.27 dB)
+        alpha_per_w: 9.06            # 906 %/W fitted [Ref A §4.1]
+        pump_w: 0.64                 # output pump power [Ref A §3.2], D48
+        pump_ref: output             # D48
+        length_m: 0.045              # [Ref A §3.1]
+        phi_opa0_rad: 0.0            # conv §4 (D55 rule 4 frame)
+        segment: XTAL_sq
+        psi_p_xtal_rad: 0.0          # nominal absorbed (D56-4)
+        gain_table_pump_w: null
+        waveguide_loss: 0.02         # effective waveguide loss at 640 mW [Ref A §4.2]
+        loss_source: "[Ref A §4.2] effective waveguide loss 2 % (0.1 dB/cm, 640 mW)"
+        toggles: {pump_loss: false, phase_mismatch: false, pump_depletion: false, pump_rin: false}
+    - block: loss_budget
+      name: optics
+      params:
+        elements:
+          - {id: components, eta: 0.99, kind: component, applies_to: [gbs, bhd], segment: SQ, observer: null,
+             source: "[Ref A §4.2] mirrors and lenses, measured 1 %"}
+        toggles: {enabled: true}
+    - block: detector_efficiency     # QE + circuit noise at f_s (T13; D58-1)
+      name: bhd_det
+      params:
+        device: null
+        observer: bhd
+        applies_to: [bhd]
+        source: "[Ref A §3.1, §4.2] IGHQEX0500 QE ≈ 99 %; clearance 28 dB at 3 MHz, LO 15.4 mW"
+        f_s_hz: 3.0e+6               # ESA centre [Ref A §3.2]
+        p_lo_w: 0.0154               # [Ref A §4.2]
+        qe: 0.99                     # [Ref A §3.1]
+        clearance_lin: !expr "10 ** 2.8"   # 28 dB, quoted at the measurement frequency [Ref A §4.2]
+        p_lo_ref_w: 0.0154           # [Ref A §4.2]
+        toggles: {qe: true, circuit_noise: true, imbalance_leak: false, freq_response: false, dip: false,
+                  subtract_dark: false}   # "without any loss correction and circuit-noise correction" [Ref A §3.2]
+    - block: mode_overlap            # squeezed–LO mode mismatch (T12 §1.3)
+      name: mm
+      params:
+        overlap: spatial
+        model: eta
+        # Ref A §4.2 "estimated by subtracting the other losses from the fitted 8 %": η_mm = 0.92 / (wg · optics · QE · η_e)
+        eta: !expr "0.92 / (0.98 * 0.99 * 0.99 * (1 / (1 + 10 ** -2.8)))"
+        segment: null
+        observer: bhd
+        applies_to: [bhd]
+        source: "[Ref A §4.2] mode mismatch ≈ 4 % by subtraction (2 % probe–LO visibility 0.99, 2 % unexplained)"
+        toggles: {enabled: true}
+    - block: bhd_frontend            # BHD RF output for the swept spectra (T13 §1.3–1.4; Fig. 4)
+      name: frontend
+      params:
+        device: null
+        p_lo_w: 0.0154               # [Ref A §4.2]
+        responsivity_a_per_w: !expr "0.99 * 1.602176634e-19 * 1545.32e-9 / (6.62607015e-34 * 299792458.0)"  # η_q e λ/(hc) [Ref A §3.1]
+        gain_v_per_a: 1.0e+4         # hand-made BHD, transimpedance not published [AE]
+        load: high_z
+        coupler_sign: 1
+        v_off_v: 0.0
+        clearance_lin: !expr "10 ** 2.8 * (1 + (3.0e6 / 35.0e6) ** 2)"   # 28 dB at 3 MHz referred to DC through H_TIA [Ref A §4.2]
+        p_lo_ref_w: 0.0154
+        tia: {model: first_order, f3db_hz: 35.0e+6}   # PD bandwidth 35 MHz [Ref A §3.2]
+        toggles: {circuit_noise: true, imbalance_leak: false, freq_response: true, dip: false, subtract_dark: false,
+                  saturation: false}
+    - block: esa_zero_span           # Keysight N9010B zero span (T04 §5.1)
+      name: esa_zs
+      params:
+        f_s_hz: 3.0e+6               # [Ref A §3.2]
+        rbw_hz: 1.0e+6               # [Ref A §3.2]
+        vbw_hz: 100.0                # [Ref A §3.2]
+        enbw_factor: 1.0             # T04 §5.3 (1.0–1.128), UNVERIFIED instrument value
+        rbw_shape: gaussian          # swept-tuned analyser RBW [AE]
+        average: power               # averaging type not published (T04 §5.2, UNVERIFIED; log is the option)
+        detector: sample             # [AE]
+        oversample: 4                # T04 §5.1 (≈ 4 × RBW)
+        sweep_time_s: 0.15           # T04 §5.1 reading of Fig. 3 [AE]
+        n_points: 1001               # [AE]
+        n_traces: 1                  # single sweep [AE]
+        toggles: {radiometer_noise: true}
+    - block: esa_swept_spectrum      # Fig. 4 (T04 §5.5)
+      name: esa_spec
+      params:
+        f_start_hz: 1.0e+6           # Fig. 4 axis 0–100 MHz [Ref A Fig. 4]; below RBW the ESA is not modelled
+        f_stop_hz: 1.0e+8
+        n_points: 100                # [AE]
+        rbw_hz: 1.0e+6               # [Ref A §3.2]
+        vbw_hz: 100.0                # [Ref A §3.2]
+        enbw_factor: 1.0             # UNVERIFIED (T04 §5.3)
+        rbw_shape: gaussian          # [AE]
+        average: power               # UNVERIFIED (T04 §5.2)
+        n_sub: 41                    # integration points per bin [AE]
+        toggles: {radiometer_noise: true, subtract_circuit_noise: true}
+
+pipeline:
+  # ---- sources and noise ------------------------------------------------------------------------
+  - block: laser_source             # NKT Koheras Harmonik + EDFA + SHG [Ref A §3.1, Fig. 2]
+    name: koheras
+    params:
+      source: koheras
+      power_w: 0.0154                # LO power at the BHD (power is not used by the phase model) [Ref A §4.2]
+      h0_hz2_per_hz: !expr "200.0 / pi"   # white FM, Lorentz linewidth 0.2 kHz (T05 §2.3 stand-in, UNVERIFIED)
+      oob_pairs:                     # LO through the filter cavity vs the squeezed light (T05 §6): |1 − H_FC|² S_φ above f_N
+        - {target: FC, dnu_fc_hz: 3.3e+6}   # must equal fc.dnu_fc_hz
+      rin_targets: []
+      toggles: {fm_white: true, fm_flicker: false, peaks: false, drift: false, dither: false, sbs: false, rin: false}
+  - block: adder                    # SH output: φ_p = 2 φ_L (conv §4)
+    name: shg
+    params: {ins: [laser.koheras.phi], gains: [2.0], out: pump.shg.phi, unit: rad}
+  - block: segment_mech_noise       # fibre acoustics on the probe and LO fibres (T08 §2.5)
+    name: mech
+    params:
+      segments: [PR, LO]
+      h_ref_rad2_hz: 0.04            # T08 §2.5 (1 km reference)
+      L_ref_m: 1000.0                # T08 §2.5
+      gamma: 1.0                     # T08 §2.5
+      f_c_hz: 1000.0                 # T08 §2.5
+      f_lo_hz: 0.1                   # T08 §2.5
+      k_eps_rad_per_m: !expr "0.78 * 2 * pi * 1.468 / 1545.32e-9"   # conv §4, T16 ξ_eo
+      toggles: {mech: true, peaks: false, correlation: false}
+  - block: ramp                     # Fig. 3 phase scan of the LO (off when locked)
+    name: scan_ramp
+    params:
+      out: v.scan
+      waveform: triangle
+      amplitude_v: 3.5               # ±3.5 rad: several minima per period [AE]
+      period_s: 0.2                  # slope 4A/T = 70 rad/s ≈ 71 rad/s read from Fig. 3 (T04 §5.4)
+      offset_v: 0.0
+      toggles: {enabled: false}
+  - block: eom_phase                # scan actuator on the LO (direct 1 rad/V, ideal)
+    name: scan_act
+    params:
+      in: v.scan
+      gain_mode: direct
+      k_rad_per_v: 1.0
+      polarity: 1.0
+      poles_hz: []
+      discretisation: zoh
+      prewarp_hz: null
+      drive_min_v: -1.0e+3
+      drive_max_v: 1.0e+3
+      segment: LO
+      driver: stretcher
+      n_sub: 1
+      sub: [0, 1]
+      ring_len: 0
+      insertion_loss_lin: null       # not on the squeezed path
+      toggles: {bandwidth: false, saturation: false, insertion_loss: false}
+  # ---- path model ---------------------------------------------------------------------------------
+  - block: segment_phase
+    name: sp
+    params:
+      segments: [SHG, PR, LO, CMB, NC_det, NC_sq, XTAL_det, XTAL_sq, SQ]   # FC is written by `fc`
+      toggles: {phase: true, group_delay: true, pm_axis_drift: false}
+  - block: filter_cavity            # LO filter cavity [Ref A §3.1] (T05 §6)
+    name: fc
+    params:
+      segment: FC
+      beam: lo
+      dnu_fc_hz: 3.3e+6             # no literature value (D49: swept); tuned to θ ≈ 9 mrad [AE] (header)
+      t0: 1.0                        # LO power is quoted at the BHD [Ref A §4.2]
+      in_delay_s: !expr "(5.0 * 1.468 + 0.3 * 1.0003) / 299792458.0"   # τ_b of `lo` (LO + FC segments): LO = H_FC φ_L(t − τ_b)
+      source: "[AE] transmission inside the quoted LO power"
+      in_phase: laser.koheras.phi
+      toggles: {lock_residual: false, laser_lowpass: true}
+  - block: beam_assembler
+    name: ba
+    params:
+      beams: all
+      sources: {koheras: laser.koheras.phi, shg: pump.shg.phi}
+      toggles: {emission_time: true, polarization: false}
+  - block: lock_error               # true errors of lock 1 / lock 2 (diagnostics, VT-15)
+    name: le
+    params: {locks: all}
+  - block: adder                    # pump phase at the BHD frame for lock 2: 2 θ_sq (header)
+    name: p_bhd
+    params: {ins: [beam.sqz.phi], gains: [2.0], out: pump.bhd.phi, unit: rad}
+  # ---- lock 1: phase-detection OPA, PD at 2 f_sh (T14 §3.2) ------------------------------------------
+  - block: parametric_beat_detector
+    name: pd1
+    params:
+      mode: heterodyne
+      in_pr: beam.pr_det.phi
+      in_p: beam.p_det.phi
+      out: v.pd1
+      a_plus: !expr "sqrt(10)"       # PD-OPA gain e^{2r_d} = 10 (T14 §3.2 仮置き; not in Ref A)
+      a_minus: !expr "1 / sqrt(10)"
+      phi_opa_rad: 0.0               # nominal absorbed (D56-4)
+      p_in_w: 1.0e-3                 # probe into the PD-OPA, "a few mW" [Ref A §2]; T14 §3.2
+      eta: 0.8                       # T14 §2.5 仮置き
+      responsivity_a_per_w: 1.0      # InGaAs (T14 §2.5)
+      gain_v_per_a: 100.0            # [AE] keeps the error in the ±0.5 V ADC range
+      i_n_a_rthz: 1.0e-11            # T14 §2.5 仮置き (10 pA/√Hz)
+      f_shift_hz: 1.0e+6             # [Ref A §3.1]
+      f_sh_leak_v: 0.0
+      toggles: {shot_noise: true, electronic_noise: true, rf_rate_mode: false, f_sh_leak: false}
+  - block: demodulator
+    name: dem1
+    params:
+      in: v.pd1
+      in_phase: null
+      out_i: dem.dem1.i
+      out_q: dem.dem1.q
+      lpf_order: 1
+      f_ref_hz: 2.0e+6               # 2 f_sh (T14 §3.2)
+      phi_d_rad: !pi_frac 0.5        # lock point Φ1^det = 0 with I = −K sin Φ1 (T14 §2.3)
+      v_off_v: 0.0
+      lpf_hz: 5.0e+5                 # [AE] ≫ loop bandwidth, < 2 f_sh
+      toggles: {rf_rate_mode: false, demod_offset: false, rf_reference_phase_noise: false}
+  - block: adc
+    name: adc1
+    params:
+      in: dem.dem1.i
+      out: v.adc1
+      device: fpga_generic           # Ref A "hand-made PID servo" [Ref A §3.1] → generic FPGA (00_summary §2.1)
+      bits: 16                       # devices/fpga_generic.yaml
+      range_v: [-0.5, 0.5]           # devices/fpga_generic.yaml
+      noise_vrms: 0.0
+      avg_samples: 1
+      toggles: {quantization: true, noise: false, saturation: true}   # D49: quantisation on
+  - block: pid
+    name: pid1
+    params:
+      in: v.adc1
+      out: ctrl.pid1.u
+      device: fpga_generic
+      discretisation: tustin         # devices/fpga_generic.yaml (D56-6)
+      anti_windup: clamp             # [AE]
+      kp: 0.0
+      ki_per_s: !expr "2 * pi * 2.0e4 / (0.08 * 4.95 * 2 * pi / 3.5)"   # unity gain 20 kHz [AE]: K = GℜηP_in ΔG, plant 2π/V_π
+      kd_s: 0.0
+      omega_is_rad_per_s: 0.0
+      omega_ds_rad_per_s: 0.0
+      ki2_per_s2: 0.0
+      setpoint_v: 0.0
+      offset_v: 0.0
+      u_min_v: -0.5
+      u_max_v: 0.5
+      toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
+  - block: dac
+    name: dac1
+    params:
+      in: ctrl.pid1.u
+      out: v.dac1
+      device: fpga_generic
+      bits: 16                       # devices/fpga_generic.yaml
+      range_v: [-0.5, 0.5]           # devices/fpga_generic.yaml
+      noise_vrms: 0.0
+      r_out_ohm: 50.0                # devices/fpga_generic.yaml
+      r_load_ohm: .inf               # high-impedance EOM driver input [AE]
+      toggles: {quantization: true, noise: false, saturation: true}
+  - block: delay_buffer
+    name: dl1
+    params: {in: v.dac1, out: delay.dl1.out, tau_s: !expr "1.0e-6 - 1 / run.f_sim_hz", method: linear}   # τ_L = 1 µs (fpga_generic 0.1–2 µs) − 1/f_sim (D55-1)
+  - block: eom_phase                # EOM1 on the probe (lock-1 actuator) [Ref A §3.1]
+    name: eom1
+    params:
+      in: delay.dl1.out
+      gain_mode: vpi
+      v_pi_v: 3.5                    # iXblue MPX-LN-0.1 low-frequency V_π, UNVERIFIED stand-in (T16 §3.2)
+      polarity: 1.0
+      poles_hz: []
+      discretisation: zoh
+      prewarp_hz: null
+      drive_min_v: -1.0e+3
+      drive_max_v: 1.0e+3
+      segment: PR
+      driver: eom
+      n_sub: 1
+      sub: [0, 1]
+      ring_len: 0
+      insertion_loss_lin: null       # probe path: no effect on the squeezed light
+      toggles: {bandwidth: false, saturation: false, insertion_loss: false}
+  # ---- lock 2: BHD probe–LO beat at f_sh (T14 §3.4) -----------------------------------------------------
+  - block: bhd_probe_beat
+    name: bhdbeat
+    params:
+      mode: heterodyne
+      in_pr: beam.pr_bhd.phi
+      in_p: pump.bhd.phi
+      in_lo: beam.lo.phi
+      out: v.bhdbeat
+      a_plus: !expr "exp(sqrt(offline.blocks.sqz_opa.params.alpha_per_w * offline.blocks.sqz_opa.params.pump_w))"    # e^{r} (T14 §3.1)
+      a_minus: !expr "exp(-sqrt(offline.blocks.sqz_opa.params.alpha_per_w * offline.blocks.sqz_opa.params.pump_w))"
+      phi_opa_rad: !pi_frac -1.0     # frame offset (header)
+      p_lo_w: 0.0154                 # [Ref A §4.2]
+      p_pr_w: !expr "1.6e-9 / exp(2 * sqrt(9.06 * 0.64))"   # P_pr,sq A+² ≈ 1.6 nW from the 1 MHz peak of Fig. 4(a) (T14 §3.4 [AE]) at 640 mW
+      noise_rel_shot: 0.1            # squeezed noise at the lock point ≈ −10 dB (T14 §3.4)
+      responsivity_a_per_w: !expr "0.99 * 1.602176634e-19 * 1545.32e-9 / (6.62607015e-34 * 299792458.0)"   # [Ref A §3.1]
+      gain_v_per_a: 1.0e+4           # = frontend.gain_v_per_a [AE]
+      i_n_a_rthz: 0.0                # circuit noise 28 dB below shot noise [Ref A §4.2]: negligible here
+      f_shift_hz: 1.0e+6             # [Ref A §3.1]
+      toggles: {shot_noise: true, electronic_noise: false, rf_rate_mode: false}
+  - block: demodulator
+    name: dem2
+    params:
+      in: v.bhdbeat
+      in_phase: null
+      out_i: dem.dem2.i
+      out_q: dem.dem2.q
+      lpf_order: 1
+      f_ref_hz: 1.0e+6               # f_sh (T14 §3.4)
+      phi_d_rad: !pi_frac -0.5       # u′ = 0 (header)
+      v_off_v: 0.0
+      lpf_hz: 2.5e+5                 # [AE] ≫ loop bandwidth, < f_sh
+      toggles: {rf_rate_mode: false, demod_offset: false, rf_reference_phase_noise: false}
+  - block: adc
+    name: adc2
+    params:
+      in: dem.dem2.i
+      out: v.adc2
+      device: fpga_generic           # as adc1
+      bits: 16
+      range_v: [-0.5, 0.5]
+      noise_vrms: 0.0
+      avg_samples: 1
+      toggles: {quantization: true, noise: false, saturation: true}
+  - block: pid
+    name: pid2
+    params:
+      in: v.adc2
+      out: ctrl.pid2.u
+      device: fpga_generic           # as pid1
+      discretisation: tustin
+      anti_windup: clamp
+      kp: 0.0
+      # unity gain 20 kHz [AE]: plant K2·A+·π/V_π, K2 A+ = G·2ℜ√(P_LO·1.6 nW) (T14 §3.4)
+      ki_per_s: !expr "2 * pi * 2.0e4 / (1.0e4 * 2 * 1.2338 * sqrt(0.0154 * 1.6e-9) * pi / 3.5)"
+      kd_s: 0.0
+      omega_is_rad_per_s: 0.0
+      omega_ds_rad_per_s: 0.0
+      ki2_per_s2: 0.0
+      setpoint_v: 0.0
+      offset_v: 0.0
+      u_min_v: -0.5
+      u_max_v: 0.5
+      toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
+  - block: dac
+    name: dac2
+    params:
+      in: ctrl.pid2.u
+      out: v.dac2
+      device: fpga_generic           # as dac1
+      bits: 16
+      range_v: [-0.5, 0.5]
+      noise_vrms: 0.0
+      r_out_ohm: 50.0
+      r_load_ohm: .inf
+      toggles: {quantization: true, noise: false, saturation: true}
+  - block: delay_buffer
+    name: dl2
+    params: {in: v.dac2, out: delay.dl2.out, tau_s: !expr "1.0e-6 - 1 / run.f_sim_hz", method: linear}   # as dl1
+  - block: eom_phase                # EOM2 on the LO (lock-2 actuator) [Ref A §3.1]
+    name: eom2
+    params:
+      in: delay.dl2.out
+      gain_mode: vpi
+      v_pi_v: 3.5                    # as eom1 (UNVERIFIED stand-in)
+      polarity: 1.0
+      poles_hz: []
+      discretisation: zoh
+      prewarp_hz: null
+      drive_min_v: -1.0e+3
+      drive_max_v: 1.0e+3
+      segment: LO
+      driver: eom
+      n_sub: 1
+      sub: [0, 1]
+      ring_len: 0
+      insertion_loss_lin: null       # LO path: no effect on the squeezed light
+      toggles: {bandwidth: false, saturation: false, insertion_loss: false}
+  # ---- metric --------------------------------------------------------------------------------------
+  - block: metric_i
+    name: mi
+    params:
+      ports: {"0": {squeezed: sqz, lo: lo}}
+      setpoint_rad: 0.0
+
+measure:
+  record:
+    slots: [lock.lock1.err, lock.lock2.err, v.dac1, v.dac2]
+    decim: 100                       # 100 kHz ≫ VBW 100 Hz (ESA input) [AE]
+  metrics:
+    i:
+      f_max_hz: 1.0e+12              # flat source spectrum, THz-order OPA bandwidth [Ref A §1] (conv §6)
+      weight: null
+      source: sqz_opa
+      lo_mode: null
+      average: exact
+      include_hf_phase_noise: true
+      dither_m_rad: []
+  esa:                               # measurement-stage hooks (D58-6, runner.run)
+    squeezed:      {block: esa_zs, metric: i.port0, quadrature_rad: 0.0}         # Fig. 3 green
+    anti_squeezed: {block: esa_zs, metric: i.port0, quadrature_rad: !pi_frac 0.5} # Fig. 3 red
+    spectrum_sqz:  {block: esa_spec, metric: i.port0, quadrature_rad: 0.0, frontend: frontend,
+                    exclude_losses: [bhd_det.electronic, bhd_det.imbalance]}     # Fig. 4 (a)(b)
+    spectrum_anti: {block: esa_spec, metric: i.port0, quadrature_rad: !pi_frac 0.5, frontend: frontend,
+                    exclude_losses: [bhd_det.electronic, bhd_det.imbalance]}

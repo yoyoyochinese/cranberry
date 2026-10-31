@@ -127,7 +127,7 @@ pipeline:
             - {block: vtf1_shaper, name: a2, params: {in: ctrl.c2.u, out: act.a2.x, offset_rad: 0.0, curve: !expr {source: "x * x", args: [x]}}}
           name: a2chain
 toggles: {env.noise.enabled: false}
-measure: {esa: {f_s_hz: 3.0e6}}
+measure: {esa_note: {f_s_hz: 3.0e6}}
 """
 
 
@@ -161,7 +161,7 @@ def _python_spec(pipeline):
         topology={"segments": [{"id": "arm1", "kind": "pm", "L_m": 8.4}, {"id": "arm2", "kind": "pm", "L_m": 8.4 - 9.0}],
                   "locks": [{"id": "lockD", "combo": {"lo": 1, "pr": -1}, "setpoint": math.pi / 2}]},
         toggles={"env.noise.enabled": False},
-        measure={"esa": {"f_s_hz": 3.0e6}},
+        measure={"esa_note": {"f_s_hz": 3.0e6}},
         preset="vtf1",
     )
 
@@ -234,12 +234,12 @@ def test_extends_composition_equals_the_flat_file(tmp_path):
     the same spec as the flat file; its dump carries no ``extends`` and reloads to the same spec."""
     flat = config.load(loads_yaml(YAML))
     base = YAML.replace("toggles: {env.noise.enabled: false}", "toggles: {laser.noise.enabled: false}")
-    base = base.replace("measure: {esa: {f_s_hz: 3.0e6}}", "measure: {esa: {f_s_hz: 1.0}, old: {x: 1}}")
+    base = base.replace("measure: {esa_note: {f_s_hz: 3.0e6}}", "measure: {esa_note: {f_s_hz: 1.0}, old: {x: 1}}")
     (tmp_path / "base.yaml").write_text(base)
     child = tmp_path / "child.yaml"
     child.write_text("extends: ./base.yaml\n"
                      "toggles: !replace {env.noise.enabled: false}\n"
-                     "measure:\n  esa: {f_s_hz: 3.0e6}\n  old: !delete\n")
+                     "measure:\n  esa_note: {f_s_hz: 3.0e6}\n  old: !delete\n")
     spec = config.load(child)
     assert spec == flat and config.spec_hash(spec) == config.spec_hash(flat)
     text = config.dump_yaml(spec)

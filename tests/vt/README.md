@@ -18,7 +18,7 @@ Rules (PLAN §6.1, §6.3):
 | Done | VT | prompt §7 | Main modules | Kind | WP | M | File |
 |---|---|---|---|---|---|---|---|
 | [x] | VT-01 | 1 | `single_mode_reference`, `phase_to_quadrature` | unit | B1, F4 | M1 | `test_vt_01_single_mode_reference.py` |
-| [ ] | VT-02 | 1 | `refA` full (loss budget, lock to 9 mrad; ±0.10 dB, D48) | integ | I1 | M1 | `test_vt_02_refA_full.py` |
+| [x] | VT-02 | 1 | `refA` full (loss budget, lock to 9 mrad; ±0.10 dB, D48) | integ | I1 | M1 | `test_vt_02_refA_full.py` |
 | [~] | VT-03 | 1 | CW limit (pulsed blocks identity), GNLSE CW shortcut | unit + integ | B9, B11 | M5 | `test_vt_03_cw_limit.py` |
 | [x] | VT-04 | 2 | Fig. 5 (4 curves × 8 points, P_opt) | unit + integ | B1, I1 | M1 | `test_vt_04_refA_fig5.py` |
 | [~] | VT-05 | 3 | `offline.gaussian`, `LossRegistry`, `pure_loss`, circuit noise = loss, OPO / pulsed OPO parts | unit | F3 (M0), B5, B6, B11 | M0–M5 | `test_vt_05_pure_loss.py` |
@@ -31,8 +31,8 @@ Rules (PLAN §6.1, §6.3):
 | [x] | VT-12 | 6 | `gawbs_table` | unit | B10 | M5 | `test_vt_12_gawbs.py` |
 | [~] | VT-13 | 7 | generic linear loop (M0, `SimController.measure_transfer_function`), Ref D z-domain (M1) | integ | F1, F5, B4, I2 | M0, M1 | `test_vt_13_closed_loop_tf.py` (Ref D part done, WP-I2) |
 | [x] | VT-14 | 7 | feedback off → free-running (Ref D) | integ | I2, F6 | M1 | `test_vt_14_refD_free_running.py` |
-| [~] | VT-15 | 7 | integrator loop residual, lock-2 reduction (A−/A+) | integ | B4, I1 | M1 | `test_vt_15_integrator_residual.py` |
-| [ ] | VT-16 | 8 | tap trade-off, both definitions (a)(b) (D51-4) | integ | I1 | M1 | `test_vt_16_tap_tradeoff.py` |
+| [x] | VT-15 | 7 | integrator loop residual, lock-2 reduction (A−/A+) | integ | B4, I1 | M1 | `test_vt_15_integrator_residual.py` |
+| [x] | VT-16 | 8 | tap trade-off, both definitions (a)(b) (D51-4) | integ | I1 | M1 | `test_vt_16_tap_tradeoff.py` |
 | [~] | VT-17 | 9 | Ref B Fig. 3 (x = √(P/P_th), Ω_B = 2πf/γ_B, T02 V-B3 table) | unit + integ | B6, I4 | M3 | `test_vt_17_refB_fig3.py` |
 | [~] | VT-18 | 9 | Ref B definition discrimination | unit + integ | B6, I4 | M3 | `test_vt_18_refB_definitions.py` |
 | [~] | VT-19 | 10 | dither contribution | unit + integ | F4, B3, I3 | M2 | `test_vt_19_dither_contribution.py` |

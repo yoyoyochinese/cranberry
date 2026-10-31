@@ -1,0 +1,77 @@
+# Ref A with the conventional tap lock (`L-tap`, Ref A Fig. 1(a); 00_summary §2.1, §2.4; PLAN §5.1 last
+# line; prompt §7-8). WP-I1. Built on `refA` (extends:), so every value not set here is refA's, with its
+# provenance there.
+#
+# Changes against refA:
+#   * the phase-detection OPA branch is removed (beams p_det / pr_det, segments NC_det / XTAL_det);
+#   * a tap of ratio r_t on SQ (after the squeezer) sends r_t of the squeezed light and of the probe to a
+#     PD; lock 1 demodulates that PD at 2 f_sh (T14 §3.3: the §3.2 formula with P_in → r_t·P_pr and the
+#     squeezer's r). The tap is a loss element on the squeezed path (LossRegistry, G06): L → 1 − (1 − L)(1 − r_t);
+#   * the probe through the squeezer is the conventional "few µW" one ([Ref A §2]; 5 µW, T14 §3.3), so the
+#     BHD sees it 3.5×10⁵ times stronger than in refA; the lock-2 channel gain is scaled so that lock 2's
+#     slope (and loop gain) stays refA's.
+# Lock 1 = Φ1 at the tap = 2φ_pr − φ_p after the squeezer; its noise still reaches Δ only through lock 2,
+# i.e. scaled by A−/A+ (T14 §3.4). VT-16 sweeps r_t.
+
+extends: refA
+preset: refA_tap
+
+topology:
+  segments:
+    - !delete NC_det
+    - !delete XTAL_det
+  beams:
+    - !delete p_det
+    - !delete pr_det
+    - {id: pr_bhd, power_w: 5.0e-6}          # conventional probe "a few µW" [Ref A §2]; 5 µW (T14 §3.3)
+  observers:
+    - !delete opa_det
+  locks:
+    - !replace {id: lock1, combo: {pr_bhd: 2.0, sqz: -2.0}, setpoint_rad: 0.0, observer: bhd}   # Φ1 after the squeezer (SQ common)
+
+pipeline:
+  - name: sp
+    params: {segments: [SHG, PR, LO, CMB, NC_sq, XTAL_sq, SQ]}   # FC is written by `fc`
+  - !replace
+    block: parametric_beat_detector         # tap PD, 2 f_sh (T14 §3.3)
+    name: pd1
+    params:
+      mode: heterodyne
+      in_pr: beam.pr_bhd.phi
+      in_p: pump.bhd.phi                     # 2 θ_sq frame (refA header): Φ1 = 2φ_pr − φ_p after the squeezer
+      out: v.pd1
+      a_plus: !expr "exp(sqrt(offline.blocks.sqz_opa.params.alpha_per_w * offline.blocks.sqz_opa.params.pump_w))"   # squeezer e^{r}
+      a_minus: !expr "exp(-sqrt(offline.blocks.sqz_opa.params.alpha_per_w * offline.blocks.sqz_opa.params.pump_w))"
+      phi_opa_rad: 0.0
+      p_in_w: !expr "tap.params.tap_ratio * 5.0e-6"   # r_t·P_pr, P_pr = 5 µW into the squeezer (T14 §3.3)
+      eta: 0.8                               # T14 §3.3
+      responsivity_a_per_w: 1.0              # T14 §2.5
+      gain_v_per_a: 1.6e+5                   # high-gain tap PD [AE]: K ≈ 0.4 V/rad at r_t = 1 %
+      i_n_a_rthz: 1.0e-12                    # high-gain tap PD 1 pA/√Hz (T14 §2.5 仮置き)
+      f_shift_hz: 1.0e+6                     # [Ref A §3.1]
+      f_sh_leak_v: 0.0
+      toggles: {shot_noise: true, electronic_noise: true, rf_rate_mode: false, f_sh_leak: false}
+  - name: pid1
+    params:
+      # unity gain 20 kHz [AE]: K = G ℜ η r_t P_pr ΔG with ΔG = sinh 2r (T14 §3.2–3.3), plant 2π/V_π
+      ki_per_s: !expr "2 * pi * 2.0e4 / (1.6e5 * 0.8 * tap.params.tap_ratio * 5.0e-6 * sinh(2 * sqrt(9.06 * 0.64)) * 2 * pi / 3.5)"
+  - name: bhdbeat
+    params:
+      p_pr_w: 5.0e-6                         # = pr_bhd power (T14 §3.3)
+      # lock-2 slope kept at refA's K2·A+ (refA: 1.6 nW amplified probe, G = 1e4 V/A) [AE]
+      gain_v_per_a: !expr "1.0e4 * sqrt(1.6e-9 / (5.0e-6 * exp(2 * sqrt(9.06 * 0.64))))"
+  - block: tap                               # conventional tap after the squeezer (T12 §6, WP-B1)
+    name: tap
+    params:
+      tap_ratio: 0.01                        # [AE] (VT-16 sweeps 0.1–3 %, T14 §3.3)
+      p_probe_w: !expr "5.0e-6 * exp(2 * sqrt(9.06 * 0.64))"   # probe leaving the OPA ≈ P_pr A+² (T14 §3.1) [AE]
+      out: v.tap
+      segment: SQ
+      applies_to: [gbs, bhd]
+      source: "[Ref A §2, Fig. 1(a)] conventional tap of the squeezed light; ratio [AE]"
+      toggles: {enabled: true}
+
+measure:
+  esa:
+    spectrum_sqz: !delete
+    spectrum_anti: !delete

@@ -1,0 +1,13 @@
+# Ref A Fig. 5 green curve: θ = 14 mrad, L = 8 % [Ref A Fig. 5 caption] (VT-04, D48 §7-2). Overlay on refA.
+# The extra phase jitter is made the same way as refA's 9 mrad (refA header): the LO filter-cavity
+# linewidth Δν_FC (unknown, D49 swept) is narrowed until the simulated residual is 14 mrad [AE, tuned at
+# f_sim = 20 MHz: 1.175 MHz → θ ≈ 14.0 mrad]. Losses unchanged.
+
+pipeline:
+  - name: koheras
+    params:
+      oob_pairs:
+        - {target: FC, dnu_fc_hz: 1.175e+6}   # must equal fc.dnu_fc_hz
+  - name: fc
+    params:
+      dnu_fc_hz: 1.175e+6                     # tuned to θ = 14 mrad [AE]
