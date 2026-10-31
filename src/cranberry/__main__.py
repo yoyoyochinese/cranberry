@@ -1,13 +1,15 @@
 """Command-line entry: ``python -m cranberry <command> <config.yaml> [options]`` (PLAN §4.1).
 
 Commands: ``run``, ``sweep``, ``ablate``, ``decompose``, ``convergence``. Arguments are validated here;
-the work is delegated to ``cranberry.config.load`` (WP-F2) and the runner functions (WP-F1 / WP-F4).
-Until those land, the delegated call raises ``NotImplementedError`` naming the responsible WP.
+the config is loaded, overlaid and validated by ``cranberry.config`` (WP-F2; an invalid config prints
+the reason and exits with status 2), then the work is delegated to the runner functions (WP-F1 /
+WP-F4). Until those land, the delegated call raises ``NotImplementedError`` naming the responsible WP.
 """
 
 from __future__ import annotations
 
 import argparse
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -63,13 +65,25 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
+    from dataclasses import replace
+
     from cranberry import config
 
-    spec = config.load(args.config, overlays=args.overlay)  # WP-F2
-    if args.seed is not None:
-        from dataclasses import replace
+    try:
+        spec = config.load(args.config, overlays=args.overlay)  # WP-F2
+        if args.seed is not None:
+            spec = replace(spec, run=replace(spec.run, seed=args.seed))
+        if args.command == "sweep":
+            from cranberry.runner.sweep import expand
 
-        spec = replace(spec, run=replace(spec.run, seed=args.seed))
+            points = expand(spec)
+            for p in points:
+                config.validate(p.spec)
+        else:
+            config.validate(spec)
+    except config.ConfigError as e:
+        print(f"cranberry: invalid configuration {args.config}: {e}", file=sys.stderr)
+        return 2
 
     if args.command == "run":
         from cranberry.runner.run import run
@@ -78,7 +92,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "sweep":
         from cranberry.runner.sweep import sweep
 
-        sweep(spec)
+        sweep(spec)  # each point via runner.run (WP-F1)
     elif args.command == "ablate":
         from cranberry.runner.ablate import ablate
 
