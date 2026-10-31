@@ -17,3 +17,6 @@ blind/
 
 # simulation run records and offline-table cache (PLAN §2.11, WP-F0)
 runs/
+
+# Claude Code worktrees
+.claude/

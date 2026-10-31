@@ -70,10 +70,9 @@ def test_seeds_info_lists_every_block_stream():
 def test_cli_loads_validates_and_delegates(tmp_path, capsys):
     good = tmp_path / "c.yaml"
     good.write_text(CFG)
-    with pytest.raises(NotImplementedError, match="WP-F1"):
-        cli.main(["run", str(good), "--seed", "5"])
-    with pytest.raises(NotImplementedError, match="WP-F1"):
-        cli.main(["sweep", str(good)])
+    # WP-F1 has landed: run and sweep now execute
+    assert cli.main(["run", str(good), "--seed", "5"]) == 0
+    assert cli.main(["sweep", str(good)]) == 0
     ov = tmp_path / "ov.yaml"
     ov.write_text("pipeline: [{name: n1, params: {toggles: null}}]\n")
     assert cli.main(["run", str(good), "--overlay", str(ov)]) == 2

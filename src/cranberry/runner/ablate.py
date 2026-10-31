@@ -18,4 +18,4 @@ __all__ = ["ablate"]
 def ablate(spec: RunSpec, toggles: Sequence[str]) -> dict[str, RunResult]:
     """Return {"baseline": result, "<block>.<toggle>": result with that toggle off, ...}.
     Toggle names are ``RunSpec.toggles`` keys (``"<block name>.<toggle>"``)."""
-    raise NotImplementedError("runner.ablate is implemented by WP-F1 (proposed; unassigned in PLAN §4.2)")
+    raise NotImplementedError("runner.ablate is implemented by WP-F4 (D54)")

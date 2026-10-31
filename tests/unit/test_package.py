@@ -50,8 +50,7 @@ def test_cli_validates_arguments(tmp_path, capsys):
 
 
 @pytest.mark.parametrize(
-    ("cmd", "wp"), [("run", "WP-F1"), ("sweep", "WP-F1"), ("ablate", "WP-F1"), ("decompose", "WP-F4"),
-                    ("convergence", "WP-F4")]
+    ("cmd", "wp"), [("ablate", "WP-F"), ("decompose", "WP-F4"), ("convergence", "WP-F4")]
 )
 def test_cli_delegates_and_names_wp(tmp_path, cmd, wp):
     # WP-F2: the CLI now loads and validates the config; an incomplete one exits with status 2
@@ -60,5 +59,6 @@ def test_cli_delegates_and_names_wp(tmp_path, cmd, wp):
     assert cli.main([cmd, str(bad)]) == 2
     good = tmp_path / "ok.yaml"
     good.write_text("preset: ok\nrun: {duration_s: 1.0, f_sim_hz: 1.0e3, chunk_samples: 8, seed: 0}\npipeline: []\n")
+    # run/sweep are implemented (WP-F1/F2) and tested in tests/unit/config/test_record_cli.py
     with pytest.raises(NotImplementedError, match=wp):
         cli.main([cmd, str(good)])
