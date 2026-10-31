@@ -9,12 +9,16 @@
 #   FSR      unbalanced MZI × 3 (ΔL = L_c, 2L_c, 4L_c → periods 2, 4, 8 FSR) + 0.4 nm band-pass [L-Methods, T17 §4]
 #   OPO lock Liu type: same polarization / frequency, time-interleaved (lock-light ratio 1, D50); overlay opo_lock/borealis
 #   pump     L-LiuPD-A crystal option (d), transmitted-pump homodyne: presets/locks/L-LiuPD-A_d.yaml (not in the base:
-#            the base is L-Liu only, pump-path phase common to all ports, seen by metric (i) only)
+#            the base is L-Liu only. The squeezer-side phase is NOT seen by metric (i) only: in a time-multiplexed
+#            train port k's pulse leaves the squeezer Δτ_k earlier, so it enters metric (ii) weighted by
+#            4 sin²(πfΔτ_k) (M6-08; OPO length noise alone: Var Θ_k = 3.1e−5 vs metric (i) 1.0e−5 rad²), and option (d)
+#            improves metric (ii) too. Option (d) is kept out of the base to keep the base = the L-Liu skeleton (D74-1))
 #   LO / BHD pulsed LO split + delay, Gaussian-shaped (0.955-class, T17 §6.3, D70-2), gate ≥ mode length, BHD 200–500 MHz
 #
 # The OPO cavity is the XTAL segment (kind opo): its length-lock residual Δ_s(t) (opo_length_lock) rotates θ_sq by
-# c·Δ_s with c from pulsed_opo_source's detuning tables at x_ss = 4.129 (cavity-length change, Δ_p = 2Δ_s):
-# −1.154/κ_c (squeezed) [sim: WP-B11 tables, T17 §2.5]. Values move with x_ss (first-order map, T17 V-P9).
+# c·Δ_s with c from pulsed_opo_source's detuning tables (cavity-length change, Δ_p = 2Δ_s): −1.154/κ_c at x_ss = 4.129
+# [sim: WP-B11 tables, T17 §2.5]. c follows the x_ss axis (M6-07): quadratic fit to angle_coefficients at 7 points
+# of x_ss ∈ [1, 4.129] (max error 3.6e−4; −1.040 / −1.077 / −1.154 at 1.0 / 2.56 / 4.129), valid for these source values.
 extends: F_common
 
 preset: F_liu20
@@ -38,8 +42,10 @@ offline:
     x_ss: !sweep [1.0, 4.129, 3]          # ≤ 4.1 (00_summary §2.2); 4.129 ↔ r_0 = 1.8 [L-本文, T17 §2.6]
     pump_duration_s: 1.6e-9               # [L-SI §1.1]
     kappa_c_rad_s: !expr "pi * opo_fsr_hz / opo_finesse"
-    c_len_sq_per_kappa: -1.154            # ∂θ_sq/∂(Δ_s/κ_c) for a length change at x_ss = 4.129 [sim: WP-B11 tables]
-    c_pt_per_kappa: -0.492               # transmitted pump, θ-units, length change at x_ss = 4.129 [sim: WP-B11 tables] (L-LiuPD-A_xtal_d)
+    c_len_sq_per_kappa: !expr "-1.03736 + 0.0059977 * x_ss - 0.0083124 * x_ss**2"   # ∂θ_sq/∂(Δ_s/κ_c), length change
+                                          # [sim: WP-B11 angle_coefficients, fit over the x_ss axis; M6-07]
+    c_pt_per_kappa: -0.492               # transmitted pump, θ-units, length change [sim: WP-B11 tables; independent of x_ss,
+                                          # M6 review] (L-LiuPD-A_xtal_d)
     # OPO length noise and lock (T02 §2.4, T17 §1; values [AE] UNVERIFIED: Liu documents a PDH-class lock only)
     opo_dl_h_m2_hz: !sweep_log [1.0e-30, 1.0e-26, 3]   # round-trip length noise h/f² [m²·Hz] [AE]
     opo_lock_f_ugf_hz: !sweep_log [1.0e+3, 3.0e+4, 3]  # OPO length-lock unity gain [AE]
@@ -47,7 +53,6 @@ offline:
     # --- demux: Pockels-cell block switch (T11 §2 table, pockels_pbs_tree values) ------------------------------------
     dmx_layout: tree
     dmx_switching: active
-    dmx_n_stages: 5                       # ⌈log2 32⌉ (T11 §3.2)
     dmx_t_stage: !sweep [0.96, 0.99, 3]   # PC + PBS per stage (T11 pockels_pbs_tree 0.96–0.99)
     dmx_er_db: !sweep [20.0, 23.0, 3]     # T11 (PBS > 1200:1 / PC > 100:1)
     dmx_t_rise_s: !sweep [8.0e-9, 1.0e-8, 3]   # T11 (PC 8–10 ns)
@@ -177,5 +182,5 @@ pipeline:
 measure:
   decompose:
     groups:
-      squeezed_only: [env.mech.fs_sq.mech, env.thermal.xtal.drift, dmx0.drive_phase_noise, dmx0.bias_drift,
-                      dmx1.drive_phase_noise, dmx1.bias_drift, opo.noise.length_noise]
+      squeezed_only: [env.mech.fs_sq.mech, env.thermal.xtal.drift, dmxsw.drive_phase_noise, dmxsw.bias_drift,
+                      opo.noise.length_noise]

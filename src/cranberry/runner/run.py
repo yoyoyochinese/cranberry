@@ -37,6 +37,11 @@ Offline stage and measurement (WP-F4)
       probe port with ``f_max_hz`` / ``weight`` from ``measure.metrics`` (``meas.metrics.define_metrics``).
       Recorded as ``loss_registry.json`` / ``band_ledger.json`` (when non-empty) and ``tables.json``
       (hashes of the source outputs).
+    * **Offline CHK** (Phase 5 M6-12, :func:`run_offline_checks`): after the offline stage the runner calls
+      ``check()`` once on every offline block that checks on demand (``demux_design``, ``sbs_check``,
+      ``stray_light_table`` with a ``limit``); with the construction-time CHK blocks (``loop_stability_check``,
+      ``rep_rate_tail_check``) their events go to ``RunResult.events``. A ``loop_unstable`` event
+      (:data:`INVALIDATING_CHK`) makes ``RunResult.valid`` False; the point is kept (D34, D75).
     * **Measurement** (after the loop): when the pipeline holds ``metric_i`` / ``metric_ii`` probes,
       their slots are added to ``measure.record`` (if recording) and ``meas.metrics.evaluate_metrics``
       fills ``RunResult.metrics`` (``metrics.json``); the out-of-band ledger variance enters there, in
@@ -156,10 +161,28 @@ __all__ = [
     "build_offline_stage",
     "MEASUREMENT_HOOKS",
     "evaluate_measurements",
+    "INVALIDATING_CHK",
+    "run_offline_checks",
 ]
 
 #: ``run(..., mode=)`` values.
 RUN_MODES: tuple[str, ...] = ("auto", "compiled", "reference")
+
+#: CHK event codes that make ``RunResult.valid`` False (Phase 5 M6-01): the time loop at such a point
+#: oscillates instead of locking. Other CHK codes are warnings about the configuration, not the run.
+INVALIDATING_CHK: frozenset[str] = frozenset({"loop_unstable"})
+
+
+def run_offline_checks(blocks: Sequence[Any]) -> None:
+    """Call ``check()`` once on every offline block that checks on demand (``demux_design``, ``sbs_check``,
+    ``stray_light_table`` with a ``limit``; Phase 5 M6-12). Their events land in the block's ``chk_log``,
+    which the runner collects into ``RunResult.events`` like the construction-time CHK blocks
+    (``loop_stability_check``, ``rep_rate_tail_check``). Warns, never stops a run (G16-j, D34)."""
+    from cranberry.core.checks import ChkLog
+
+    for b in blocks:
+        if callable(getattr(b, "check", None)) and isinstance(getattr(b, "chk_log", None), ChkLog):
+            b.check()
 
 #: Block kinds that take the ``topology`` param and receive ``RunSpec.topology`` when it is absent
 #: (WP-F4, F6 proposal). WPs adding such kinds extend this set.
@@ -209,8 +232,11 @@ class RunResult:
 
     @property
     def valid(self) -> bool:
-        """False when a ``measure.validity`` slot was at its limit (clamp fraction > 0; M2C-03, D57-4)."""
-        return not any(v > 0.0 for v in self.validity.values())
+        """False when a ``measure.validity`` slot was at its limit (clamp fraction > 0; M2C-03, D57-4) or an
+        offline CHK reported a linearly unstable loop (code in :data:`INVALIDATING_CHK`; Phase 5 M6-01: the
+        metric of an oscillating loop is not the locked one). The point is kept and recorded (D34, D75)."""
+        return not any(v > 0.0 for v in self.validity.values()) and not any(
+            e.get("code") in INVALIDATING_CHK for e in self.events)
 
     def summary(self) -> dict[str, float]:
         """Flat {name: scalar} for ablation / convergence tables (WP-F4): ``MetricsResult.summary()``
@@ -972,6 +998,7 @@ def run(
     # offline stage after build (blocks' bands() need init, e.g. the block rate) and before anything
     # is written (double registrations etc. fail early)
     offline = build_offline_stage(rs.topology, leaves, offline_blocks, rs.measure)
+    run_offline_checks(offline_blocks)
 
     run_dir: Path | None = None
     if record_root is not None:

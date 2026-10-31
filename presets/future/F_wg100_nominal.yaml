@@ -4,6 +4,7 @@ overlays: [points/F_common_nominal.yaml]
 
 offline:
   params:
+    p_pr_avg_w: 1.0e-6             # T14 §8.2 placeholder P̄ = 1 µW
     tau_p_s: 1.0e-12               # 00_summary §2.2 (1 ps)
     opa_peak_pump_w: 0.146         # r = √(9.06 × 0.146) = 1.15 (10 dB before losses) in the single-mode stand-in [AE]
     dmx_t_stage: 0.98              # T11 centre

@@ -1,0 +1,81 @@
+# Probe axis: heterodyne detection of the Liu probe (D40 detection scheme; liu_probe_interferometer mode heterodyne,
+# T14 §8; Phase 5 M6-10). The probe is shifted by f_shift (AOM) against the reference and the beat at det_k is
+# demodulated with φ_d = 0: I = K cos X (X = φ_pr − φ_ref), the same side-of-fringe error as the DC homodyne (lock at
+# X = π/2, slope −K) but free of DC offsets, with the demodulator's low pass inside the loop (its lag is not in
+# chk.lock_stability: keep liu_demod_lpf_hz ≫ f_u). Sensor noise: white near the carrier, ×2 after demodulation (T14 §2.2).
+offline:
+  params:
+    liu_f_shift_hz: 8.0e+7         # AOM shift [AE] (80 MHz class, as probe/freq_80MHz)
+    probe_freq_offset_hz: !expr "liu_f_shift_hz"   # the probe beam carries the shift (path model, stray-light filter)
+    liu_demod_lpf_hz: 3.0e+5       # [AE] ≫ f_u, < f_N = 500 kHz
+pipeline:
+  - !replace
+    name: liu0
+    seq:
+      - block: liu_probe_interferometer
+        name: liu0
+        params:
+          mode: heterodyne
+          in_pr: beam.pr0.phi
+          in_ref: beam.ref0.phi
+          out: v.liu0
+          p_pr_avg_w: !expr "offline.params.p_pr_avg_w"
+          p_ref_w: !expr "offline.params.p_ref_w"
+          duty: !expr "offline.params.probe_duty"
+          visibility: !expr "offline.params.liu_visibility"
+          coupler_sign: 1.0
+          f_shift_hz: !expr "offline.params.liu_f_shift_hz"
+          responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+          gain_v_per_a: !expr "offline.params.liu_gain_v_per_a"
+          i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+          toggles: {shot_noise: true, electronic_noise: true, gating: true, rf_rate_mode: false}
+      - block: demodulator
+        name: dem0
+        params:
+          in: v.liu0
+          in_phase: null
+          out_i: dem.dem0.i
+          out_q: dem.dem0.q
+          lpf_order: 1
+          f_ref_hz: !expr "offline.params.liu_f_shift_hz"
+          phi_d_rad: 0.0               # I = a = K cos X
+          v_off_v: 0.0
+          lpf_hz: !expr "offline.params.liu_demod_lpf_hz"
+          toggles: {rf_rate_mode: false, demod_offset: false, rf_reference_phase_noise: false}
+  - !replace
+    name: liu1
+    seq:
+      - block: liu_probe_interferometer
+        name: liu1
+        params:
+          mode: heterodyne
+          in_pr: beam.pr1.phi
+          in_ref: beam.ref1.phi
+          out: v.liu1
+          p_pr_avg_w: !expr "offline.params.p_pr_avg_w"
+          p_ref_w: !expr "offline.params.p_ref_w"
+          duty: !expr "offline.params.probe_duty"
+          visibility: !expr "offline.params.liu_visibility"
+          coupler_sign: 1.0
+          f_shift_hz: !expr "offline.params.liu_f_shift_hz"
+          responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+          gain_v_per_a: !expr "offline.params.liu_gain_v_per_a"
+          i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+          toggles: {shot_noise: true, electronic_noise: true, gating: true, rf_rate_mode: false}
+      - block: demodulator
+        name: dem1
+        params:
+          in: v.liu1
+          in_phase: null
+          out_i: dem.dem1.i
+          out_q: dem.dem1.q
+          lpf_order: 1
+          f_ref_hz: !expr "offline.params.liu_f_shift_hz"
+          phi_d_rad: 0.0               # I = a = K cos X
+          v_off_v: 0.0
+          lpf_hz: !expr "offline.params.liu_demod_lpf_hz"
+          toggles: {rf_rate_mode: false, demod_offset: false, rf_reference_phase_noise: false}
+  - name: adc0
+    params: {in: dem.dem0.i}
+  - name: adc1
+    params: {in: dem.dem1.i}

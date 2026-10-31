@@ -5,9 +5,6 @@ offline:
     dmx_switching: passive
     dmx_t_stage: 0.99              # [L-Methods] interferometer 99 %/mode
 pipeline:
-  - name: dmx0
-    params:
-      toggles: {enabled: false}
-  - name: dmx1
+  - name: dmxsw
     params:
       toggles: {enabled: false}

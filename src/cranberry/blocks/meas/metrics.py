@@ -9,9 +9,20 @@ Metrics (conv §10):
 
   1. ``locked_path_residual``     residual of the locked path noise
   2. ``common_points``            motion of the common points (probe split, reference delivery)
-  3. ``laser_decorrelation_oob``  laser phase decorrelation φ_L(t − τ_j) − φ_L(t − τ_k) outside the
-                                  lock band (+ in-band 16 sin²(πf(T_a − T_b)) sin²(πf(τ_k − τ_0)) S_φ
-                                  term, D51-5)
+  3. ``laser_decorrelation_oob``  laser phase decorrelation φ_L(t − τ_k) − φ_L(t − τ_0) (conv §7,
+                                  4 sin²(πfΔτ_k) S_φ, Δτ_k = τ_k − τ_0), in band AND out of band: the
+                                  same-laser Liu lock does NOT remove the white-FM in-band part (D77-1 as
+                                  corrected by D78-1). With a finite loop L(f) the in-band term is
+                                  |1/(1 + L)|²·4 sin²(πfΔτ_k) S_φ + |H_ideal|² S_φ, and for white FM the
+                                  locked/unlocked ratio R(f_u) ≥ 1 (≈ 1 + 3πf_uΔτ for short ports;
+                                  1.02–1.05 at the future presets' f_u = 1 kHz, 1.2 at 10 kHz): the lock
+                                  adds decorrelation. The linewidth requirement is therefore the open-loop
+                                  form σ² = R·2π²h0Δτ (D31-3, D78). The old in-band term
+                                  16 sin²(πf(T_a − T_b)) sin²(πfΔτ_k) S_φ (D51-5, T10 eq. (12)/(13)) is
+                                  wrong (D62-5, D77-1); delay matching T_a − T_b has no use. The lock acts
+                                  on drift, 1/f and random-walk FM only (D77-1; with an orthogonal PM probe
+                                  + TEC offload a fraction |K_T|/(k_T + |K_T|) ≈ 4.5 % of the offloaded
+                                  drift phase leaks into Θ_k, M6-04).
   4. ``squeezed_only``            segments only the squeezed light traverses (incl. demux phase)
 
 * alongside (ii): wave-packet overlap between ports (:class:`Overlap`), stray light in both units of
@@ -208,11 +219,12 @@ class MetricIIComponents:
     """Variance split of Θ_k [rad²] (G13).
 
     Attributes:
-        variances_rad2: {component name (METRIC_II_COMPONENTS): variance}.
-        total_var_rad2: variance of the all-on run.
+        variances_rad2: {component name (METRIC_II_COMPONENTS): variance}, time loop + the component's
+            ledger rows (Phase 5 M6-06, ``runner.decompose``).
+        total_var_rad2: variance of the all-on run (time loop + ledger).
         linearity_ratio: Σ components / total (valid if within 5 %, T04 V12).
         status: "ok" or "decomposition_invalid".
-        reason: why invalid (saturation, lock loss, linearity), or None.
+        reason: why invalid (saturation, lock loss, unstable loop, linearity), or None.
     """
 
     variances_rad2: Mapping[str, float]

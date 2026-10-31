@@ -4,3 +4,6 @@ topology:
   segments:
     - {id: F0, actuator_sub: !expr "offline.params.n_sub_F0 - 1"}
     - {id: F1, actuator_sub: !expr "offline.params.n_sub_fiber - 1"}
+offline:
+  params:
+    lock_extra_delay_s: !expr "tau_k_s"   # the backward flight adds τ_k to port k's loop (chk.lock_stability, M6-01)

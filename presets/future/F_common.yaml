@@ -23,9 +23,13 @@
 # D40; overlay probe/other_laser.yaml); squeezed beams carry θ_sq, the pump path PUMP/XTAL is written in θ-units
 # (½ of the pump phase). Locks start from X = 0 and acquire X = +π/2 (side of the fringe, dv/dX = −K < 0, positive
 # integrator gain), so each stretcher holds ≈ +π/2 and metric (i) has the set point −π/2 (metric (ii): 0).
-# Metric (ii) components (G13, runner.decompose; conv §10): (1) locked path F_k, D_k + loop sensor noise,
-# (2) common points PRsrc, PRS_k, REF, REF_k, (3) laser decorrelation (fm_white), (4) squeezed only: PUMP, XTAL,
-# UP, DMX_k (demux switch phase), G_k.
+# Metric (ii) components (G13, runner.decompose; conv §10): (1) locked path F_k, D_k + loop sensor noise and
+# ADC/DAC quantisation, (2) common points PRsrc, PRS_k, REF, REF_k (strain, temperature, and the window row for the
+# band between the run and the metric window t_cal_s, M6-02), (3) laser decorrelation (white / 1/f FM, drift),
+# (4) squeezed only: PUMP, XTAL, UP, DMX_k (demux switch phase: one bias state per physical switch, M4-01), G_k.
+# Each component = time-loop variance + its ledger rows (M6-06). The L-Liu loop is checked for linear stability at
+# every point (chk.lock_stability, M6-01: unstable points are recorded and flagged RunResult.valid = False, never
+# pruned, D75); the stray light at the run's P̄ against stray_n_mode_max (stray1.limit, M6-03).
 #
 # Every value carries its source: Dnn decisions; Txx notes; [AE] agent estimate; UNVERIFIED = no primary
 # document. Open quantities are NAMED SWEEP AXES under offline.params (D34, refC/refD pattern); a run needs a
@@ -75,19 +79,19 @@ topology:
        n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform}}   # PBS_0 → GBS input, squeezed only [AE]
     - {id: G1, kind: free_space, L_m: !expr "offline.params.L_g_m", n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: gbs,
        n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform}}
-    # ---- probe and reference distribution (common points, D31-2) -------------------------------------------------
+    # ---- probe and reference distribution (common points, D31-2; dT driver: M6-02, k_T·L = 88 rad/K for PRS_k) ------
     - {id: PRsrc, kind: pm, L_m: !expr "offline.params.L_prsrc_m", n_g: !expr "offline.params.n_g", beta2_s2_per_m: 0.0,
-       beta3_s3_per_m: 0.0, zone: gbs, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform}}
+       beta3_s3_per_m: 0.0, zone: gbs, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform, dT: uniform}}
     - {id: PRS0, kind: pm, L_m: !expr "offline.params.L_prs_m", n_g: !expr "offline.params.n_g", beta2_s2_per_m: 0.0,
-       beta3_s3_per_m: 0.0, zone: gbs, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform}}
+       beta3_s3_per_m: 0.0, zone: gbs, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform, dT: uniform}}
     - {id: PRS1, kind: pm, L_m: !expr "offline.params.L_prs_m", n_g: !expr "offline.params.n_g", beta2_s2_per_m: 0.0,
-       beta3_s3_per_m: 0.0, zone: gbs, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform}}
+       beta3_s3_per_m: 0.0, zone: gbs, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform, dT: uniform}}
     - {id: REF, kind: pm, L_m: !expr "offline.params.L_ref_m", n_g: !expr "offline.params.n_g", beta2_s2_per_m: 0.0,
-       beta3_s3_per_m: 0.0, zone: demux, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform}}
+       beta3_s3_per_m: 0.0, zone: demux, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform, dT: uniform}}
     - {id: REF0, kind: pm, L_m: !expr "offline.params.L_refk_m", n_g: !expr "offline.params.n_g", beta2_s2_per_m: 0.0,
-       beta3_s3_per_m: 0.0, zone: demux, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform}}
+       beta3_s3_per_m: 0.0, zone: demux, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform, dT: uniform}}
     - {id: REF1, kind: pm, L_m: !expr "offline.params.L_refk_m", n_g: !expr "offline.params.n_g", beta2_s2_per_m: 0.0,
-       beta3_s3_per_m: 0.0, zone: demux, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform}}
+       beta3_s3_per_m: 0.0, zone: demux, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform, dT: uniform}}
     # ---- LO_k delivery (from the reference point, delay matched to the squeezed path, D09 / D51-6) ----------------
     - {id: LO0, kind: pm, L_m: !expr "offline.params.L_lo0_m", n_g: !expr "offline.params.n_g", beta2_s2_per_m: -2.17e-26,
        beta3_s3_per_m: 1.27e-40, zone: lospool, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {},
@@ -168,7 +172,7 @@ topology:
     - {id: F1.stretcher.all.group_delay, segment: F1, driver: stretcher, beam: "*", effect: group_delay, value: 1.05e-15}
     - {id: F1.tec.all.phase, segment: F1, driver: tec, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * offline.params.L_k_m"}
     - {id: F1.tec.all.group_delay, segment: F1, driver: tec, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * offline.params.L_k_m"}
-    # distribution fibres (strain only)
+    # distribution fibres: strain and temperature (M6-02: k_T·L, 2 m ≈ 88 rad/K; κ_τ·L)
     - {id: PRsrc.strain.all.phase, segment: PRsrc, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_rad_per_m * offline.params.L_prsrc_m"}
     - {id: PRsrc.strain.all.group_delay, segment: PRsrc, driver: strain, beam: "*", effect: group_delay, value: !expr "offline.params.n_g * offline.params.L_prsrc_m / 299792458.0"}
     - {id: PRS0.strain.all.phase, segment: PRS0, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_rad_per_m * offline.params.L_prs_m"}
@@ -181,6 +185,18 @@ topology:
     - {id: REF0.strain.all.group_delay, segment: REF0, driver: strain, beam: "*", effect: group_delay, value: !expr "offline.params.n_g * offline.params.L_refk_m / 299792458.0"}
     - {id: REF1.strain.all.phase, segment: REF1, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_rad_per_m * offline.params.L_refk_m"}
     - {id: REF1.strain.all.group_delay, segment: REF1, driver: strain, beam: "*", effect: group_delay, value: !expr "offline.params.n_g * offline.params.L_refk_m / 299792458.0"}
+    - {id: PRsrc.dT.all.phase, segment: PRsrc, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * offline.params.L_prsrc_m"}
+    - {id: PRsrc.dT.all.group_delay, segment: PRsrc, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * offline.params.L_prsrc_m"}
+    - {id: PRS0.dT.all.phase, segment: PRS0, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * offline.params.L_prs_m"}
+    - {id: PRS0.dT.all.group_delay, segment: PRS0, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * offline.params.L_prs_m"}
+    - {id: PRS1.dT.all.phase, segment: PRS1, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * offline.params.L_prs_m"}
+    - {id: PRS1.dT.all.group_delay, segment: PRS1, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * offline.params.L_prs_m"}
+    - {id: REF.dT.all.phase, segment: REF, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * offline.params.L_ref_m"}
+    - {id: REF.dT.all.group_delay, segment: REF, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * offline.params.L_ref_m"}
+    - {id: REF0.dT.all.phase, segment: REF0, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * offline.params.L_refk_m"}
+    - {id: REF0.dT.all.group_delay, segment: REF0, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * offline.params.L_refk_m"}
+    - {id: REF1.dT.all.phase, segment: REF1, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * offline.params.L_refk_m"}
+    - {id: REF1.dT.all.group_delay, segment: REF1, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * offline.params.L_refk_m"}
     - {id: LO0.dT.all.phase, segment: LO0, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * offline.params.L_lo0_m"}
     - {id: LO0.dT.all.group_delay, segment: LO0, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * offline.params.L_lo0_m"}
     - {id: LO0.strain.all.phase, segment: LO0, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_rad_per_m * offline.params.L_lo0_m"}
@@ -242,10 +258,32 @@ offline:
     f_rho_hz: !sweep_log [1.0, 1.0e+3, 3]   # correlation corner (T08 §2.8 shape, D57-5) [AE]
     h_ref_dist_rad2_hz: !sweep_log [1.0e-3, 0.4, 3]   # distribution patch fibres at L_ref = 1 km (spool level, T08 §2.5) [AE]
     h_ref_fs_rad2_hz: !sweep_log [1.0e-8, 1.0e-4, 3]   # free-space optics at L_ref = 1 m [AE] UNVERIFIED (no source)
+    mech_f_lo_hz_dist: 0.1                # f⁻² flattening of the distribution fibres (T08 §2.5 shape; env.mech.dist)
+    # common points PRsrc/PRS_k/REF/REF_k: temperature (M6-02). Zones: branch k (PRS_k, REF_k) and the shared trunk
+    # (PRsrc, REF). Θ_k gets −(φ_PRS,k − φ_PRS,0) + (φ_REF,k − φ_REF,0) through the locks, so the trunk cancels and a
+    # branch-to-branch drift difference dr enters with k_T(L_prs − L_refk) (44 rad/K for 2 m − 1 m) [AE zones]
+    r_T_dist_k_per_s: !sweep_log [1.0e-6, 1.0e-3, 3]   # ambient drift at the distribution fibres (T08 §2.4 range)
+    dr_T_dist_k_per_s: !sweep [0.0, 1.0e-5, 3]   # branch k minus branch 0 [AE] (as dr_T_k_per_s)
+    tau_th_dist_s: !sweep_log [1.0, 300.0, 3]   # ambient → patch-fibre lag (jacketed patch cords, T08 §2.4) [AE]
+    # metric window (conv §6 lower limit 1/T: measurement time or calibration interval; M6-02). The f⁻² noise of the
+    # common points lies mostly below 1/T_rec of a 30 ms run (2.6 mrad in the run, 55 mrad over 30 s); the band
+    # [1/t_cal_s, 1/T_rec] is added as one ledger row on DMX1 (env.dist.window, component 2). t_cal_s ≤ T_rec: row 0.
+    t_cal_s: !sweep_log [1.0, 1000.0, 4]   # GBS calibration interval [AE] (D46 Open: not decided)
+    t_settle_s: 0.005                     # metric settle time (mi / mii)
+    t_rec_s: !expr "max(run.duration_s - t_settle_s, 1.0 / run.f_sim_hz)"   # metric record length (≥ one sample)
+    f_win_lo_hz: !expr "min(1.0 / t_cal_s, 1.0 / t_rec_s)"
+    # ∫_{f1}^{f2} h/(f_lo² + f²)/(1 + (f/f_c)²) df = h f_c²/(f_c² − f_lo²)·[atan(f/f_lo)/f_lo − atan(f/f_c)/f_c]_{f1}^{f2}
+    win_band_per_h: !expr "mech_f_c_hz**2 / (mech_f_c_hz**2 - mech_f_lo_hz_dist**2) * ((atan(1.0 / (t_rec_s * mech_f_lo_hz_dist)) - atan(f_win_lo_hz / mech_f_lo_hz_dist)) / mech_f_lo_hz_dist - (atan(1.0 / (t_rec_s * mech_f_c_hz)) - atan(f_win_lo_hz / mech_f_c_hz)) / mech_f_c_hz)"
+    cp_window_var_rad2: !expr "2 * ((L_prs_m / 1000.0)**mech_gamma + (L_refk_m / 1000.0)**mech_gamma) * h_ref_dist_rad2_hz * max(0.0, win_band_per_h) + (k_T_rad_per_m_K * (L_prs_m - L_refk_m) * dr_T_dist_k_per_s)**2 * max(0.0, t_cal_s**2 - t_rec_s**2) / 12"
+                                          # f⁻² band of PRS0/1, REF0/1 + the window variance (rT)²/12 of the branch drift
     # --- laser (D07: not specified; same laser for squeezer, probe, reference, LO; D40) ----------------------------
     h0_hz2_per_hz: !sweep_log [1.0, 8.0e+3, 3]   # white FM (Δν = π h0): 1 → 3 Hz, 64 ≈ Ref A Koheras stand-in 0.2 kHz
                                           # (UNVERIFIED, D63-6), 8e3 = DX1 SC lower end (D51-9); metric (ii) (3) gives the
-                                          # linewidth requirement (D31-3, D47)
+                                          # linewidth requirement (D31-3, D47, D78: σ² = R(f_u)·2π²h0Δτ_k, R ≥ 1)
+    # drift and 1/f FM (M6-04, D77-1/D78: the lock acts on these; with an orthogonal PM probe + TEC offload a fraction
+    # |K_T|/(k_T + |K_T|) ≈ 4.5 % of the offloaded 2πδν·τ_k leaks into Θ_k). 0 = off; no source for the future laser (D07)
+    laser_nu_dot_hz_per_s: !sweep [0.0, 3.0e+4, 3]   # frequency drift ν̇ [AE] (M6 review: 30 kHz/s test value)
+    laser_h_m1_hz2: !sweep [0.0, 5.0e+8, 3]          # flicker FM h₋₁ (T05 §2.2 range, as refD)
     # --- squeezer crystal (D42 option (a): crystal temperature stabilised to ≈ 1 mK) --------------------------------
     c_xtal_rad_per_K: 3.0                 # θ_sq per K: ½ × the pump phase ≈ 6 mrad/mK (T01, 00_summary N03) [AE ½ factor]
     r_T_xtal_k_per_s: !sweep_log [1.0e-7, 1.0e-5, 3]   # residual crystal drift under a ≈ 1 mK stabilisation [AE]
@@ -264,11 +302,14 @@ offline:
     liu_responsivity_a_per_w: 1.0         # T14 §2.5 placeholder (η ℜ)
     liu_gain_v_per_a: 1.0e+3              # [AE] keeps K = 2ℜG√(P̄/D·P_ref) inside the ±0.5 V ADC at the nominal point
     liu_i_n_a_rthz: 1.0e-11               # T14 §2.5 placeholder (10 pA/√Hz)
-    liu_visibility: 1.0                   # T14 §8.2 placeholder (V = 1)
+    liu_visibility: !sweep [0.8, 1.0, 3]  # probe–reference fringe visibility (T14 §8.2 placeholder V = 1; set by the PBS / PER
+                                          # of the orthogonal probe and the mode matching at det_k) [AE range] (M6-10)
     liu_k_v: !expr "2 * liu_responsivity_a_per_w * liu_gain_v_per_a * sqrt(p_pr_avg_w / probe_duty * p_ref_w) * liu_visibility"
                                           # fringe amplitude K with gated detection (T14 §8.2): slope −K at X = π/2
     # --- controller (fpga_generic; T16 §4.5; overlays controller/*) ---------------------------------------------------
     latency_s: !choice [1.0e-6, 2.0e-6]   # τ_L (fpga_generic 0.1–2 µs, T16 §4.5); ≥ 1/f_sim (D55-1)
+    lock_extra_delay_s: 0.0               # loop delay not in latency_s seen by chk.lock_stability (probe/actuator_downstream:
+                                          # τ_k; probe/detect_after_demux: the frame hold ≈ T_F/2)
     dac_bits: !choice [14, 16]            # fpga_generic 12–16 bit (00_summary §7.2)
     out_range_v: 0.5                      # ±0.5 V (fpga_generic, Moku:Delta PID stand-in, T16 §4.5)
     f_u_hz: !sweep_log [1.0e+3, 3.0e+4, 3]   # fine (PZT) loop unity-gain frequency [AE] (T14 §8.2 "10 kHz")
@@ -309,6 +350,12 @@ offline:
     t_gate_s: !expr "tau_mode_s"          # GBS detection gate = mode length (D46/D50 condition)
     gbs_filter_fwhm_hz: !expr "1.0 / tau_mode_s"   # flat GBS-side filter of the mode bandwidth [AE]
     sbs_gain_warn: 5.0                    # T07 §5.1
+    stray_n_mode_max: 5.8e-4              # stray photons per squeezed mode for −10 dB → −9.95 dB (T17 §6,
+                                          # notes/pulsed-opo-source.md:264); the GBS tolerance is open (D46): an axis value
+    # PMD of SMF port fibres (fiber/smf overlay; M4-05): centered = timing aligned on the mode centroid (D51-6), nominal;
+    # psp = reference aligned with one PSP, T09 §1.7's conservative upper bound (≈ 2× the loss at small DGD)
+    pmd_timing_reference: !choice [centered, psp]
+    D_pmd_s_per_sqrt_m: !choice [1.265e-15, 3.162e-15]   # 0.04 (link design) / 0.1 ps/√km (SMF-28 Ultra max), T09 UNVERIFIED
     p_lo_sbs_w: !expr "p_lo_w * min(1.0, f_rep_hz * tau_mode_s)"   # LO power per comb line (pulsed LO: P̄·f_rep·τ_mode,
                                           # one line per Brillouin linewidth when f_rep > Δν_B) [AE]; CW LO overlay: P̄
 
@@ -399,6 +446,8 @@ offline:
         gbs_filter: {shape: flat, fwhm_hz: !expr "offline.params.gbs_filter_fwhm_hz"}
         wdm_isolation_lin: 1.0
         mode: {shape: gaussian, t_fwhm_s: !expr "offline.params.tau_mode_s"}
+        limit: {p_avg_w: !expr "offline.params.p_pr_avg_w", photons_per_mode_max: !expr "offline.params.stray_n_mode_max",
+                source: "T17 §6 (−10 dB → −9.95 dB), D46 Open"}   # CHK stray_light_limit at the run's P̄ (M6-03)
         toggles: {stray_rayleigh: true, stray_brillouin: true, stray_raman: true, stray_reflections: true}
     - block: sbs_check                 # CHK: probe peak power in the port-k fibre (T07 §5.1)
       name: sbs_probe
@@ -418,6 +467,47 @@ offline:
         power_w: !expr "offline.params.p_lo_sbs_w"
         laser_linewidth_hz: !expr "offline.params.probe_linewidth_hz"
         gain_warn: !expr "offline.params.sbs_gain_warn"
+    # Phase 5 M6-01 (D75, D66-5, D73-2): linear stability of the L-Liu loop at every sweep point; an unstable point
+    # gets a `loop_unstable` CHK event, RunResult.valid = False, and is kept (never pruned). Over the axes
+    # f_u × f_res × Q × latency 40 / 54 points are unstable (all of f_u = 30 kHz, 14 / 18 at 5.5 kHz, 8 / 18 at 1 kHz);
+    # the TEC offload stage (f_12, τ_th) does not change the count (360 / 486 with those axes). Continuous model of the
+    # F_common stack: fine stage L = (2π f_u/s)·M(s)·e^{−sτ}, M = stretcher resonance, τ = latency_s (τ_s + 1/f_sim,
+    # D55-1) + 0.5/f_sim (DAC ZOH, D68-2) + lock_extra_delay_s; TEC stage C_2 = 2π f_12 k_pzt/(k_TEC s) with the TEC
+    # lag 1/(1 + sτ_th) and k_act = k_TEC/k_pzt (k_TEC = tec_k_t·k_T·L_k as the PID design; the fast-axis probe sees
+    # (k_T + |K_T|)/k_T ≤ 1.08 × that, not modelled). Both ports have the same normalised loop, so one check covers
+    # them. Only offline.params are read: pipeline toggles (largerange/pzt_only, resonance off) are not seen.
+    - block: loop_stability_check
+      name: chk.lock_stability
+      params:
+        k0: !expr "offline.params.liu_k_v * offline.params.pzt_k_rad_per_v"
+        kp: 0.0
+        ki_per_s: !expr "2 * pi * offline.params.f_u_hz / (offline.params.liu_k_v * offline.params.pzt_k_rad_per_v)"
+        kd_s: 0.0
+        delay_s: !expr "offline.params.latency_s + 0.5 / run.f_sim_hz + offline.params.lock_extra_delay_s"
+        poles_hz: []
+        modes: [{f_hz: !expr "offline.params.pzt_f_res_hz", q: !expr "offline.params.pzt_q"}]
+        stages:
+          - kp: 0.0
+            ki_per_s: !expr "2 * pi * offline.params.f_12_hz * offline.params.pzt_k_rad_per_v / offline.params.tec_k_rad_per_v_k"
+            kd_s: 0.0
+            k_act: !expr "offline.params.tec_k_rad_per_v_k / offline.params.pzt_k_rad_per_v"
+            poles_hz: [!expr "1 / (2 * pi * offline.params.tec_tau_th_s)"]
+            modes: []
+        f_grid_hz: [1.0e-6, 1.0e+8, 400001]   # 2 integrators dominate below the TEC lag and f_12; resolves f_res/Q ≥ 50 Hz
+        toggles: {enabled: true}
+    # Phase 5 M6-02: the common-point band [1/t_cal_s, 1/T_rec] that a run shorter than the metric window cannot contain
+    # (conv §6). Target DMX1: the one segment only sqz1 crosses in every overlay, so the row enters metric (ii) of port k
+    # (the variance of PRS0 + PRS1 + REF0 + REF1, both ports' branches) and metric (i) of port k (where it stands in for
+    # PRS1 + REF1 + PRsrc, same order). Decomposition: component 2 (common_points).
+    - block: declared_phase_variance
+      name: env.dist.window
+      params:
+        targets: [DMX1]
+        variance_rad2: !expr "offline.params.cp_window_var_rad2"
+        f_lo_hz: !expr "offline.params.f_win_lo_hz"
+        f_hi_hz: !expr "1.0 / offline.params.t_rec_s"
+        source: "M6-02: env.mech.dist f⁻² band + branch drift (rT)²/12 between T_rec and t_cal_s (conv §6)"
+        toggles: {enabled: true}
 
 pipeline:
   # ---- laser and environment ----------------------------------------------------------------------------------------
@@ -427,10 +517,15 @@ pipeline:
       source: laser
       power_w: 1.0e-3                  # not used by the phase model
       h0_hz2_per_hz: !expr "offline.params.h0_hz2_per_hz"
+      h_m1_hz2: !expr "offline.params.laser_h_m1_hz2"
+      flicker_f_min_hz: 0.01             # lowest flicker corner [AE] (as refD): below 1/duration a static offset (G05)
+      flicker_per_decade: 2              # [AE] (as refD)
+      nu_dot_hz_per_s: !expr "offline.params.laser_nu_dot_hz_per_s"
       oob_pairs:
         - {target: EM1, tau_s: !expr "offline.params.tau_k_s - offline.params.tau_0_s"}   # D31-3 above f_N (header)
       rin_targets: []
-      toggles: {fm_white: true, fm_flicker: false, peaks: false, drift: false, dither: false, sbs: false, rin: false}
+      # drift / 1/f FM on with axis values (0 at the nominal point, M6-04); peaks need a measured spectrum (off)
+      toggles: {fm_white: true, fm_flicker: true, peaks: false, drift: true, dither: false, sbs: false, rin: false}
   - block: segment_thermal              # spool of port 0 (T08 §2.4)
     name: env.thermal.F0
     params:
@@ -444,6 +539,27 @@ pipeline:
       segments: [F1]
       tau_th_s: {F1: !expr "offline.params.tau_th_spool_s"}
       r_T_k_per_s: !expr "offline.params.r_T_spool_k_per_s + 0.5 * offline.params.dr_T_k_per_s"
+      toggles: {drift: true, random: false, periodic: false}
+  - block: segment_thermal              # probe / reference trunk PRsrc, REF (common to both ports: cancels in Θ_k; M6-02)
+    name: env.thermal.dist
+    params:
+      segments: [PRsrc, REF]
+      tau_th_s: {PRsrc: !expr "offline.params.tau_th_dist_s", REF: !expr "offline.params.tau_th_dist_s"}
+      r_T_k_per_s: !expr "offline.params.r_T_dist_k_per_s"
+      toggles: {drift: true, random: false, periodic: false}
+  - block: segment_thermal              # branch of port 0 (probe split PRS0 + reference REF0, common point zone; M6-02)
+    name: env.thermal.dist0
+    params:
+      segments: [PRS0, REF0]
+      tau_th_s: {PRS0: !expr "offline.params.tau_th_dist_s", REF0: !expr "offline.params.tau_th_dist_s"}
+      r_T_k_per_s: !expr "offline.params.r_T_dist_k_per_s - 0.5 * offline.params.dr_T_dist_k_per_s"
+      toggles: {drift: true, random: false, periodic: false}
+  - block: segment_thermal              # branch of port k
+    name: env.thermal.dist1
+    params:
+      segments: [PRS1, REF1]
+      tau_th_s: {PRS1: !expr "offline.params.tau_th_dist_s", REF1: !expr "offline.params.tau_th_dist_s"}
+      r_T_k_per_s: !expr "offline.params.r_T_dist_k_per_s + 0.5 * offline.params.dr_T_dist_k_per_s"
       toggles: {drift: true, random: false, periodic: false}
   - block: segment_thermal              # LO delivery spool (affects metric (i) only)
     name: env.thermal.LO
@@ -488,7 +604,7 @@ pipeline:
       k_eps_rad_per_m: !expr "offline.params.k_eps_rad_per_m"
       h_ref_rad2_hz: !expr "offline.params.h_ref_dist_rad2_hz"
       f_c_hz: !expr "offline.params.mech_f_c_hz"
-      f_lo_hz: 0.1
+      f_lo_hz: !expr "offline.params.mech_f_lo_hz_dist"   # also in cp_window_var_rad2 (M6-02)
       rho_0: 0.0
       f_rho_hz: !expr "offline.params.f_rho_hz"
       toggles: {mech: true, peaks: false, correlation: false}
@@ -518,32 +634,15 @@ pipeline:
       rho_0: 0.0
       f_rho_hz: !expr "offline.params.f_rho_hz"
       toggles: {mech: true, peaks: false, correlation: false}
-  - block: demux_switch                 # port 0 demux stages (T11 §3.5): drive noise sampled once per frame → white
-    name: dmx0
+  - block: demux_switch                 # the switch network of ports 0 and k (T11 §3.5): drive noise sampled once per frame → white
+    name: dmxsw                         # M4-01: one bias state per physical switch, shared by both address paths (cancels in Θ_k)
     params:
-      segment: DMX0
-      driver: eom
-      n_sub: 1
-      sub: [0, 1]
-      ring_len: 0
-      n_stages: !expr "offline.params.dmx_n_stages"
+      K: !expr "offline.params.K_ports"
+      layout: !expr "offline.params.dmx_layout"
+      ports:
+        - {port: 0, segment: DMX0, driver: eom, n_sub: 1, sub: [0, 1], ring_len: 0}
+        - {port: !expr "offline.params.port_k", segment: DMX1, driver: eom, n_sub: 1, sub: [0, 1], ring_len: 0}
       drive_noise_mode: timeseries     # white per f_sim step (the per-frame white jitter keeps its variance, spread to f_N)
-      kappa_pm: !expr "offline.params.dmx_kappa_pm"
-      v_pi_v: !expr "offline.params.dmx_v_pi_v"
-      drive_noise_v_rms: !expr "offline.params.dmx_drive_noise_v_rms"
-      bias_offset_rad: 0.0
-      bias_rw_rad_per_rts: !expr "offline.params.dmx_bias_rw_rad_per_rts"
-      toggles: {enabled: true, drive_phase_noise: true, bias_drift: true}
-  - block: demux_switch                 # port k demux stages
-    name: dmx1
-    params:
-      segment: DMX1
-      driver: eom
-      n_sub: 1
-      sub: [0, 1]
-      ring_len: 0
-      n_stages: !expr "offline.params.dmx_n_stages"
-      drive_noise_mode: timeseries
       kappa_pm: !expr "offline.params.dmx_kappa_pm"
       v_pi_v: !expr "offline.params.dmx_v_pi_v"
       drive_noise_v_rms: !expr "offline.params.dmx_drive_noise_v_rms"
@@ -918,13 +1017,13 @@ pipeline:
     params:
       ports: all
       setpoint_rad: !pi_frac -0.5        # each lock holds its stretcher at ≈ +π/2 (header)
-      t_settle_s: 0.005
+      t_settle_s: !expr "offline.params.t_settle_s"
   - block: metric_ii
     name: mii
     params:
       ports: all
       setpoint_rad: 0.0
-      t_settle_s: 0.005
+      t_settle_s: !expr "offline.params.t_settle_s"
 
 measure:
   record:
@@ -950,13 +1049,17 @@ measure:
       include_hf_phase_noise: true
       dither_m_rad: []
   decompose:                           # metric (ii) components (G13, conv §10, D57-4); every Θ-relevant source listed
+    # Each component = its time-loop variance + its ledger rows (M6-06). The ADC / DAC quantisation (the 16-bit DAC
+    # limit cycle, D65-3: 5.15 mrad with every noise off) is loop electronics: component 1. Laser drift / 1/f FM are
+    # component 3 with the white FM (M6-04). Component 2 includes the window row env.dist.window (M6-02).
     groups:
       locked_path_residual: [env.thermal.F0.drift, env.thermal.F1.drift, env.mech.ports.mech, env.mech.fs_lock.mech,
-                             liu0.shot_noise, liu0.electronic_noise, liu1.shot_noise, liu1.electronic_noise]
-      common_points: [env.mech.dist.mech]
-      laser_decorrelation_oob: [laser.fm_white]
-      squeezed_only: [env.mech.fs_sq.mech, env.thermal.xtal.drift, dmx0.drive_phase_noise, dmx0.bias_drift,
-                      dmx1.drive_phase_noise, dmx1.bias_drift]
+                             liu0.shot_noise, liu0.electronic_noise, liu1.shot_noise, liu1.electronic_noise,
+                             adc0.quantization, adc1.quantization, dac0f.quantization, dac1f.quantization]
+      common_points: [env.mech.dist.mech, env.thermal.dist.drift, env.thermal.dist0.drift, env.thermal.dist1.drift,
+                      env.dist.window.enabled]
+      laser_decorrelation_oob: [laser.fm_white, laser.fm_flicker, laser.drift]
+      squeezed_only: [env.mech.fs_sq.mech, env.thermal.xtal.drift, dmxsw.drive_phase_noise, dmxsw.bias_drift]
     validity:
       - {slot: act.pzt0.sat, abs_max: 0.5}
       - {slot: act.pzt1.sat, abs_max: 0.5}

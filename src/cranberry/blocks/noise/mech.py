@@ -56,8 +56,9 @@ from cranberry.offline.band_ledger import BandDecl
 from cranberry.path.segments import select_ids
 from cranberry.path.topology import as_topology
 
-__all__ = ["SegmentMechNoise", "SegmentThermodynamic", "GawbsPhaseJitter", "make_segment_mech_noise",
-           "make_segment_thermodynamic", "make_gawbs_phase_jitter", "s_tc", "s_tm", "two_pole_psd"]
+__all__ = ["SegmentMechNoise", "SegmentThermodynamic", "GawbsPhaseJitter", "DeclaredPhaseVariance", "make_segment_mech_noise",
+           "make_segment_thermodynamic", "make_gawbs_phase_jitter", "make_declared_phase_variance", "s_tc", "s_tm",
+           "two_pole_psd"]
 
 _KB = 1.380649e-23
 
@@ -337,6 +338,48 @@ class GawbsPhaseJitter(BaseBlock):
                          variance_outside=v)]
 
 
+class DeclaredPhaseVariance(BaseBlock):
+    """``declared_phase_variance``: one explicit ``phase`` row of the BandLedger (G05), nothing in the time loop.
+
+    For variance that a run cannot contain and that no noise block declares itself, e.g. the band
+    [1/T_cal, 1/T_rec] of slow noise below the record length when the metric's window (calibration interval
+    T_cal, conv §6 lower limit) is longer than the run (Phase 5 M6-02), or an interpolation correction ΔVar
+    (D68-3). The row adds ``variance_rad2`` as given (``variance_outside``) to every metric whose beams cross a
+    ``targets`` entry, with the beam-combination coefficient of the ledger (a target crossed by both beams of
+    a metric cancels). ``f_lo_hz`` < ``f_hi_hz`` name the band the row stands for (record only).
+
+    Params (all required, D34): ``targets``, ``variance_rad2`` (≥ 0), ``f_lo_hz``, ``f_hi_hz``, ``source``
+    (provenance), ``toggles`` {enabled} (off ⇒ the row is 0). Usable in ``offline.blocks`` (no init needed)
+    or in the pipeline (no-op kernel).
+    """
+
+    toggle_names = ("enabled",)
+
+    def __init__(self, params, name):
+        name = name or "declared_phase_variance"
+        require(params, "targets", "variance_rad2", "f_lo_hz", "f_hi_hz", "source", "toggles", block=name)
+        if float(params["variance_rad2"]) < 0.0:
+            raise ValueError(f"block {name!r}: variance_rad2 must be >= 0, got {params['variance_rad2']!r}")
+        super().__init__("declared_phase_variance", name, params)
+
+    def bind(self, layout):
+        @numba.njit
+        def kernel(S, Z, I, P):  # noqa: N803
+            pass
+
+        self.kernel = kernel
+
+    def __call__(self, state, params):
+        return state
+
+    def bands(self) -> list[BandDecl]:
+        p = self.params
+        v = float(p["variance_rad2"]) if self.toggles["enabled"] else 0.0
+        lo, hi = float(p["f_lo_hz"]), float(p["f_hi_hz"])
+        return [BandDecl(self.name, "phase", tuple(p["targets"]), lo, max(hi, math.nextafter(lo, math.inf)), "rad",
+                         variance_outside=v)]
+
+
 def _register(kind, cls):
     @register_block(kind)
     def factory(params: Mapping[str, Any], *, name: str | None = None) -> Block:
@@ -349,3 +392,4 @@ def _register(kind, cls):
 make_segment_mech_noise = _register("segment_mech_noise", SegmentMechNoise)
 make_segment_thermodynamic = _register("segment_thermodynamic", SegmentThermodynamic)
 make_gawbs_phase_jitter = _register("gawbs_phase_jitter", GawbsPhaseJitter)
+make_declared_phase_variance = _register("declared_phase_variance", DeclaredPhaseVariance)

@@ -535,6 +535,13 @@ class StrayLightTable(_TableBlock):
     or the source's optimal mode: {source: <nested temporal source spec, e.g. a ``pulsed_opo_source``,
     or {gaussian: ...}>} or a temporal ``SourceOutput`` (:func:`resolve_mode`; M5-03 — a 1 ps placeholder
     mode with an ns OPO mode underestimates the Rayleigh photons per mode by 3.5–6.8×10³, T17 §6).
+
+    Optional ``limit`` {``p_avg_w`` (the operating average probe power), ``photons_per_mode_max``,
+    ``source`` (provenance of the limit)} (Phase 5 M6-03; all three keys required when given): :meth:`check`
+    (called by the runner, M6-12) evaluates :func:`stray_photons` at ``p_avg_w`` and warns
+    ``stray_light_limit`` when ``photons_per_mode`` exceeds the limit (e.g. T17's 5.8×10⁻⁴ per OPO mode for
+    −10 dB → −9.95 dB; the GBS tolerance itself is open, D46). Never stops a run. Without ``limit``
+    :meth:`check` does nothing.
     """
 
     kind_name, table_names = "stray_light_table", ("stray_light",)
@@ -549,7 +556,25 @@ class StrayLightTable(_TableBlock):
         require(params["gbs_filter"], "shape", "fwhm_hz", block=f"{name}.gbs_filter")
         _check_mode(params["mode"], name)
         _ascending(name, "p_peak_w", params["p_peak_w"])
+        if "limit" in params:
+            require(params["limit"], "p_avg_w", "photons_per_mode_max", "source", block=f"{name}.limit")
         super().__init__(self.kind_name, name, params)
+        self.chk_log = ChkLog()
+        self.result: dict[str, float] | None = None
+
+    def check(self, log: ChkLog | None = None) -> dict[str, float]:
+        """CHK ``stray_light_limit`` (class docstring): {photons_per_mode, limit}, or {} without ``limit``."""
+        lim = self.params.get("limit")
+        if lim is None:
+            return {}
+        n = float(stray_photons(self.params, self._toggles, float(lim["p_avg_w"]))["photons_per_mode"])
+        mx = float(lim["photons_per_mode_max"])
+        if n > mx:
+            (log or self.chk_log).warn(
+                "stray_light_limit", self.name, f"stray photons per squeezed mode {n:.3g} > limit {mx:.3g} "
+                f"({lim['source']}) at P̄ = {float(lim['p_avg_w']):.3g} W", photons_per_mode=n, limit=mx)
+        self.result = {"photons_per_mode": n, "limit": mx}
+        return self.result
 
     def tables(self, cache: TableCache | None = None) -> dict[str, Table]:
         p = self.params

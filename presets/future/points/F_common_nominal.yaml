@@ -1,6 +1,9 @@
 # One representative point of every sweep axis of F_common.yaml (overlay; applied by the F_*_nominal presets).
 # Each value is the nominal / central value its source names (T08, T11, T14, T16 placeholders, 00_summary §7.2);
 # it is NOT an optimum and not a default (D34): the axes of F_common.yaml are the design space.
+# D74-7 / M6-03: a key a *_nominal preset must set differently (e.g. p_pr_avg_w: 1 nW for the OPO presets) must NOT be
+# written here — a file's own keys are overwritten by its own `overlays:`, so this point would win. p_pr_avg_w is
+# therefore set by each *_nominal preset (tests/integration/test_future_presets.py checks every own key survives).
 offline:
   params:
     port_k: 31                     # the longest port (largest laser decorrelation and counter-propagation lag)
@@ -21,10 +24,18 @@ offline:
     f_rho_hz: 100.0                # [AE]
     h_ref_dist_rad2_hz: 0.04       # spool level [AE]
     h_ref_fs_rad2_hz: 1.0e-6       # [AE] UNVERIFIED (axis centre)
+    r_T_dist_k_per_s: 1.0e-4       # T08 §2.4 nominal (as the spools)
+    dr_T_dist_k_per_s: 5.0e-6      # [AE] (as dr_T_k_per_s)
+    tau_th_dist_s: 30.0            # [AE] jacketed patch cords (axis centre, log)
+    t_cal_s: 30.0                  # [AE] GBS calibration interval (D46 Open); the M6 review's 30 s window
+    laser_nu_dot_hz_per_s: 0.0     # off: no source for the future laser's drift (D07, M6-04)
+    laser_h_m1_hz2: 0.0            # off: no source for the future laser's 1/f FM (D07, M6-04)
+    liu_visibility: 1.0            # T14 §8.2 placeholder
+    pmd_timing_reference: centered # M4-05: centroid timing (D51-6); psp = upper bound
+    D_pmd_s_per_sqrt_m: 3.162e-15  # 0.1 ps/√km (SMF-28 Ultra max, conservative; only with fiber/smf)
     h0_hz2_per_hz: 64.0            # Ref A Koheras stand-in 0.2 kHz/π (UNVERIFIED, D63-6)
     r_T_xtal_k_per_s: 1.0e-6       # [AE] ≈ 1 mK stabilisation (D42 (a))
     dmx_drive_noise_v_rms: 1.4235  # T11 test 5 (δV/V_π = 1.4235e−3)
-    p_pr_avg_w: 1.0e-6             # T14 §8.2 placeholder P̄ = 1 µW
     probe_duty: 0.1                # T14 §8.2 placeholder
     latency_s: 1.0e-6              # T16 §4.5 Ref C stand-in upper value
     dac_bits: 16                   # fpga_generic

@@ -8,7 +8,8 @@ offline:
     opo_dl_h_m2_hz: 1.0e-28        # [AE] axis centre
     opo_lock_f_ugf_hz: 1.0e+4      # [AE]
     opo_lock_light_ratio: 0.995    # [AE] axis centre
-    p_pr_avg_w: 1.0e-9             # same-frequency probe ≲ 1–3 nW for the OPO mode (T17 §6, D50)
+    p_pr_avg_w: 1.0e-9             # same-frequency probe ≲ 1–3 nW for the OPO mode (T17 §6, D50); no longer
+                                   # overwritten by points/F_common_nominal.yaml (M6-03, D74-7)
     dmx_t_stage: 0.98              # T11 centre
     dmx_er_db: 23.0                # T11
     dmx_t_rise_s: 8.0e-9           # T11

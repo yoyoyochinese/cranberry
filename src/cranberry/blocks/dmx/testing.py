@@ -11,7 +11,8 @@ from cranberry.core.layout import SlotLayout
 from cranberry.core.pipeline import build, spec_from_obj
 from cranberry.core.state import Params, State
 
-__all__ = ["N_G", "LAMBDA0", "design", "switch", "delay", "pulser", "stray_params", "make", "compiled_matches_reference"]
+__all__ = ["N_G", "LAMBDA0", "design", "switch", "switch_port", "delay", "pulser", "stray_params", "make",
+           "compiled_matches_reference"]
 
 N_G = 1.468  # T11 §7 / T10 (survey value, UNVERIFIED, T06)
 LAMBDA0 = 1545.32e-9  # D07 placeholder (Ref A)
@@ -30,9 +31,16 @@ def design(K=32, layout="tree", switching="active", toggles=None, **over) -> dic
     return {"block": "demux_design", "name": "dmx", "params": p}
 
 
-def switch(name="sw", n_stages=5, mode="timeseries", toggles=None, rate_div=1, **over) -> dict[str, Any]:
-    """``demux_switch`` on segment ``dmx`` (driver ``eom``: a Pockels / LN switch is an EO phase): T11 test 5 numbers (κ_pm = 1, δV/V_π = 1.4235e−3)."""
-    p = {"segment": "dmx", "driver": "eom", "n_sub": 1, "sub": [0, 1], "ring_len": 0, "n_stages": n_stages,
+def switch_port(port: int, segment: str, driver: str = "eom") -> dict[str, Any]:
+    """One ``ports`` entry of ``demux_switch`` (lumped segment driver)."""
+    return {"port": port, "segment": segment, "driver": driver, "n_sub": 1, "sub": [0, 1], "ring_len": 0}
+
+
+def switch(name="sw", n_stages=5, mode="timeseries", toggles=None, rate_div=1, ports=None, **over) -> dict[str, Any]:
+    """``demux_switch`` (driver ``eom``: a Pockels / LN switch is an EO phase): T11 test 5 numbers (κ_pm = 1,
+    δV/V_π = 1.4235e−3). Default: one port (address 0) on segment ``dmx`` of a tree with 2**n_stages ports, so it
+    passes ``n_stages`` switches; ``ports`` = list of :func:`switch_port` entries for several ports."""
+    p = {"K": 2**n_stages, "layout": "tree", "ports": ports or [switch_port(0, "dmx")],
          "drive_noise_mode": mode, "kappa_pm": 1.0, "v_pi_v": 1000.0, "drive_noise_v_rms": 1.4235,
          "bias_offset_rad": 0.0, "bias_rw_rad_per_rts": 0.0,
          "toggles": {"enabled": True, "drive_phase_noise": True, "bias_drift": False}}

@@ -1,0 +1,95 @@
+# Probe axis: dither (lock-in) detection of the Liu probe (D40 detection scheme; liu_probe_interferometer mode dither,
+# T14 §5 / §8; Phase 5 M6-10). The probe phase is dithered with amplitude β at f_d and the first harmonic demodulated:
+# I = −2K J1(β) sin X, so the lock holds the fringe EXTREMUM X = 0 (not the side, π/2): the lock set points and metric (i)
+# set point move to 0 (metric (ii) is a difference and does not change). The loop gain is normalised by the slope
+# 2K J1(β) (liu_k_v; J1 by its series, error < 1e−6 for β ≤ 0.5). The demodulator's low pass is inside the loop and
+# not in chk.lock_stability (keep liu_demod_lpf_hz ≫ f_u). RAM of the dither modulator is off ([AE]: no device chosen).
+offline:
+  params:
+    liu_dither_m_rad: 0.1          # β [AE] (T14 §5 class)
+    liu_f_dither_hz: 2.5e+5        # [AE] ≫ f_u, < f_N = 500 kHz
+    liu_demod_lpf_hz: 5.0e+4       # [AE] < f_d, ≫ f_u
+    liu_k_v: !expr "2 * liu_responsivity_a_per_w * liu_gain_v_per_a * sqrt(p_pr_avg_w / probe_duty * p_ref_w) * liu_visibility * (liu_dither_m_rad - liu_dither_m_rad**3 / 8 + liu_dither_m_rad**5 / 192)"
+topology:
+  locks:
+    - {id: L0, setpoint_rad: 0.0}
+    - {id: L1, setpoint_rad: 0.0}
+pipeline:
+  - !replace
+    name: liu0
+    seq:
+      - block: liu_probe_interferometer
+        name: liu0
+        params:
+          mode: dither
+          in_pr: beam.pr0.phi
+          in_ref: beam.ref0.phi
+          out: v.liu0
+          p_pr_avg_w: !expr "offline.params.p_pr_avg_w"
+          p_ref_w: !expr "offline.params.p_ref_w"
+          duty: !expr "offline.params.probe_duty"
+          visibility: !expr "offline.params.liu_visibility"
+          coupler_sign: 1.0
+          dither_m_rad: !expr "offline.params.liu_dither_m_rad"
+          f_dither_hz: !expr "offline.params.liu_f_dither_hz"
+          ram_a: 0.0
+          ram_phase_rad: 0.0
+          responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+          gain_v_per_a: !expr "offline.params.liu_gain_v_per_a"
+          i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+          toggles: {shot_noise: true, electronic_noise: true, gating: true, ram_offset: false, rf_rate_mode: false}
+      - block: demodulator
+        name: dem0
+        params:
+          in: v.liu0
+          in_phase: null
+          out_i: dem.dem0.i
+          out_q: dem.dem0.q
+          lpf_order: 1
+          f_ref_hz: !expr "offline.params.liu_f_dither_hz"
+          phi_d_rad: !pi_frac -0.5     # I = b = −2K J1(β) sin X: zero at X = 0, slope −2K J1(β)
+          v_off_v: 0.0
+          lpf_hz: !expr "offline.params.liu_demod_lpf_hz"
+          toggles: {rf_rate_mode: false, demod_offset: false, rf_reference_phase_noise: false}
+  - !replace
+    name: liu1
+    seq:
+      - block: liu_probe_interferometer
+        name: liu1
+        params:
+          mode: dither
+          in_pr: beam.pr1.phi
+          in_ref: beam.ref1.phi
+          out: v.liu1
+          p_pr_avg_w: !expr "offline.params.p_pr_avg_w"
+          p_ref_w: !expr "offline.params.p_ref_w"
+          duty: !expr "offline.params.probe_duty"
+          visibility: !expr "offline.params.liu_visibility"
+          coupler_sign: 1.0
+          dither_m_rad: !expr "offline.params.liu_dither_m_rad"
+          f_dither_hz: !expr "offline.params.liu_f_dither_hz"
+          ram_a: 0.0
+          ram_phase_rad: 0.0
+          responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+          gain_v_per_a: !expr "offline.params.liu_gain_v_per_a"
+          i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+          toggles: {shot_noise: true, electronic_noise: true, gating: true, ram_offset: false, rf_rate_mode: false}
+      - block: demodulator
+        name: dem1
+        params:
+          in: v.liu1
+          in_phase: null
+          out_i: dem.dem1.i
+          out_q: dem.dem1.q
+          lpf_order: 1
+          f_ref_hz: !expr "offline.params.liu_f_dither_hz"
+          phi_d_rad: !pi_frac -0.5     # I = b = −2K J1(β) sin X: zero at X = 0, slope −2K J1(β)
+          v_off_v: 0.0
+          lpf_hz: !expr "offline.params.liu_demod_lpf_hz"
+          toggles: {rf_rate_mode: false, demod_offset: false, rf_reference_phase_noise: false}
+  - name: adc0
+    params: {in: dem.dem0.i}
+  - name: adc1
+    params: {in: dem.dem1.i}
+  - name: mi
+    params: {setpoint_rad: 0.0}

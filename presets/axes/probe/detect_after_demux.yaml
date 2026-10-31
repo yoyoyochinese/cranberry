@@ -14,3 +14,6 @@ pipeline:
     rate_div: !expr "max(1, floor(run.f_sim_hz * offline.params.t_frame_s))"
   - name: liu1
     rate_div: !expr "max(1, floor(run.f_sim_hz * offline.params.t_frame_s))"
+offline:
+  params:
+    lock_extra_delay_s: !expr "0.5 * t_frame_s"   # sample-and-hold of the once-per-frame error (≈ T_F/2, D68-2; chk.lock_stability)

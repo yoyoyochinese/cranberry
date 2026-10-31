@@ -15,12 +15,18 @@
    measured from the block's samples within 3σ_stat; ``declared``: from ``bands()`` (exact formula, 1e−12).
 6. Bias drift 0.1 rad: stage transmission cos²(0.05) = 0.997502, leak 2.4979e−3 (−26.02 dB), 1e−6.
 7. Delay lines: 100 MHz, n_g = 1.468, N_b = 1, L_0 = 0: L_1 = 2.0422 m, L_31 = 63.31 m; N_b = 50:
-   L_31 = 3165 m; all target pulses reach the GBS together (1e−18 s); δT/T = 1e−6 → port 31 vs 0: 310 fs.
+   L_31 = 3165 m; all target pulses reach the GBS together (1e−18 s); δT/T = 1e−6 → port 31 vs 0: −310 fs (arrives early, M4-02).
 8. Overlap placeholder: δt = 0.0849 τ_p → η_mm = 0.990 (±5e−4).
 9. Rise time: erf edge, t_r = 10 ns: leak 0.5 at the edge centre, < 1e−6 at ≥ 2 t_r; PC with
    f_tog,max = 1 MHz at f_rep = 100 MHz, N_b = 1 → ChkLog "demux_rise_time" and "demux_toggle_rate".
 10. Block off ⇒ identity: design T = 𝟙 and no enabled loss, switch writes ψ = 0 (beam phase unchanged),
     delay line writes δt = 0.
+11. Shared switches (Phase 5 M4-01): one bias random walk per physical switch, so the Θ_k = ψ_k − ψ_0 bias
+    increment variance is 2(S − m)κ²σ²h (m switches shared by ports 0 and k): K = 32 tree, port 1 → 0 exactly,
+    ports 2–3 → 2 (5× below the old per-port model's 10), ports 16–31 → 8 (1.25× below); chain: k·κ²σ²h.
+    Drive noise stays independent per port: Var Θ_k = (S_0 + S_k)σ₁².
+12. Guard slots in the non-target-bin light (M4-04): leak_in = N_b Σ_{k≠k′}T + n_guard Σ_k T per frame;
+    8 ports, ε = 0.01: guard / data = 11.2 (N_b = 3, n_guard = 1) and 33.7 (N_b = 2, n_guard = 2).
 """
 
 import math
@@ -154,9 +160,9 @@ def test_6_bias_drift():
     b, st, pr = dt.make(dt.switch(n_stages=1, toggles={"drive_phase_noise": False, "bias_drift": True},
                                   bias_offset_rad=0.1), 1e6)
     run_reference(b, st, pr, 2)
-    assert st["pow.sw.trans"] == pytest.approx(0.997502, abs=1e-6)
-    assert st["leak.sw.frac"] == pytest.approx(2.4979e-3, rel=1e-4)
-    assert 10 * math.log10(st["leak.sw.frac"]) == pytest.approx(-26.02, abs=0.01)
+    assert st["pow.sw.trans"][0] == pytest.approx(0.997502, abs=1e-6)
+    assert st["leak.sw.frac"][0] == pytest.approx(2.4979e-3, rel=1e-4)
+    assert 10 * math.log10(st["leak.sw.frac"][0]) == pytest.approx(-26.02, abs=0.01)
 
 
 def test_7_delay_lines():
@@ -171,7 +177,7 @@ def test_7_delay_lines():
         b, st, pr = dt.make(dt.delay(port=k, rep_rel_drift=1e-6, toggles={"static_mismatch": False}), 1e6)
         run_reference(b, st, pr, 1)
         shift[k] = st["timing.dl.dt"]
-    assert shift[31] - shift[0] == pytest.approx(310e-15, rel=1e-9)
+    assert shift[31] - shift[0] == pytest.approx(-310e-15, rel=1e-9)   # longer T_rep → port 31 arrives early (M4-02)
 
 
 def test_8_overlap_placeholder():
@@ -197,3 +203,37 @@ def test_10_off_is_identity():
         "static_mismatch": False, "delay_thermal": False, "rep_rate_drift": False, "fiber_loss": False}), 1e6)
     run_reference(b, st, pr, 1)
     assert st["timing.dl.dt"] == 0.0 and not b.losses()[0].enabled
+
+
+@pytest.mark.numba
+@pytest.mark.parametrize("layout,K,k,shared_var", [("tree", 32, 1, 0), ("tree", 32, 2, 2), ("tree", 32, 3, 2),
+                                                   ("tree", 32, 16, 8), ("tree", 32, 31, 8), ("chain", 8, 5, 5)])
+def test_11_shared_switch_bias_cancels_in_theta(layout, K, k, shared_var):
+    sw = dt.switch(K=K, layout=layout, ports=[dt.switch_port(0, "d0"), dt.switch_port(k, "dk")],
+                   toggles={"drive_phase_noise": False, "bias_drift": True}, bias_rw_rad_per_rts=1.0)
+    fs, n = 1e4, 40000
+    psi = record([sw], fs, n, ["act.sw.dpsi"], external=())["act.sw.dpsi"]
+    var = np.var(np.diff(psi[:, 1] - psi[:, 0])) * fs        # in units of κ²σ_rw²h
+    if shared_var == 0:
+        assert np.all(psi[:, 1] == psi[:, 0])                  # ports 0 and 1 pass the same five switches
+    else:
+        assert var == pytest.approx(shared_var, rel=0.04)
+    assert np.var(np.diff(psi[:, 1])) * fs == pytest.approx(dt.make(sw, fs)[0].n_stages[1], rel=0.04)   # each port alone: S_k
+
+
+@pytest.mark.numba
+def test_11_drive_noise_independent_per_port():
+    sw = dt.switch(ports=[dt.switch_port(0, "d0"), dt.switch_port(1, "d1")])
+    psi = record([sw], 1e6, 200_000, ["act.sw.dpsi"], external=())["act.sw.dpsi"]
+    assert np.var(psi[:, 1] - psi[:, 0]) == pytest.approx(2 * 0.0100**2, rel=0.02)   # 2·S·(κπδV/V_π)², T11 §3.5
+
+
+@pytest.mark.parametrize("N_b,n_guard,ratio", [(3, 1, 11.2), (2, 2, 33.7)])
+def test_12_guard_slot_photons_in_leak(N_b, n_guard, ratio):
+    eps = 0.01
+    kw = dict(K=8, N_b=N_b, er_db=-10 * math.log10(eps), toggles={"insertion_loss": False})
+    data = design_block(n_guard=0, **kw).design()["leak_in"].sum()
+    with_guard = design_block(n_guard=n_guard, **kw).design()["leak_in"].sum()
+    assert data == pytest.approx(8 * N_b * (1 - (1 - eps) ** 3), rel=1e-12)
+    assert (with_guard - data) == pytest.approx(8 * n_guard, rel=1e-12)          # t = 1: every guard pulse lands somewhere
+    assert (with_guard - data) / data == pytest.approx(ratio, abs=0.05)          # M4 review script 1(c)
