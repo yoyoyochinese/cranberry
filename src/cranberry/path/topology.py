@@ -53,6 +53,9 @@ Rules checked by :meth:`Topology.from_spec`:
   is fine): a forgotten probe coefficient would otherwise fake a non-cancellation (D11, D34). ``beam:
   "*"`` expands to every beam traversing the segment; an entry naming the beam overrides it.
 * ``coords`` (optional) are the coordinates a callable / Table coefficient is evaluated at (G16-a).
+* ``id`` (optional, WP-I5 addition) is a label the topology ignores; when every entry of the list has one,
+  config overlays merge coefficient lists by it (``config.overlay``: keyed lists), so an overlay that adds
+  a segment can add its coefficients without replacing the whole list.
 * A beam traverses a segment at most once (repeated traversals: split the segment); direction d = ±1;
   d = +1 runs sub_in ≤ sub_out, d = −1 runs sub_in ≥ sub_out.
 * ``spatial: lumped`` forbids ``per_sub`` placements; ``distributed`` requires ``per_sub`` for the
@@ -838,8 +841,9 @@ class _Parser:
                 where = f"coef[{i}]"
                 if not isinstance(e, Mapping) or not self.need(e, ("segment", "driver", "beam", "effect", "value"), where):
                     continue
-                if set(e) - {"segment", "driver", "beam", "effect", "value", "coords"}:
-                    self.err(f"{where}: unknown key(s) {sorted(set(e) - {'segment', 'driver', 'beam', 'effect', 'value', 'coords'})}")
+                known = {"segment", "driver", "beam", "effect", "value", "coords", "id"}
+                if set(e) - known:
+                    self.err(f"{where}: unknown key(s) {sorted(set(e) - known)}")
                 coords = e.get("coords") or {}
                 if not isinstance(coords, Mapping):
                     self.err(f"{where}: coords must be a mapping")

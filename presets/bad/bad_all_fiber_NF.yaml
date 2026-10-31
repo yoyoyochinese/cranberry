@@ -1,0 +1,6 @@
+# BAD (D34, D38; T12 §4.2): all-fibre squeezed path — FC/APC connectors, fibre PBS for the probe and the fibre LN switch
+# tree. Demonstrates the loss bound: T12's single-stage NF figure is ≈ −1.6 dB (L ≈ 70 %); with the 5-stage fibre tree
+# the port efficiency collapses further (η_gbs ≪ 0.1).
+extends: ../future/F_wg6_nominal.yaml
+preset: bad_all_fiber_NF
+overlays: [path_build/NF, demux/ln_fiber_tree]

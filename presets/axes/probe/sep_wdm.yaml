@@ -1,0 +1,6 @@
+# Probe axis: probe in/out separation element — PM WDM ≤ 0.8 dB (T12 §3.2), for frequency-offset probes (D40, 00_summary §2.3 "分離"). Sets the
+# injection / extraction loss on the squeezed path and the leakage T_⊥ of the probe towards the squeezed mode.
+offline:
+  params:
+    il_inj_db: 0.8
+    t_perp_pbs: 1e-05

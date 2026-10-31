@@ -1,0 +1,16 @@
+# Probe axis: detection AFTER the demux (D40): the probe crosses the demux stages backwards and port k's error signal
+# exists only in its slot, sampled once per GBS frame (T14 §8.4: f_rep/(32 N_b), here ⌊f_sim·T_F⌋ steps). The demux
+# switch phase then lies inside the locked path (it moves from metric (ii) component 4 into component 1).
+topology:
+  beams:
+    - id: pr0
+      path: [{segment: PRsrc, direction: 1}, {segment: PRS0, direction: 1}, {segment: F0, direction: -1, axis: fast},
+             {segment: D0, direction: -1}, {segment: DMX0, direction: -1}]
+    - id: pr1
+      path: [{segment: PRsrc, direction: 1}, {segment: PRS1, direction: 1}, {segment: F1, direction: -1, axis: fast},
+             {segment: D1, direction: -1}, {segment: DMX1, direction: -1}]
+pipeline:
+  - name: liu0
+    rate_div: !expr "max(1, floor(run.f_sim_hz * offline.params.t_frame_s))"
+  - name: liu1
+    rate_div: !expr "max(1, floor(run.f_sim_hz * offline.params.t_frame_s))"

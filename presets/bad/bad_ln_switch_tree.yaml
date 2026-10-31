@@ -1,0 +1,5 @@
+# BAD (D34, D39 (d); T11 §2, §7.2): fibre LN switch tree (≈ 2.7 dB per stage, 5 stages ≈ 13.5 dB) on the otherwise
+# low-loss LL path: "ファイバ型 LN スイッチの木では squeezing はほぼ残らない" (T11 §7.2).
+extends: ../future/F_wg6_nominal.yaml
+preset: bad_ln_switch_tree
+overlays: [demux/ln_fiber_tree]

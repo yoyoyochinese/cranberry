@@ -1,0 +1,5 @@
+# OPO lock-light axis: Liu type — same polarization and frequency, time-interleaved with the squeezed pulses (D50):
+# the lock light samples the signal resonance itself (lock-light ratio r = 1 → no (1 − r)Δ_free residual). OPO presets.
+offline:
+  params:
+    opo_lock_light_ratio: 1.0

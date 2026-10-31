@@ -141,13 +141,15 @@ class DemuxDesign(BaseBlock):
     Params (required, D34): ``K``, ``layout`` (tree | chain), ``switching`` (active | passive),
     ``f_rep_hz``, ``N_b``, ``n_guard``, ``L0_m``, ``n_g``, ``alpha_db_per_m``, ``t_stage``,
     ``stage_gdd_s2``, ``segments`` (K segment ids for the loss elements), ``loss_applies_to``,
-    ``loss_source``; active only: ``er_db``, ``t_rise_s``, ``sigma_j_s``, ``t_ring_s``, ``tau_mode_s``,
-    ``f_tog_max_hz``. Toggles: ``enabled`` (off ⇒ identity: η = 1, no leak, elements disabled),
+    ``loss_source``; active only: ``er_db`` (or ``er_lin`` = 10^(ER/10), the name a YAML config loads it
+    under, D56-1 / D61-5), ``t_rise_s``, ``sigma_j_s``, ``t_ring_s``, ``tau_mode_s``, ``f_tog_max_hz``.
+    WP-I5 addition: ``segments: null`` with ``port_segments`` {segment id: port index} registers the loss
+    elements of the listed ports only (configs that model reference port 0 + port k, G13). Toggles: ``enabled`` (off ⇒ identity: η = 1, no leak, elements disabled),
     ``insertion_loss`` (t → 1), ``crosstalk`` (ε → 0), ``rise_time_clipping``.
     """
 
     toggle_names = ("enabled", "insertion_loss", "crosstalk", "rise_time_clipping")
-    _ACTIVE = ("er_db", "t_rise_s", "sigma_j_s", "t_ring_s", "tau_mode_s", "f_tog_max_hz")
+    _ACTIVE = ("t_rise_s", "sigma_j_s", "t_ring_s", "tau_mode_s", "f_tog_max_hz")
 
     def __init__(self, params: Mapping[str, Any], name: str | None):
         name = name or "demux_design"
@@ -157,9 +159,20 @@ class DemuxDesign(BaseBlock):
             raise ValueError(f"block {name!r}: layout must be one of {LAYOUTS}, switching one of {SWITCHINGS}")
         if params["switching"] == "active":
             require(params, *self._ACTIVE, block=name)
+            if ("er_db" in params) == ("er_lin" in params):
+                raise ValueError(f"block {name!r}: give exactly one of er_db, er_lin")
         K = int(params["K"])
-        if K < 1 or len(params["segments"]) != K or not 0.0 < float(params["t_stage"]) <= 1.0:
-            raise ValueError(f"block {name!r}: need K >= 1, len(segments) == K and 0 < t_stage <= 1")
+        if params["segments"] is None:
+            ps = params.get("port_segments")
+            if not ps or any(not 0 <= int(k) < K for k in ps.values()) or len(set(map(int, ps.values()))) != len(ps):
+                raise ValueError(f"block {name!r}: segments null needs port_segments {{segment: distinct port in [0, K)}}")
+            self._seg_of = {int(k): str(seg) for seg, k in ps.items()}
+        else:
+            if len(params["segments"]) != K:
+                raise ValueError(f"block {name!r}: need len(segments) == K")
+            self._seg_of = {k: str(seg) for k, seg in enumerate(params["segments"])}
+        if K < 1 or not 0.0 < float(params["t_stage"]) <= 1.0:
+            raise ValueError(f"block {name!r}: need K >= 1 and 0 < t_stage <= 1")
         super().__init__("demux_design", name, params)
         self.K = K
         self.chk_log = ChkLog()
@@ -176,7 +189,8 @@ class DemuxDesign(BaseBlock):
         p, tg = self.params, self._toggles
         if not tg["enabled"] or p["switching"] == "passive":
             return 0.0
-        eps = 10.0 ** (-float(p["er_db"]) / 10.0) if tg["crosstalk"] else 0.0
+        er_lin = float(p["er_lin"]) if "er_lin" in p else 10.0 ** (float(p["er_db"]) / 10.0)
+        eps = 1.0 / er_lin if tg["crosstalk"] else 0.0
         if tg["rise_time_clipping"]:
             # ponytail: worst case (pulse next to an edge, centred gap) applied to every pulse; a per-pulse
             # table if block routing (N_b > 1) needs the interior pulses separately.
@@ -217,7 +231,7 @@ class DemuxDesign(BaseBlock):
         p, eta = self.params, np.diag(self.matrix())
         return [LossElement(id=f"{self.name}.port{k}", eta=float(eta[k]), kind="component",
                             applies_to=frozenset(p["loss_applies_to"]), source=str(p["loss_source"]),
-                            enabled=self._toggles["enabled"], segment=str(p["segments"][k])) for k in range(self.K)]
+                            enabled=self._toggles["enabled"], segment=seg) for k, seg in sorted(self._seg_of.items())]
 
     def check(self, log: ChkLog | None = None) -> dict[str, float]:
         """CHK ``demux_feasibility`` (T11 §3.4): warns, never raises."""

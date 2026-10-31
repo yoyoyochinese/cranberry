@@ -1,0 +1,9 @@
+# BAD (D34, D53 Open; T16 §4.5): the Moku:Delta PID output (±0.5 V into 50 Ω) drives a 915B-class stretcher made for
+# ±5 V: only 10 % of its range (3.25 of 32.5 rad) is usable, so slow drifts exhaust it ten times sooner (lock time,
+# VT-21).
+extends: ../future/F_liu20_nominal.yaml
+preset: bad_moku_pid_05V
+overlays: [controller/moku_delta]
+offline:
+  params:
+    pzt_range_rad: 3.25            # 915B 32.5 rad half range at ±5 V → ±0.5 V (T16 §7.2)

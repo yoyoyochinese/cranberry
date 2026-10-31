@@ -1,0 +1,5 @@
+# BAD (D34, D40; T10 §3.3, T07): probe 1 THz away from the squeezed light (same polarization, WDM separation): the probe's
+# thermal phase differs by 2πΔν·κ_τ·L per K (15 rad/K at 63 m, T10; ≈ 3×10² rad/K at 1.27 km) and Raman leakage grows.
+extends: ../future/F_liu20_nominal.yaml
+preset: bad_wdm_1THz_probe
+overlays: [probe/pol_same, probe/freq_1THz, probe/sep_wdm]

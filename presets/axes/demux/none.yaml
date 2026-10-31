@@ -1,0 +1,13 @@
+# Demux axis: no demultiplexer (single-port bench: the switch loss, leak and drive noise are off; D39 `none`).
+offline:
+  blocks:
+    - name: dmx
+      params:
+        toggles: {enabled: false}
+pipeline:
+  - name: dmx0
+    params:
+      toggles: {enabled: false}
+  - name: dmx1
+    params:
+      toggles: {enabled: false}

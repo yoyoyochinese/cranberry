@@ -1,0 +1,26 @@
+# BAD (D34; T07 §4, T06/T10): a bright CO-propagating probe (same direction as the squeezed light, 1 mW) on the ps
+# waveguide preset: its forward GAWBS lines (30 MHz – 1 GHz) fall inside the THz-wide squeezed mode, and XPM / Raman
+# with them (the counter-propagating probe only backscatters).
+# The probe enters at the demux side and is detected at the GBS side against the reference; gawbs_table gives the
+# forward GAWBS lines (σ_m²) that the integration helper turns into photons per squeezed mode.
+extends: ../future/F_wg100_nominal.yaml
+preset: bad_copropagating_probe
+overlays: [probe/power_1mW]
+topology:
+  beams:
+    - id: pr0
+      path: [{segment: PRsrc, direction: 1}, {segment: PRS0, direction: 1}, {segment: D0, direction: 1}, {segment: F0, direction: 1, axis: fast}]
+    - id: pr1
+      path: [{segment: PRsrc, direction: 1}, {segment: PRS1, direction: 1}, {segment: D1, direction: 1}, {segment: F1, direction: 1, axis: fast}]
+offline:
+  blocks:
+    - block: gawbs_table             # forward GAWBS of the port-k fibre (T07 §4.1; London et al. R0,7, UNVERIFIED typical)
+      name: gawbs1
+      params:
+        gawbs: {cladding_diameter_m: 1.25e-4, v_l_m_s: 5996.0, v_s_m_s: 3740.0, n_modes: 12,
+                gamma_om_per_w_m: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0e-3, 0.0, 0.0, 0.0, 0.0, 0.0], linewidth_hz: 4.3e+6,
+                mode_sum_factor: 1.0}
+        lambda0_m: !expr "offline.params.lambda0_m"
+        temperature_k: 295.0
+        L_m: !expr "offline.params.L_k_m"
+        f_hz: [1.0e+6, 1.0e+7, 1.0e+8, 1.0e+9]

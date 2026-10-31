@@ -1,0 +1,9 @@
+# Path-build axis NF (D38, T12 §4.2): FC/APC connectors and fibre components everywhere: 6 × 0.2 dB connectors,
+# fibre PBS 2 × 0.5 dB for the probe in/out. With the fibre LN switch (demux/ln_fiber_tree) this is T12's "全ファイバ"
+# scenario, squeezing bound ≈ 1.6 dB (bad_all_fiber_NF).
+offline:
+  params:
+    n_conn: 6
+    il_conn_db: 0.2                # T12 §3.2 FC/APC nominal 0.2 dB / mating
+    n_inj: 2
+    il_inj_db: 0.5                 # T12 §3.2 fibre PBS typ 0.4–0.5 dB

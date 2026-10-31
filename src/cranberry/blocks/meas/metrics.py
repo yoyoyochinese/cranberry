@@ -76,7 +76,11 @@ runner adds to ``measure.record`` when recording is on), the offline stage (``So
                  source range, ~1/τ_p pulses, ~κ_c OPO)
     weight       sideband weighting w(f) (callable) or null (flat source, T04 §3.2)
     source       name of the offline block whose ``source_output`` gives V±, θ_off; or {k: name}
-    lo_mode      LO mode for temporal sources (array on the source grid) or null; or {k: ...}
+    lo_mode      LO mode for temporal sources (array on the source grid) or null; or {k: ...}; or the
+                 string ``optimal`` (WP-I5 addition): the source's optimal LO mode for a temporal source
+                 (``temporal_modes.optimal_lo_mode``), null for single-mode / cw_sideband bases — so one
+                 config serves single-mode stand-ins and pulsed sources (LO-shape variants are loss
+                 elements of ``lo_temporal_shape``)
     average      exact | small_angle
     include_hf_phase_noise   add the ledger σ²_HF (G05)
     dither_m_rad analytic dither peak amplitudes not simulated in the loop ([] for none)
@@ -628,6 +632,19 @@ def _per_port(value: Any, port: int, what: str) -> Any:
     return value
 
 
+def _lo_mode(value: Any, source: SourceOutput) -> Any:
+    """Resolve ``lo_mode: optimal`` (module docstring) against ``source``; other values unchanged."""
+    if isinstance(value, str):
+        if value != "optimal":
+            raise ValueError(f"measure.metrics.*.lo_mode: unknown string {value!r} (array, null or 'optimal')")
+        if source.basis != "temporal":
+            return None
+        from cranberry.blocks.source.temporal_modes import optimal_lo_mode
+
+        return optimal_lo_mode(source)[0]
+    return value
+
+
 def define_metrics(ledger: BandLedger, blocks: list[MetricProbe], measure: Mapping[str, Any]) -> list[str]:
     """``ledger.define_metric`` for every (configured) metric of ``blocks`` with its ``f_max_hz`` /
     ``weight`` from ``measure.metrics`` (offline stage). Returns the defined names."""
@@ -698,11 +715,11 @@ def evaluate_metrics(
             src_name = _per_port(cfg["source"], p.port, f"{what}.source")
             if src_name not in source_outputs:
                 raise KeyError(f"{what}.source: no offline source block {src_name!r} (known: {sorted(source_outputs)})")
-            lo_mode = _per_port(cfg["lo_mode"], p.port, f"{what}.lo_mode")
+            lo_mode = _lo_mode(_per_port(cfg["lo_mode"], p.port, f"{what}.lo_mode"), source_outputs[src_name])
             ref_off = 0.0
             if b.short == "ii":
                 ref_src = source_outputs[_per_port(cfg["source"], 0, f"{what}.source")]
-                ref_off = ref_src.project(_per_port(cfg["lo_mode"], 0, f"{what}.lo_mode"))[2]
+                ref_off = ref_src.project(_lo_mode(_per_port(cfg["lo_mode"], 0, f"{what}.lo_mode"), ref_src))[2]
             path = b.squeezed_beam(p)
             has_path = loss_registry is not None and path in loss_registry.paths
             res.noise_levels[name] = quadrature_for_metric(

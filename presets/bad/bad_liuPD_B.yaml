@@ -1,0 +1,6 @@
+# BAD (D34, D42; T14 §8.3 (B)): scheme B — the backward probe is compared with the pump directly: metric (ii) still
+# cancels ψ_k, but θ_sq follows the pump with coefficient 2 (pump-path noise doubled in metric (i)) and every port
+# actuator follows the pump drift.
+extends: ../future/F_liu20_nominal.yaml
+preset: bad_liuPD_B
+overlays: [../locks/L-LiuPD-B.yaml]

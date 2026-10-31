@@ -1,0 +1,7 @@
+# Demux axis: free-space Pockels-cell tree, per pulse (N_b = 1; D39 (a), T11 §3.2). On F_wg100 (100 MHz) the first
+# stage must toggle at f_rep/2 = 50 MHz ≫ f_tog,max (0.5–3 MHz): CHK demux_toggle_rate (00_summary §2.2 E50).
+offline:
+  params:
+    N_b: 1
+    dmx_layout: tree
+    dmx_switching: active

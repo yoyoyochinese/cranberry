@@ -1,0 +1,12 @@
+# BAD (D34, D50; T17 §5.3): the Borealis-type OPO at 100 MHz: the mode tail ε_tail(10 ns) ≈ 12–14 % mixes into the next
+# slot (f_rep,max ≈ 45 MHz for 10⁻³). CHK rep_rate_tail warns; so do gate_shorter_than_mode (a 10 ns gate on an 18 ns
+# mode) and demux_rise_time (the mode does not fit between two switch settings). N_b = 50 keeps the toggle rate legal.
+extends: ../future/F_bor6_nominal.yaml
+preset: bad_bor_100MHz
+offline:
+  params:
+    f_rep_hz: 1.0e+8
+    N_b: 50
+    dmx_f_tog_max_hz: 1.0e+6
+    n_sub_fiber: 64
+    bhd_gate_s: 1.0e-8             # one slot at 100 MHz (shorter than the 18 ns mode: CHK gate_shorter_than_mode)

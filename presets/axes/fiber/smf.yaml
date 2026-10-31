@@ -1,0 +1,52 @@
+# Fibre axis SMF (D32, T09 §3, T10 §3.3): the port fibres are standard SMF with a Haar-random static birefringence and
+# a diffusing polarization state (segment_jones). The orthogonal Liu probe then picks up the unpredictable error
+# 2·arg(a), a = xᵀUx (T09 test 2): the lock no longer holds the squeezed phase (bad_smf_orth shows it). Use
+# fiber/smf_pol_same.yaml after this overlay for the same-polarization SMF variant. The diffusion constant is the
+# F_common axis D_pol_rad2_per_s.
+topology:
+  segments:
+    - {id: F0, kind: smf, pol_model: jones, pol_params: !replace {J_slot: J.F0}}
+    - {id: F1, kind: smf, pol_model: jones, pol_params: !replace {J_slot: J.F1}}
+  beams:
+    - id: sqz0
+      jones_in: [1, 0]
+      jones_out: [1, 0]
+      path: [{segment: PUMP, direction: 1}, {segment: XTAL, direction: 1}, {segment: UP, direction: 1},
+             {segment: DMX0, direction: 1}, {segment: D0, direction: 1}, {segment: F0, direction: 1}, {segment: G0, direction: 1}]
+    - id: sqz1
+      jones_in: [1, 0]
+      jones_out: [1, 0]
+      path: [{segment: PUMP, direction: 1}, {segment: XTAL, direction: 1}, {segment: UP, direction: 1},
+             {segment: DMX1, direction: 1}, {segment: EM1, direction: 1}, {segment: D1, direction: 1},
+             {segment: F1, direction: 1}, {segment: G1, direction: 1}]
+    - id: pr0
+      jones_in: [0, 1]             # orthogonal probe, analysed on the orthogonal state at the detector
+      jones_out: [0, 1]
+      path: [{segment: PRsrc, direction: 1}, {segment: PRS0, direction: 1}, {segment: F0, direction: -1}, {segment: D0, direction: -1}]
+    - id: pr1
+      jones_in: [0, 1]
+      jones_out: [0, 1]
+      path: [{segment: PRsrc, direction: 1}, {segment: PRS1, direction: 1}, {segment: F1, direction: -1}, {segment: D1, direction: -1}]
+offline:
+  blocks:
+    - name: stray1
+      params:
+        probe: {polarization: smf_orthogonal}   # 1/3 + (2/3)T_⊥ (T10 §3.4.3)
+pipeline:
+  - name: squeezer
+    seq:
+      - block: segment_jones       # SMF polarization drift of the port fibres (WP-B7, T09 §3.6)
+        name: pol.jones
+        params:
+          segments:
+            F0: {model: smf, axis_drivers: [], axis_stokes: [1, 0, 0], u0: haar, drift: diffusion,
+                 D_pol_rad2_per_s: !expr "offline.params.D_pol_rad2_per_s", k_T_rad_per_m_K: 0.0}
+            F1: {model: smf, axis_drivers: [], axis_stokes: [1, 0, 0], u0: haar, drift: diffusion,
+                 D_pol_rad2_per_s: !expr "offline.params.D_pol_rad2_per_s", k_T_rad_per_m_K: 0.0}
+          toggles: {pol_birefringence_drift: false, pol_crosstalk: false, pol_smf_drift: true}
+  - name: path.phase
+    params:
+      toggles: {phase: true, group_delay: true, pm_axis_drift: false}
+  - name: path.beams
+    params:
+      toggles: {emission_time: true, polarization: true}

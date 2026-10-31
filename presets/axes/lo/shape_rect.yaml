@@ -1,0 +1,4 @@
+# LO axis: LO waveform `rect` — rectangular window, fitted (0.866-class, T17 §6.3, D70-2) (D50, lo_temporal_shape; η_t is a BHD loss element).
+offline:
+  params:
+    lo_shape: rect

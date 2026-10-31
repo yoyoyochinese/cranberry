@@ -1,0 +1,4 @@
+# BHD axis: gated BHD with the gate at the mode length (D46/D50: gate ≥ mode length; shorter gates warn, CHK).
+offline:
+  params:
+    bhd_gate_s: !expr "tau_mode_s"

@@ -1,0 +1,4 @@
+# LO axis: LO waveform `optimal` — shaped to the squeezed mode (η_t = 1) (D50, lo_temporal_shape; η_t is a BHD loss element).
+offline:
+  params:
+    lo_shape: optimal

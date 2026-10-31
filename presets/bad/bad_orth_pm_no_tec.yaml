@@ -1,0 +1,6 @@
+# BAD (D34, D32; T09 §1.4, T10 test 4): orthogonal probe in PM fibre WITHOUT the TEC: the lock holds the probe on the
+# fast axis while the squeezed light on the slow axis drifts by K_T·L·ΔT (−2.05 rad/(m·K): ≈ 129 rad/K at 63 m,
+# ≈ 2.6×10³ rad/K at 1.27 km). Metric (ii) ramps with the spool temperature drift.
+extends: ../future/F_liu20_nominal.yaml
+preset: bad_orth_pm_no_tec
+overlays: [largerange/pzt_only]

@@ -1,0 +1,6 @@
+# Probe axis: probe in/out separation element — 99:1 coupler: 1 % on the squeezed path, no polarization isolation [AE] (D40, 00_summary §2.3 "分離"). Sets the
+# injection / extraction loss on the squeezed path and the leakage T_⊥ of the probe towards the squeezed mode.
+offline:
+  params:
+    il_inj_db: 0.044
+    t_perp_pbs: 1

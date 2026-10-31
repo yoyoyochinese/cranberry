@@ -1,0 +1,28 @@
+# Probe axis: probe from ANOTHER laser than the pump / reference (D40). The in-band laser-phase cancellation of the
+# same-laser probe (T05, T10) is lost: the lock writes the probe-vs-reference laser difference onto the squeezed path.
+offline:
+  params:
+    h0_probe_hz2_per_hz: 64.0      # second laser: same class as the main laser [AE]
+topology:
+  beams:
+    - {id: pr0, source: laser2}
+    - {id: pr1, source: laser2}
+pipeline:
+  - name: squeezer
+    seq:
+      - block: laser_source        # the probe laser (T05)
+        name: laser2
+        params:
+          source: laser2
+          power_w: 1.0e-3
+          h0_hz2_per_hz: !expr "offline.params.h0_probe_hz2_per_hz"
+          oob_pairs: []
+          rin_targets: []
+          toggles: {fm_white: true, fm_flicker: false, peaks: false, drift: false, dither: false, sbs: false, rin: false}
+  - name: path.beams
+    params:
+      sources: {laser: laser.laser.phi, laser2: laser.laser2.phi}
+measure:
+  decompose:
+    groups:
+      laser_decorrelation_oob: [laser.fm_white, laser2.fm_white]

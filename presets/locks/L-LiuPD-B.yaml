@@ -1,0 +1,25 @@
+# Lock topology L-LiuPD-B (scheme B, comparison; T14 §8.3 (B), D42; bad_liuPD_B): each backward probe continues through
+# the demux, UP and the squeezer (single pass, no gain) to a phase-detection OPA where it is compared with the pump
+# directly: 2φ_pr,k − φ_p = C_k. In θ-units (pump beams carry ½φ_p) the per-port lock holds φ_pr,k − ½φ_p. Then
+# θ_sq,k follows the pump with coefficient 2 (natural ½ → 1 in pump phase) and the probe-source / split paths with
+# coefficient 1, and every port actuator follows the pump drift (range). Port-wise metric (ii) still cancels ψ_k.
+topology:
+  beams:
+    - id: pr0
+      observer: det0
+      path: [{segment: PRsrc, direction: 1}, {segment: PRS0, direction: 1}, {segment: F0, direction: -1, axis: fast},
+             {segment: D0, direction: -1}, {segment: DMX0, direction: -1}, {segment: UP, direction: -1}, {segment: XTAL, direction: -1}]
+    - id: pr1
+      observer: det1
+      path: [{segment: PRsrc, direction: 1}, {segment: PRS1, direction: 1}, {segment: F1, direction: -1, axis: fast},
+             {segment: D1, direction: -1}, {segment: DMX1, direction: -1}, {segment: UP, direction: -1}, {segment: XTAL, direction: -1}]
+    - {id: pB0, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 1.0e-3, observer: det0, path: [{segment: PUMP, direction: 1}]}
+    - {id: pB1, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 1.0e-3, observer: det1, path: [{segment: PUMP, direction: 1}]}
+  locks:
+    - {id: L0, combo: !replace {pr0: 1.0, pB0: -1.0}}
+    - {id: L1, combo: !replace {pr1: 1.0, pB1: -1.0}}
+pipeline:
+  - name: liu0
+    params: {in_ref: beam.pB0.phi}
+  - name: liu1
+    params: {in_ref: beam.pB1.phi}

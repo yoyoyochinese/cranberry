@@ -1,0 +1,12 @@
+# Source axis: single-mode stand-in (M4; PLAN §1.2 "単一モードの光源で代用"). Replaces the source `src` of any future
+# preset by the §7-1 single-mode model R± = exp(±2r) with r = sm_r (losses stay in the LossRegistry: loss 0),
+# so the time loop and the metrics run without a temporal source (lo_mode `optimal` → null for single mode).
+offline:
+  params:
+    sm_r: 1.15                     # r = 1.15 ↔ −10 dB before losses [AE] (Ref A: r = √(9.06·0.64) = 2.41)
+  blocks:
+    - !replace
+      block: single_mode_reference
+      name: src
+      params: {loss: 0.0, alpha_per_w: 1.0, pump_w: !expr "offline.params.sm_r ** 2", theta_rms_rad: 0.0,
+               phi_opa0_rad: 0.0, average: exact}

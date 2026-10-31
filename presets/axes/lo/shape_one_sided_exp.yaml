@@ -1,0 +1,8 @@
+# LO axis: one-sided exponential LO (free cavity decay e^{−κ_c t}, delay fitted; T17 §6.3 0.84-class; OPO presets).
+offline:
+  params:
+    lo_shape: one_sided_exp
+  blocks:
+    - name: lo_shape
+      params:
+        decay_rate_rad_s: !expr "offline.params.kappa_c_rad_s"

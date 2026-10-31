@@ -1,0 +1,8 @@
+# Path-build axis MF (D38, T12 §4.2): fusion splices (6 × 0.06 dB) and fibre PBS (2 × 0.5 dB) — ≈ −4.7 dB with one
+# low-loss demux stage (T12 §4.2).
+offline:
+  params:
+    n_conn: 6
+    il_conn_db: 0.06               # T12 §3.2 PMF fusion splice 0.06 dB typ
+    n_inj: 2
+    il_inj_db: 0.5                 # T12 §3.2 fibre PBS

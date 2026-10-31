@@ -1,0 +1,11 @@
+# Fibre axis: SMF with the probe in the SAME polarization (apply after fiber/smf.yaml; D32, T10 §3.3): the reciprocal
+# backward probe then sees the forward phase exactly (T09 test 2), but its backscatter lands in the squeezed mode.
+topology:
+  beams:
+    - {id: pr0, jones_in: [1, 0], jones_out: [1, 0]}
+    - {id: pr1, jones_in: [1, 0], jones_out: [1, 0]}
+offline:
+  blocks:
+    - name: stray1
+      params:
+        probe: {polarization: same}

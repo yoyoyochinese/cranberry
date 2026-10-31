@@ -1,0 +1,177 @@
+# Lock L-LOdeliv (D12, 00_summary §2.4): fibre-noise compensation of each LO_k delivery fibre (on / off: this overlay
+# is "on"). Model: a monitor beam returns through LO_k (d = −1) to the reference point and is compared with the
+# reference; a stretcher at the near end of LO_k holds it (one pass of the round-trip FNC [AE]). Metric (i) loses
+# the delivery-fibre drift; metric (ii) is unchanged (D12: decide in Phase 6 from (ii)).
+offline:
+  params:
+    aux_p_sig_w: 1.0e-4                   # signal-beam power at the auxiliary detector [AE]
+    aux_gain_v_per_a: 1.0e+3              # [AE] keeps K inside the ADC range
+    aux_k_v: !expr "2 * liu_responsivity_a_per_w * aux_gain_v_per_a * sqrt(aux_p_sig_w * p_ref_w)"
+    aux_f_u_hz: 1.0e+3                    # auxiliary loop unity gain [AE]
+    aux_range_rad: 10.0                   # PZT-mirror half range [AE]
+    aux_k_rad_per_v: !expr "aux_range_rad / out_range_v"
+topology:
+  segments:
+    - {id: LO0, drivers: {dT: uniform, strain: uniform, stretcher: uniform}}
+    - {id: LO1, drivers: {dT: uniform, strain: uniform, stretcher: uniform}}
+  beams:
+    - {id: lom0, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.aux_p_sig_w", observer: detlo0,
+       path: [{segment: LO0, direction: -1}]}
+    - {id: lom1, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.aux_p_sig_w", observer: detlo1,
+       path: [{segment: LO1, direction: -1}]}
+    - {id: lor0, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.p_ref_w", observer: detlo0,
+       path: [{segment: REF0, direction: 1}]}
+    - {id: lor1, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.p_ref_w", observer: detlo1,
+       path: [{segment: REF1, direction: 1}]}
+  observers:
+    - {id: detlo0, kind: detector}
+    - {id: detlo1, kind: detector}
+  locks:
+    - {id: LLO0, combo: {lom0: 1.0, lor0: -1.0}, setpoint_rad: !pi_frac 0.5, observer: detlo0}
+    - {id: LLO1, combo: {lom1: 1.0, lor1: -1.0}, setpoint_rad: !pi_frac 0.5, observer: detlo1}
+  coef:
+    - {id: LO0.stretcher.all.phase, segment: LO0, driver: stretcher, beam: "*", effect: phase, value: 1.0}
+    - {id: LO0.stretcher.all.group_delay, segment: LO0, driver: stretcher, beam: "*", effect: group_delay, value: 0.0}
+    - {id: LO1.stretcher.all.phase, segment: LO1, driver: stretcher, beam: "*", effect: phase, value: 1.0}
+    - {id: LO1.stretcher.all.group_delay, segment: LO1, driver: stretcher, beam: "*", effect: group_delay, value: 0.0}
+pipeline:
+  - block: liu_probe_interferometer     # llo0: DC homodyne of the two beams (balanced homodyne, T14 §8.2 form)
+    name: llo0.det
+    params:
+      mode: homodyne_dc
+      in_pr: beam.lom0.phi
+      in_ref: beam.lor0.phi
+      out: v.llo0
+      p_pr_avg_w: !expr "offline.params.aux_p_sig_w"
+      p_ref_w: !expr "offline.params.p_ref_w"
+      duty: 1.0
+      visibility: 1.0
+      coupler_sign: 1.0
+      v_off_v: 0.0
+      responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+      gain_v_per_a: !expr "offline.params.aux_gain_v_per_a"
+      i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+      toggles: {shot_noise: true, electronic_noise: true, gating: false}
+  - block: adc
+    name: llo0.adc
+    params: {in: v.llo0, out: v.llo0.adc, device: fpga_generic, noise_vrms: 0.0, avg_samples: 1,
+             toggles: {quantization: true, noise: false, saturation: true}}
+  - block: pid
+    name: llo0.pid
+    params:
+      in: v.llo0.adc
+      out: ctrl.llo0.u
+      device: fpga_generic
+      anti_windup: clamp
+      kp: 0.0
+      ki_per_s: !expr "2 * pi * offline.params.aux_f_u_hz / (offline.params.aux_k_v * offline.params.aux_k_rad_per_v)"
+      kd_s: 0.0
+      omega_is_rad_per_s: 0.0
+      omega_ds_rad_per_s: 0.0
+      ki2_per_s2: 0.0
+      setpoint_v: 0.0
+      offset_v: 0.0
+      u_min_v: !expr "-offline.params.out_range_v"
+      u_max_v: !expr "offline.params.out_range_v"
+      toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
+  - block: dac
+    name: llo0.dac
+    params: {in: ctrl.llo0.u, out: v.llo0.dac, device: fpga_generic, bits: !expr "offline.params.dac_bits",
+             range_v: [-0.5, 0.5], noise_vrms: 0.0, r_out_ohm: 50.0, r_load_ohm: .inf,
+             toggles: {quantization: true, noise: false, saturation: true}}
+  - block: delay_buffer
+    name: llo0.dl
+    params: {in: v.llo0.dac, out: delay.llo0.out, method: linear,
+             tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz"}
+  - block: pzt_fiber_stretcher
+    name: llo0.act
+    params:
+      in: delay.llo0.out
+      gain_mode: direct
+      k_rad_per_v: !expr "offline.params.aux_k_rad_per_v"
+      polarity: 1.0
+      modes: []                  # [AE] no resonance below the loop band
+      discretisation: zoh
+      prewarp_hz: 1.0                # unused (no modes); a null would be stripped by the merge
+      drive_min_v: !expr "-offline.params.out_range_v"
+      drive_max_v: !expr "offline.params.out_range_v"
+      hysteresis_frac: 0.0
+      segment: LO0
+      driver: stretcher
+      n_sub: 1
+      sub: [0, 1]
+      ring_len: 0
+      insertion_loss_lin: 1.0        # lossless (a null would be stripped by the merge)
+      loss_applies_to: [gbs, bhd]
+      loss_source: "actuator outside the squeezed path: lossless [AE]"
+      toggles: {resonance: false, hysteresis: false, saturation: true, insertion_loss: false}
+  - block: liu_probe_interferometer     # llo1: DC homodyne of the two beams (balanced homodyne, T14 §8.2 form)
+    name: llo1.det
+    params:
+      mode: homodyne_dc
+      in_pr: beam.lom1.phi
+      in_ref: beam.lor1.phi
+      out: v.llo1
+      p_pr_avg_w: !expr "offline.params.aux_p_sig_w"
+      p_ref_w: !expr "offline.params.p_ref_w"
+      duty: 1.0
+      visibility: 1.0
+      coupler_sign: 1.0
+      v_off_v: 0.0
+      responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+      gain_v_per_a: !expr "offline.params.aux_gain_v_per_a"
+      i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+      toggles: {shot_noise: true, electronic_noise: true, gating: false}
+  - block: adc
+    name: llo1.adc
+    params: {in: v.llo1, out: v.llo1.adc, device: fpga_generic, noise_vrms: 0.0, avg_samples: 1,
+             toggles: {quantization: true, noise: false, saturation: true}}
+  - block: pid
+    name: llo1.pid
+    params:
+      in: v.llo1.adc
+      out: ctrl.llo1.u
+      device: fpga_generic
+      anti_windup: clamp
+      kp: 0.0
+      ki_per_s: !expr "2 * pi * offline.params.aux_f_u_hz / (offline.params.aux_k_v * offline.params.aux_k_rad_per_v)"
+      kd_s: 0.0
+      omega_is_rad_per_s: 0.0
+      omega_ds_rad_per_s: 0.0
+      ki2_per_s2: 0.0
+      setpoint_v: 0.0
+      offset_v: 0.0
+      u_min_v: !expr "-offline.params.out_range_v"
+      u_max_v: !expr "offline.params.out_range_v"
+      toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
+  - block: dac
+    name: llo1.dac
+    params: {in: ctrl.llo1.u, out: v.llo1.dac, device: fpga_generic, bits: !expr "offline.params.dac_bits",
+             range_v: [-0.5, 0.5], noise_vrms: 0.0, r_out_ohm: 50.0, r_load_ohm: .inf,
+             toggles: {quantization: true, noise: false, saturation: true}}
+  - block: delay_buffer
+    name: llo1.dl
+    params: {in: v.llo1.dac, out: delay.llo1.out, method: linear,
+             tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz"}
+  - block: pzt_fiber_stretcher
+    name: llo1.act
+    params:
+      in: delay.llo1.out
+      gain_mode: direct
+      k_rad_per_v: !expr "offline.params.aux_k_rad_per_v"
+      polarity: 1.0
+      modes: []                  # [AE] no resonance below the loop band
+      discretisation: zoh
+      prewarp_hz: 1.0                # unused (no modes); a null would be stripped by the merge
+      drive_min_v: !expr "-offline.params.out_range_v"
+      drive_max_v: !expr "offline.params.out_range_v"
+      hysteresis_frac: 0.0
+      segment: LO1
+      driver: stretcher
+      n_sub: 1
+      sub: [0, 1]
+      ring_len: 0
+      insertion_loss_lin: 1.0        # lossless (a null would be stripped by the merge)
+      loss_applies_to: [gbs, bhd]
+      loss_source: "actuator outside the squeezed path: lossless [AE]"
+      toggles: {resonance: false, hysteresis: false, saturation: true, insertion_loss: false}

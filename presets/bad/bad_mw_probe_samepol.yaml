@@ -1,0 +1,6 @@
+# BAD (D34; T10 §3.4, T17 §6): 1 mW counter-propagating probe at the squeezed frequency AND polarization: Rayleigh
+# backscatter of the probe lands in the squeezed mode (≈ 3×10² photons / 10 ns at 63 m, T10; ≈ 435 per OPO mode,
+# T17). The lock works (TIA gain lowered to keep the ADC in range); the stray light is the failure.
+extends: ../future/F_liu20_nominal.yaml
+preset: bad_mw_probe_samepol
+overlays: [probe/power_1mW, probe/pol_same]

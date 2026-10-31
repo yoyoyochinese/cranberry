@@ -1,0 +1,29 @@
+# Lock topology L-A-seed (comparison, D42, T10; bad_refA_seed_in_gbs): Ref A's lock 2 in the GBS configuration — a
+# coherent seed travels WITH the squeezed light of each port (through the squeezer, demux and port fibre) and is
+# locked against the LO at the BHD (actuator: the port stretcher). The squeezed light is then held to the LO
+# (metric (i)), but the seed reaches the GBS: seed_photons_per_gate = P_seed·T_gate/(hν) (1 µW → ≈ 8×10⁴ per 10 ns,
+# T10). The Liu probes are switched to the seed beams.
+offline:
+  params:
+    p_seed_w: 1.0e-6                      # seed power at the GBS / BHD (T10: 1 µW)
+    seed_photons_per_gate: !expr "p_seed_w * t_gate_s * lambda0_m / (6.62607015e-34 * 299792458.0)"
+    p_pr_avg_w: !expr "p_seed_w"
+    probe_duty: 1.0
+topology:
+  beams:
+    - {id: seed0, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.p_seed_w", observer: gbs,
+       path: [{segment: PUMP, direction: 1}, {segment: XTAL, direction: 1}, {segment: UP, direction: 1},
+              {segment: DMX0, direction: 1}, {segment: D0, direction: 1}, {segment: F0, direction: 1, axis: slow},
+              {segment: G0, direction: 1}]}
+    - {id: seed1, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.p_seed_w", observer: gbs,
+       path: [{segment: PUMP, direction: 1}, {segment: XTAL, direction: 1}, {segment: UP, direction: 1},
+              {segment: DMX1, direction: 1}, {segment: EM1, direction: 1}, {segment: D1, direction: 1},
+              {segment: F1, direction: 1, axis: slow}, {segment: G1, direction: 1}]}
+  locks:
+    - {id: L0, combo: !replace {lo0: 1.0, seed0: -1.0}, observer: gbs}
+    - {id: L1, combo: !replace {lo1: 1.0, seed1: -1.0}, observer: gbs}
+pipeline:
+  - name: liu0
+    params: {in_pr: beam.lo0.phi, in_ref: beam.seed0.phi, toggles: {shot_noise: true, electronic_noise: true, gating: false}}
+  - name: liu1
+    params: {in_pr: beam.lo1.phi, in_ref: beam.seed1.phi, toggles: {shot_noise: true, electronic_noise: true, gating: false}}

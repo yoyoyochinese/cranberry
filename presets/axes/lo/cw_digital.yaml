@@ -1,0 +1,12 @@
+# LO axis: CW LO + BHD bandwidth + digital weights (D45, D50 `cw_digital`; temporal sources): the measured mode is the
+# weighted low-passed response (lo_temporal_shape). A CW LO in the km delivery fibre feeds SBS at its full power:
+# sbs_lo checks P_LO = p_lo_w (T07 §5.1).
+offline:
+  params:
+    lo_shape: cw_digital
+    p_lo_w: 1.0e-2                 # CW LO at the BHD [AE]
+    p_lo_sbs_w: !expr "p_lo_w"
+  blocks:
+    - name: lo_shape
+      params:
+        bhd_bandwidth_hz: !expr "offline.params.bhd_bandwidth_hz"

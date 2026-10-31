@@ -1,0 +1,39 @@
+# One representative point of every sweep axis of F_common.yaml (overlay; applied by the F_*_nominal presets).
+# Each value is the nominal / central value its source names (T08, T11, T14, T16 placeholders, 00_summary §7.2);
+# it is NOT an optimum and not a default (D34): the axes of F_common.yaml are the design space.
+offline:
+  params:
+    port_k: 31                     # the longest port (largest laser decorrelation and counter-propagation lag)
+    L0_m: 2.0                      # [AE] centre of 0–数 m
+    L_ref_m: 1.0                   # T_a − T_b ≈ 0 (probe / reference arms of equal length) [AE]
+    dtau_lo_s: 0.0                 # LO delay matched (D09)
+    k_T_rad_per_m_K: 44.0          # T08 §2.2 nominal
+    K_T_pm_rad_per_m_K: -2.05      # conv §9 nominal (Ritari 2004, D51-2)
+    r_T_spool_k_per_s: 1.0e-4      # T08 §2.4 nominal
+    dr_T_k_per_s: 5.0e-6           # [AE] (refC value)
+    tau_th_spool_s: 300.0          # T08 §2.4 nominal
+    h_ref_spool_rad2_hz: 0.04      # spool (T08 §6.2)
+    mech_gamma: 1.0                # T08 §2.5 nominal
+    mech_f_c_hz: 1000.0            # T08 §2.5 nominal
+    spatial_coherence: 0.5         # mixed (T08 §2.7) [AE]
+    D_pol_rad2_per_s: 1.0e-4       # [AE] axis centre (log) — only with fiber/smf
+    rho_ports: 0.0                 # separate spools: uncorrelated (conservative, T08 §6.2)
+    f_rho_hz: 100.0                # [AE]
+    h_ref_dist_rad2_hz: 0.04       # spool level [AE]
+    h_ref_fs_rad2_hz: 1.0e-6       # [AE] UNVERIFIED (axis centre)
+    h0_hz2_per_hz: 64.0            # Ref A Koheras stand-in 0.2 kHz/π (UNVERIFIED, D63-6)
+    r_T_xtal_k_per_s: 1.0e-6       # [AE] ≈ 1 mK stabilisation (D42 (a))
+    dmx_drive_noise_v_rms: 1.4235  # T11 test 5 (δV/V_π = 1.4235e−3)
+    p_pr_avg_w: 1.0e-6             # T14 §8.2 placeholder P̄ = 1 µW
+    probe_duty: 0.1                # T14 §8.2 placeholder
+    latency_s: 1.0e-6              # T16 §4.5 Ref C stand-in upper value
+    dac_bits: 16                   # fpga_generic
+    f_u_hz: 1.0e+3                 # [AE]: |L(f_res)| = Q·f_u/f_res = 0.5 with the 915B-like resonance (20 kHz, Q 10)
+    f_12_hz: 0.03                  # [AE]
+    pzt_range_rad: 32.5            # 915B-like (T16 §7.2)
+    pzt_f_res_hz: 2.0e+4           # 915B nominal 20 kHz (refD nominal)
+    pzt_q: 10.0                    # refD nominal
+    tec_tau_th_s: 10.0             # [AE] middle of 1–100 s
+    tec_dt_max_k: 5.0              # [AE] middle of ±1–10 K
+    qe_bhd: 0.99                   # T13 high-QE
+    clearance_bhd_db: 20.0         # [AE] axis centre

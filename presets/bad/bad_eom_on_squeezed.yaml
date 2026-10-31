@@ -1,0 +1,8 @@
+# BAD (D34, D10; T12 §3.2, T16 §3.2): a fibre EOM (LN phase modulator, IL 2.7 dB typ + 2 × 0.25 dB connectors) on each
+# squeezed path as the fast actuator: the squeezing bound drops to ≈ 2.6–3.6 dB (T12). Booked on the F_common loss
+# elements sqmod0 / sqmod1.
+extends: ../future/F_wg100_nominal.yaml
+preset: bad_eom_on_squeezed
+offline:
+  params:
+    il_sq_mod_db: 3.2              # exail MPX-LN 2.7 dB typ + 2 × 0.25 dB FC/APC (T12 §3.2)

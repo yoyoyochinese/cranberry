@@ -1,0 +1,19 @@
+# Large-range axis: 2π reset of the stretcher (fringe hop, D41; lock_supervisor relock = fringe_hop, T16 §3.6): at the
+# end of its range the drive jumps by an integer number of 2π/K_pzt and the loop re-acquires the same fringe point.
+pipeline:
+  - name: lock0.stack
+    stack:
+      stages:
+        - name: stage0f
+          seq:
+            - name: sup0
+              params:
+                toggles: {relock: true}
+  - name: lock1.stack
+    stack:
+      stages:
+        - name: stage1f
+          seq:
+            - name: sup1
+              params:
+                toggles: {relock: true}

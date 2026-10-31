@@ -1,0 +1,7 @@
+# Large-range axis: spool temperature control instead of a fast TEC (D41): slower (τ_th ≈ 100 s), larger range
+# (±10 K) [AE, T16 §3.4].
+offline:
+  params:
+    tec_tau_th_s: 100.0
+    tec_dt_max_k: 10.0
+    f_12_hz: 3.0e-4                # ≪ 1/(2π τ_th) [AE]

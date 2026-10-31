@@ -1,0 +1,16 @@
+# F_bor6 at one representative point of every sweep axis (single runs, integration tests).
+extends: F_bor6
+overlays: [points/F_common_nominal.yaml]
+
+offline:
+  params:
+    x_ss: 1.3                      # Borealis operating point (r_0 ≈ 0.53, T17 §2.6)
+    opo_dl_h_m2_hz: 1.0e-28        # [AE] axis centre
+    opo_lock_f_ugf_hz: 1.0e+4      # [AE]
+    opo_lock_light_ratio: 0.995    # [AE] axis centre
+    p_pr_avg_w: 1.0e-9             # same-frequency probe ≲ 1–3 nW for the OPO mode (T17 §6, D50)
+    dmx_t_stage: 0.98              # T11 centre
+    dmx_er_db: 23.0                # T11
+    dmx_t_rise_s: 8.0e-9           # T11
+    dmx_f_tog_max_hz: 3.0e+6       # T11 upper value (3 MHz first stage)
+    bhd_bandwidth_hz: 3.0e+8       # 00_summary §2.2 centre
