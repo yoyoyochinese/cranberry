@@ -1,0 +1,15 @@
+# F_liu20 at one representative point of every sweep axis (single runs, integration tests).
+# Common axes: points/F_common_nominal.yaml; the F_liu20 axes below take the Liu 2026 / T11 nominal values.
+extends: F_liu20
+overlays: [points/F_common_nominal.yaml]
+
+offline:
+  params:
+    x_ss: 4.129                    # r_0 = 1.8 (Liu, T17 §2.6)
+    opo_dl_h_m2_hz: 1.0e-28        # [AE] axis centre
+    opo_lock_f_ugf_hz: 1.0e+4      # [AE]
+    dmx_t_stage: 0.98              # T11 centre
+    dmx_er_db: 23.0                # T11 (PBS > 1200:1 class)
+    dmx_t_rise_s: 8.0e-9           # T11 (Wang 2017: 8 ns)
+    dmx_f_tog_max_hz: 3.0e+6       # T11 upper value (needed for N_b = 4 at 20 MHz: 2.5 MHz)
+    bhd_bandwidth_hz: 3.0e+8       # 00_summary §2.2 centre

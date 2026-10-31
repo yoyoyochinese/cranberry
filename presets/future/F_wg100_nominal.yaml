@@ -1,0 +1,13 @@
+# F_wg100 at one representative point of every sweep axis (single runs, integration tests).
+extends: F_wg100
+overlays: [points/F_common_nominal.yaml]
+
+offline:
+  params:
+    tau_p_s: 1.0e-12               # 00_summary §2.2 (1 ps)
+    opa_peak_pump_w: 0.146         # r = √(9.06 × 0.146) = 1.15 (10 dB before losses) in the single-mode stand-in [AE]
+    dmx_t_stage: 0.98              # T11 centre
+    dmx_er_db: 23.0                # T11
+    dmx_t_rise_s: 8.0e-9           # T11 (Wang 2017: 8 ns) — fits the 10 ns gap
+    dmx_f_tog_max_hz: 1.0e+6       # T11 §7 (the value that sets N_b = 50)
+    bhd_bandwidth_hz: 2.0e+9       # 00_summary §2.2 "GHz 級"

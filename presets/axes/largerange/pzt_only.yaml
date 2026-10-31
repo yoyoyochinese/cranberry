@@ -1,0 +1,15 @@
+# Large-range axis: PZT only (D41): the TEC offload stage is off, so slow thermal drifts use up the stretcher range
+# (lock time = range / drift rate, T16 §3.6, VT-21).
+pipeline:
+  - name: lock0.stack
+    stack:
+      stages:
+        - name: pid0s
+          params:
+            toggles: {feedback: false}
+  - name: lock1.stack
+    stack:
+      stages:
+        - name: pid1s
+          params:
+            toggles: {feedback: false}

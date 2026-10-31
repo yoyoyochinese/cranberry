@@ -1,0 +1,18 @@
+# Ports axis: the 2-port pair of D13 — reference index 0 becomes a long port j = port_k − pair_dk, so both ports have
+# km fibres with correlated noise ρ (same spool / bundle, T08 §2.8) and a delay difference Δτ = n_g(L_k − L_j)/c that
+# sets the laser decorrelation (D13, D31-3). Metric (ii) of index 1 is then θ_sq,k − θ_sq,j.
+offline:
+  params:
+    pair_dk: !choice [1, 4, 16]    # k − j (port spacing) [AE]
+    port_j: !expr "max(0, port_k - pair_dk)"
+    L_0_m: !expr "L0_m + port_j * (N_b + n_guard) * 299792458.0 / (f_rep_hz * n_g)"
+    n_sub_F0: !expr "n_sub_fiber"
+    rho_ports: !sweep [0.0, 0.99, 3]   # the pair's correlation axis (D13)
+  blocks:
+    - name: dmx
+      params:
+        port_segments: {DMX0: !expr "offline.params.port_j", DMX1: !expr "offline.params.port_k"}
+pipeline:
+  - name: delay0
+    params:
+      port: !expr "offline.params.port_j"

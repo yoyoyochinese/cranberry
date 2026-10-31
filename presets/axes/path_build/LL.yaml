@@ -1,0 +1,9 @@
+# Path-build axis LL (D38, T12 §4.2): fusion splices (6 × 0.06 dB) and free-space probe in/out (2 × 0.044 dB) —
+# ≈ −7.3 dB with one low-loss demux stage (T12; ≈ −6.1 dB with the 5-stage Pockels tree, D51-3). Restates the
+# F_common values so the choice is explicit (D34).
+offline:
+  params:
+    n_conn: 6
+    il_conn_db: 0.06
+    n_inj: 2
+    il_inj_db: 0.044               # T12 §3.2 free-space PBS ≈ 1 % [AE]

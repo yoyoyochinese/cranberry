@@ -1,0 +1,10 @@
+# BAD (D34, D50; T17 §2.7): no FSR filter on the Borealis-type OPO: every non-degenerate pair ω0 ± m·FSR reaches the GBS
+# as thermal photons (n_FSR = Σ 2 sinh² r_m, T17 V-P15) — invisible to the BHD, fatal for photon counting.
+extends: ../future/F_bor6_nominal.yaml
+preset: bad_no_fsr_filter
+offline:
+  blocks:
+    - name: fsr
+      params:
+        stages: !replace [{type: flat_top, center_hz: 0.0, bandwidth_hz: 1.0e+15, order: 1, floor: 1.0}]   # T_f ≡ 1
+        insertion_eta: 1.0

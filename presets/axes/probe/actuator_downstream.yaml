@@ -1,0 +1,6 @@
+# Probe axis: actuator DOWNSTREAM (GBS end of the port fibre, x_a = N_sub − 1; D40 "アクチュエータの位置"). The probe
+# passes the actuator first, so the loop sees the correction only after the backward flight n_g L_k/c (T14 §8.4).
+topology:
+  segments:
+    - {id: F0, actuator_sub: !expr "offline.params.n_sub_F0 - 1"}
+    - {id: F1, actuator_sub: !expr "offline.params.n_sub_fiber - 1"}

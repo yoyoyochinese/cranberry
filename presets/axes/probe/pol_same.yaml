@@ -1,0 +1,16 @@
+# Probe axis: probe in the SAME polarization as the squeezed light (slow axis; D40). Removes the PM axis-difference
+# error (T10 test 4: same polarization → 0) but the probe's Rayleigh backscatter lands in the squeezed mode with
+# ε_pol = 1 (T10 §3.4.3).
+topology:
+  beams:
+    - id: pr0
+      path: [{segment: PRsrc, direction: 1}, {segment: PRS0, direction: 1}, {segment: F0, direction: -1, axis: slow},
+             {segment: D0, direction: -1}]
+    - id: pr1
+      path: [{segment: PRsrc, direction: 1}, {segment: PRS1, direction: 1}, {segment: F1, direction: -1, axis: slow},
+             {segment: D1, direction: -1}]
+offline:
+  blocks:
+    - name: stray1
+      params:
+        probe: {polarization: same}

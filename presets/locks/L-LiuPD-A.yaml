@@ -1,0 +1,129 @@
+# Lock topology L-LiuPD-A (scheme A of the Liu ⊕ Ref A integration; D30, D42, T14 §8.3 (A); 00_summary §2.4):
+# a phase-detection OPA near the squeezer locks the COMMON reference light (source of probe reference and LO) to the
+# pump; every port keeps its Liu-type lock (F_common). The common term θ_sq(demux) − φ_ref(demux) is then fixed
+# without tapping the squeezed light (metric (i) improves; metric (ii) unchanged). Non-common paths PDR (reference →
+# PD-OPA) and PDP (pump → PD-OPA) enter one to one (T14 §3.5; F has no lock-2 A−/A+ reduction).
+# Model: the PD-OPA's Φ1 = 2φ_ref − φ_p (T14 §3.2) in θ-units (pump beams carry ½φ_p, F_common) is the DC
+# homodyne of the beams pdr / pdp [AE stand-in for the 2 f_sh heterodyne of Ref A]; actuator: PZT mirror on REF.
+# Crystal / cavity phase options (D42, D50): add ONE of L-LiuPD-A_xtal_{a,b,c,d}.yaml.
+offline:
+  params:
+    aux_p_sig_w: 1.0e-4                   # signal-beam power at the auxiliary detector [AE]
+    aux_gain_v_per_a: 1.0e+3              # [AE] keeps K inside the ADC range
+    aux_k_v: !expr "2 * liu_responsivity_a_per_w * aux_gain_v_per_a * sqrt(aux_p_sig_w * p_ref_w)"
+    aux_f_u_hz: 1.0e+3                    # auxiliary loop unity gain [AE]
+    aux_range_rad: 10.0                   # PZT-mirror half range [AE]
+    aux_k_rad_per_v: !expr "aux_range_rad / out_range_v"
+topology:
+  segments:
+    - {id: PDR, kind: free_space, L_m: 0.1, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: squeezer,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform}}
+    - {id: PDP, kind: free_space, L_m: 0.1, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: squeezer,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform}}
+    - {id: REF, drivers: {strain: uniform, mirror: uniform}}
+  beams:
+    - {id: pdr, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.p_ref_w", observer: pdopa,
+       path: [{segment: REF, direction: 1}, {segment: PDR, direction: 1}]}
+    - {id: pdp, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.aux_p_sig_w", observer: pdopa,
+       path: [{segment: PUMP, direction: 1}, {segment: PDP, direction: 1}]}
+  observers:
+    - {id: pdopa, kind: detector}
+  locks:
+    - {id: LPD, combo: {pdr: 1.0, pdp: -1.0}, setpoint_rad: !pi_frac 0.5, observer: pdopa}
+  coef:
+    - {id: PDR.strain.all.phase, segment: PDR, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_fs_rad_per_m * 0.1"}
+    - {id: PDR.strain.all.group_delay, segment: PDR, driver: strain, beam: "*", effect: group_delay, value: !expr "0.1 / 299792458.0"}
+    - {id: PDP.strain.all.phase, segment: PDP, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_fs_rad_per_m * 0.1"}
+    - {id: PDP.strain.all.group_delay, segment: PDP, driver: strain, beam: "*", effect: group_delay, value: !expr "0.1 / 299792458.0"}
+    - {id: REF.mirror.all.phase, segment: REF, driver: mirror, beam: "*", effect: phase, value: 1.0}
+    - {id: REF.mirror.all.group_delay, segment: REF, driver: mirror, beam: "*", effect: group_delay, value: 0.0}
+pipeline:
+  - name: squeezer
+    seq:
+      - block: segment_mech_noise      # non-common PD-OPA paths (T14 §3.5)
+        name: env.mech.pd
+        params:
+          segments: [PDR, PDP]
+          L_ref_m: 1.0
+          gamma: 1.0
+          k_eps_rad_per_m: !expr "offline.params.k_eps_fs_rad_per_m"
+          h_ref_rad2_hz: !expr "offline.params.h_ref_fs_rad2_hz"
+          f_c_hz: !expr "offline.params.mech_f_c_hz"
+          f_lo_hz: 0.1
+          rho_0: 0.0
+          f_rho_hz: !expr "offline.params.f_rho_hz"
+          toggles: {mech: true, peaks: false, correlation: false}
+  - block: liu_probe_interferometer     # lpd: DC homodyne of the two beams (balanced homodyne, T14 §8.2 form)
+    name: lpd.det
+    params:
+      mode: homodyne_dc
+      in_pr: beam.pdr.phi
+      in_ref: beam.pdp.phi
+      out: v.lpd
+      p_pr_avg_w: !expr "offline.params.aux_p_sig_w"
+      p_ref_w: !expr "offline.params.p_ref_w"
+      duty: 1.0
+      visibility: 1.0
+      coupler_sign: 1.0
+      v_off_v: 0.0
+      responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+      gain_v_per_a: !expr "offline.params.aux_gain_v_per_a"
+      i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+      toggles: {shot_noise: true, electronic_noise: true, gating: false}
+  - block: adc
+    name: lpd.adc
+    params: {in: v.lpd, out: v.lpd.adc, device: fpga_generic, noise_vrms: 0.0, avg_samples: 1,
+             toggles: {quantization: true, noise: false, saturation: true}}
+  - block: pid
+    name: lpd.pid
+    params:
+      in: v.lpd.adc
+      out: ctrl.lpd.u
+      device: fpga_generic
+      anti_windup: clamp
+      kp: 0.0
+      ki_per_s: !expr "2 * pi * offline.params.aux_f_u_hz / (offline.params.aux_k_v * offline.params.aux_k_rad_per_v)"
+      kd_s: 0.0
+      omega_is_rad_per_s: 0.0
+      omega_ds_rad_per_s: 0.0
+      ki2_per_s2: 0.0
+      setpoint_v: 0.0
+      offset_v: 0.0
+      u_min_v: !expr "-offline.params.out_range_v"
+      u_max_v: !expr "offline.params.out_range_v"
+      toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
+  - block: dac
+    name: lpd.dac
+    params: {in: ctrl.lpd.u, out: v.lpd.dac, device: fpga_generic, bits: !expr "offline.params.dac_bits",
+             range_v: [-0.5, 0.5], noise_vrms: 0.0, r_out_ohm: 50.0, r_load_ohm: .inf,
+             toggles: {quantization: true, noise: false, saturation: true}}
+  - block: delay_buffer
+    name: lpd.dl
+    params: {in: v.lpd.dac, out: delay.lpd.out, method: linear,
+             tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz"}
+  - block: pzt_mirror
+    name: lpd.act
+    params:
+      in: delay.lpd.out
+      gain_mode: direct
+      k_rad_per_v: !expr "offline.params.aux_k_rad_per_v"
+      polarity: 1.0
+      modes: []                  # [AE] no resonance below the loop band
+      discretisation: zoh
+      prewarp_hz: 1.0                # unused (no modes); a null would be stripped by the merge
+      drive_min_v: !expr "-offline.params.out_range_v"
+      drive_max_v: !expr "offline.params.out_range_v"
+      hysteresis_frac: 0.0
+      segment: REF
+      driver: mirror
+      n_sub: 1
+      sub: [0, 1]
+      ring_len: 0
+      insertion_loss_lin: 1.0        # lossless (a null would be stripped by the merge)
+      loss_applies_to: [gbs, bhd]
+      loss_source: "actuator outside the squeezed path: lossless [AE]"
+      toggles: {resonance: false, hysteresis: false, saturation: true, insertion_loss: false}
+measure:
+  decompose:
+    groups:
+      common_points: [env.mech.dist.mech, env.mech.pd.mech]

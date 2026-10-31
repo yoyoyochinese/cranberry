@@ -1,0 +1,7 @@
+# Demux axis: Pockels-cell tree routing blocks of N_b consecutive pulses (D39 (b)). N_b is a named sweep axis here
+# (F_wg100 needs N_b ≥ f_rep/(2 f_tog,max) = 50 at 1 MHz, T11 §7).
+offline:
+  params:
+    N_b: !choice [4, 10, 50]
+    dmx_layout: tree
+    dmx_switching: active

@@ -1,0 +1,6 @@
+# Demux axis: chain layout (PC + PBS in series, port k leaves at stage k + 1; D39 "木構造と鎖状", T11 §3.2): the port's
+# loss grows with k (k + 1 stages), unlike the tree (S = 5 for every port).
+offline:
+  params:
+    dmx_layout: chain
+    dmx_n_stages: !expr "port_k + 1"

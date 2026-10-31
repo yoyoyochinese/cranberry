@@ -1,0 +1,5 @@
+# BAD (D34, D50; T17 §6.3): rectangular-window LO on the OPO mode (0.866-class overlap vs 0.955 Gaussian (D70-2), 1 optimal):
+# the BHD efficiency drops by η_t.
+extends: ../future/F_bor6_nominal.yaml
+preset: bad_gauss_rect_lo
+overlays: [lo/shape_rect]

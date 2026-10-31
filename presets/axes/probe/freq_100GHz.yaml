@@ -1,0 +1,17 @@
+# Probe axis: probe frequency offset Δν = 1e+11 Hz — 100 GHz (D40, T10 §3.3). The probe's thermal phase gains
+# 2πΔν·κ_τ·L per kelvin relative to the squeezed light (T10: 2πΔν·dτ_g/dT·L), written as beam-specific dT / tec
+# coefficients of the probes (they override the wildcard, path.coef); the stray-light table moves the probe off the
+# squeezed carrier.
+offline:
+  params:
+    probe_freq_offset_hz: 1e+11
+topology:
+  coef:
+    - {id: F0.dT.pr0.phase, segment: F0, driver: dT, beam: pr0, effect: phase,
+       value: !expr "(offline.params.k_T_rad_per_m_K + 2 * pi * offline.params.probe_freq_offset_hz * offline.params.kappa_tau_s_per_m_K) * offline.params.L_0_m"}
+    - {id: F0.tec.pr0.phase, segment: F0, driver: tec, beam: pr0, effect: phase,
+       value: !expr "(offline.params.k_T_rad_per_m_K + 2 * pi * offline.params.probe_freq_offset_hz * offline.params.kappa_tau_s_per_m_K) * offline.params.L_0_m"}
+    - {id: F1.dT.pr1.phase, segment: F1, driver: dT, beam: pr1, effect: phase,
+       value: !expr "(offline.params.k_T_rad_per_m_K + 2 * pi * offline.params.probe_freq_offset_hz * offline.params.kappa_tau_s_per_m_K) * offline.params.L_k_m"}
+    - {id: F1.tec.pr1.phase, segment: F1, driver: tec, beam: pr1, effect: phase,
+       value: !expr "(offline.params.k_T_rad_per_m_K + 2 * pi * offline.params.probe_freq_offset_hz * offline.params.kappa_tau_s_per_m_K) * offline.params.L_k_m"}

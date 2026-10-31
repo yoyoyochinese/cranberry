@@ -1,0 +1,6 @@
+# L-LiuPD-A crystal option (a) (D42): squeezer crystal temperature stabilised to ≈ 1 mK; the crystal's pump phase
+# (≈ 6 mrad/mK, T01 N03; θ_sq ½ of it) stays outside every loop. Use with L-LiuPD-A.yaml. Explicit values of the
+# F_common crystal model (env.thermal.xtal) so the choice is visible (D34).
+offline:
+  params:
+    r_T_xtal_k_per_s: 1.0e-6       # residual drift under the 1 mK stabilisation [AE]

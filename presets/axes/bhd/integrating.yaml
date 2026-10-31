@@ -1,0 +1,6 @@
+# BHD axis (comparison): integrating BHD with the LO over the whole pulse train (D45, T11 §3.7): in port k only 1 of
+# K slots carries squeezed light, so R_meas = (R + K − 1)/K — a dilution equal to a pure loss η = 1/K at the BHD
+# (−10 dB → −0.12 dB at K = 32, η = 1). Used by bad_integrating_bhd.
+offline:
+  params:
+    eta_bhd_dilution: !expr "1.0 / K_ports"

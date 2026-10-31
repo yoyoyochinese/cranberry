@@ -1,0 +1,5 @@
+# OPO lock-light axis: Borealis type — +7 GHz, orthogonal, CW (D50, [M-SI p.21–23]): the lock tracks a resonance that
+# moves with r ≠ 1 relative to the signal (birefringent / dispersive difference) [AE] UNVERIFIED. OPO presets.
+offline:
+  params:
+    opo_lock_light_ratio: !sweep [0.99, 0.999, 3]

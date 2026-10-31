@@ -1,0 +1,14 @@
+# Future base preset F_wg6: the F_wg100 squeezer (waveguide OPA, ps pulses) at 6 MHz with a per-pulse Pockels tree
+# (N_b = 1, L_31 ≈ 1.06 km) and a tens-of-MHz pulse-resolved BHD (WP-I5; 00_summary §2.2 column F_wg6 "同左" except
+# f_rep, demux and BHD; D39, T11 §7: PC at f_tog,max ≈ 0.5–3 MHz allows per-pulse routing up to f_rep ≈ 1–6 MHz).
+# Everything else (source, filters, L-Liu + TEC, LO shaping) is F_wg100's.
+extends: F_wg100
+
+preset: F_wg6
+
+offline:
+  params:
+    f_rep_hz: 6.0e+6                      # 00_summary §2.2 (Borealis rate)
+    N_b: 1                                # Pockels tree, per pulse (00_summary §2.2): first stage at f_rep/2 = 3 MHz
+    n_sub_fiber: 32                       # δ = τ_k/N_sub ≈ 0.16 µs at 1.06 km
+    bhd_bandwidth_hz: !sweep [2.0e+7, 8.0e+7, 3]   # "数十 MHz 級" (00_summary §2.2)

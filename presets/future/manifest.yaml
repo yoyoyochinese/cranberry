@@ -1,0 +1,88 @@
+# Manifest of the future presets, overlay axes, lock topologies and bad configurations (WP-I5; D34). Every entry must
+# build and validate (tests/integration/test_future_presets.py builds each combination at its first sweep point and runs
+# two samples through the full runner: offline stage, pipeline checks, metrics). Overlay paths resolve like `--overlay`
+# (presets/axes/<axis>/<value>, or a path from the repository root).
+#
+# base presets: <name>.yaml has the open quantities as named sweep axes; <name>_nominal.yaml resolves all of them.
+base: [F_wg100, F_wg6, F_bor6, F_liu20]
+opo: [F_bor6, F_liu20]                 # pulse-pumped OPO presets (OPO-only overlays)
+waveguide: [F_wg100, F_wg6]            # single-pass waveguide OPA presets
+
+# overlays that apply to every base preset (each is checked alone on every base)
+overlays_all:
+  - source/single_mode
+  - demux/pockels_tree
+  - demux/pockels_block
+  - demux/pockels_chain
+  - demux/passive_loops
+  - demux/ln_fiber_tree
+  - demux/none
+  - demux/guard_slot
+  - path_build/NF
+  - path_build/MF
+  - path_build/LL
+  - fiber/pm
+  - fiber/smf
+  - probe/power_100pW
+  - probe/power_1nW
+  - probe/power_1uW
+  - probe/power_1mW
+  - probe/cw
+  - probe/pol_same
+  - probe/freq_80MHz
+  - probe/freq_7GHz
+  - probe/freq_100GHz
+  - probe/freq_1THz
+  - probe/other_laser
+  - probe/sep_circulator
+  - probe/sep_wdm
+  - probe/sep_coupler
+  - probe/detect_after_demux
+  - probe/actuator_downstream
+  - largerange/pzt_only
+  - largerange/spool_temp
+  - largerange/fringe_hop
+  - lo/shape_optimal
+  - lo/shape_gauss
+  - lo/shape_rect
+  - lo/cw_digital
+  - bhd/pulse_resolved
+  - bhd/gated
+  - bhd/integrating
+  - controller/fpga_generic
+  - controller/moku_delta
+  - controller/dsc1
+  - ports/pair
+  - presets/locks/L-LiuPD-A.yaml
+  - presets/locks/L-LiuPD-B.yaml
+  - presets/locks/L-A-seed.yaml
+  - presets/locks/L-LOdeliv.yaml
+overlays_opo:
+  - opo_lock/liu
+  - opo_lock/borealis
+  - lo/shape_one_sided_exp
+  - source/opo_discretization_box
+overlays_waveguide:
+  - source/waveguide_opa_multimode
+
+# combinations of several overlays (base, overlays in order)
+combinations:
+  - {base: F_wg100, overlays: [presets/locks/L-LiuPD-A.yaml, presets/locks/L-LiuPD-A_xtal_a.yaml]}
+  - {base: F_wg100, overlays: [presets/locks/L-LiuPD-A.yaml, presets/locks/L-LiuPD-A_xtal_b.yaml]}
+  - {base: F_wg6, overlays: [presets/locks/L-LiuPD-A.yaml, presets/locks/L-LiuPD-A_xtal_c.yaml]}
+  - {base: F_liu20, overlays: [presets/locks/L-LiuPD-A.yaml, presets/locks/L-LiuPD-A_xtal_d.yaml]}
+  - {base: F_bor6, overlays: [presets/locks/L-LiuPD-A.yaml, presets/locks/L-LiuPD-A_xtal_d.yaml]}
+  - {base: F_bor6, overlays: [presets/locks/L-LiuPD-A.yaml, presets/locks/L-LiuPD-A_xtal_b.yaml]}
+  - {base: F_liu20, overlays: [presets/locks/L-LiuPD-A.yaml, presets/locks/L-LOdeliv.yaml]}
+  - {base: F_liu20, overlays: [ports/pair, presets/locks/L-LOdeliv.yaml]}
+  - {base: F_liu20, overlays: [fiber/smf, fiber/smf_pol_same]}
+  - {base: F_bor6, overlays: [probe/freq_7GHz, probe/sep_wdm, opo_lock/borealis]}
+  - {base: F_wg100, overlays: [source/waveguide_opa_multimode, lo/shape_gauss]}
+  - {base: F_wg6, overlays: [path_build/MF, demux/pockels_chain, controller/moku_delta]}
+  - {base: F_liu20, overlays: [demux/passive_loops, probe/detect_after_demux]}
+  - {base: F_liu20, overlays: [source/single_mode, largerange/pzt_only, largerange/fringe_hop]}
+
+# deliberately bad configurations (00_summary §2.5; each file states what it demonstrates)
+bad: [bad_all_fiber_NF, bad_ln_switch_tree, bad_mw_probe_samepol, bad_orth_pm_no_tec, bad_smf_orth, bad_bor_100MHz,
+      bad_no_fsr_filter, bad_refA_seed_in_gbs, bad_integrating_bhd, bad_eom_on_squeezed, bad_liuPD_B,
+      bad_copropagating_probe, bad_moku_pid_05V, bad_wdm_1THz_probe, bad_gauss_rect_lo, bad_long_pump_opo]

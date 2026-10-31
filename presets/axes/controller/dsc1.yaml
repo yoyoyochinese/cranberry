@@ -1,0 +1,40 @@
+# Controller axis: Thorlabs DSC1 (devices/dsc1.yaml; ±4 V output limit, 16-bit DAC; D05, D35). Latency of the DSC1
+# loop ≈ 5.7 µs (00_summary §2.1).
+offline:
+  params:
+    out_range_v: 4.0               # D35 CV limit −4…+4 V
+    latency_s: 5.7e-6              # 00_summary §2.1 (τ 5.7 µs)
+    dac_bits: 12                   # DSC1 p.2 (12-bit output)
+pipeline:
+  - name: adc0
+    params: {device: dsc1, bits: 16, range_v: [-4.0, 4.0]}
+  - name: adc1
+    params: {device: dsc1, bits: 16, range_v: [-4.0, 4.0]}
+  - name: lock0.stack
+    stack:
+      stages:
+        - name: stage0f
+          seq:
+            - name: pid0f
+              params: {device: dsc1}
+        - name: pid0s
+          params: {device: dsc1}
+      actuators:
+        - name: act0f
+          seq:
+            - name: dac0f
+              params: {device: dsc1, range_v: [-4.0, 4.0]}
+  - name: lock1.stack
+    stack:
+      stages:
+        - name: stage1f
+          seq:
+            - name: pid1f
+              params: {device: dsc1}
+        - name: pid1s
+          params: {device: dsc1}
+      actuators:
+        - name: act1f
+          seq:
+            - name: dac1f
+              params: {device: dsc1, range_v: [-4.0, 4.0]}

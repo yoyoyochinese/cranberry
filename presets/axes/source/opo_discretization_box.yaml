@@ -1,0 +1,6 @@
+# Source axis: box discretization of the pulsed OPO Langevin solution (D72-1; the pre-M5 behaviour, physicality off by
+# O((κ_c δt)²), D70-3) instead of the presets' van_loan. OPO presets only.
+offline:
+  blocks:
+    - name: src
+      params: {discretization: box}

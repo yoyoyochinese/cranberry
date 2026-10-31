@@ -1,0 +1,4 @@
+# Controller axis: generic FPGA (devices/fpga_generic.yaml; ±0.5 V, 16 bit; T16 §4.5). Restates the base (D34).
+offline:
+  params:
+    out_range_v: 0.5

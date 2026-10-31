@@ -1,0 +1,7 @@
+# Fibre axis PM (D32): PANDA PM port fibres, squeezed light on the slow axis, the Liu probe on the fast axis
+# (orthogonal); the axis-difference drift K_T·L·ΔT is computed by segment_phase (pm_axis_drift, conv §9).
+# Restates the F_common choice (D34: no default — the SMF alternative is fiber/smf.yaml).
+pipeline:
+  - name: path.phase
+    params:
+      toggles: {phase: true, group_delay: true, pm_axis_drift: true}

@@ -1,0 +1,5 @@
+# BAD (D34, D42; T10): Ref A's lock 2 in the GBS configuration (L-A-seed): a 1 µW seed travels with the squeezed light
+# into the GBS — ≈ 8×10⁴ photons per 10 ns gate (T10), reported as seed_photons_per_gate.
+extends: ../future/F_wg100_nominal.yaml
+preset: bad_refA_seed_in_gbs
+overlays: [../locks/L-A-seed.yaml]

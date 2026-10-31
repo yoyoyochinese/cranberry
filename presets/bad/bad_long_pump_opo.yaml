@@ -1,0 +1,12 @@
+# BAD (D34; T17 §5.2): long pump pulse T_p κ_c = 5 on the Borealis-type OPO at the same r_0 ≈ 0.5 as the base: the
+# output becomes two-mode (K ≈ 2.1 [sim: pulsed_opo_source]; T17 "K ≈ 2"), so the GBS sees impure (distinguishable)
+# squeezed states although the optimal-mode squeezing hardly changes (T17 §5.2). Keeping x_ss = 1.3 instead would
+# raise r_0 to ≈ 2.7 and K would fall back to ≈ 1.07 (high gain purifies, T17 §0).
+extends: ../future/F_bor6_nominal.yaml
+preset: bad_long_pump_opo
+offline:
+  params:
+    pump_duration_s: !expr "5.0 / kappa_c_rad_s"   # T_p κ_c = 5 (T17)
+    x_ss: 0.3                      # r_0 ≈ 0.49 [sim] (base: x_ss = 1.3 ↔ r_0 = 0.53 at T_p κ_c = 0.62)
+    tau_mode_s: 4.0e-8             # longer mode [AE] (gate / demux checks)
+    bhd_gate_s: 4.0e-8

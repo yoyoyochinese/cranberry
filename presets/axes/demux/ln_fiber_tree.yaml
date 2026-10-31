@@ -1,0 +1,12 @@
+# Demux axis (comparison, D39 (d)): fibre LN MZM switch tree — fast but lossy: IL ≈ 2.7 dB per stage (EOSPACE / exail
+# class, T11 §2, T12 §3.2), ER 30 dB, tens-of-ps edges, GHz drive. The bad preset bad_ln_switch_tree uses it.
+offline:
+  params:
+    dmx_layout: tree
+    dmx_switching: active
+    dmx_t_stage: 0.537             # 10^(−2.7/10) (T12 §3.2 fibre LN modulator 2.7 dB typ)
+    dmx_er_db: 30.0                # T11 §2 (high-ER versions > 30 dB)
+    dmx_t_rise_s: 5.0e-11          # T11 §2 (10–65 GHz bandwidth)
+    dmx_f_tog_max_hz: 1.0e+9       # [AE]
+    dmx_v_pi_v: 4.5                # T11 §2 (V_π ≈ 4–5 V @ 1 GHz)
+    dmx_drive_noise_v_rms: 4.5e-3  # same δV/V_π = 1e−3 class as the Pockels value [AE]

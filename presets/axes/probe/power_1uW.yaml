@@ -1,0 +1,6 @@
+# Probe axis: average probe power P̄ at the detector = 1e-06 W — T14 §8.2 placeholder (D40). The TIA gain keeps the fringe amplitude
+# K = 2ℜG√(P̄/D·P_ref) inside the ±0.5 V ADC (the loop gain is normalised by K).
+offline:
+  params:
+    p_pr_avg_w: 1e-06
+    liu_gain_v_per_a: 1000

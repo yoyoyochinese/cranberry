@@ -1,0 +1,181 @@
+# Future base preset F_liu20: Liu-type pulse-pumped OPO at 20 MHz, Pockels block demux N_b = 4, MZI-cascade FSR
+# filter, Liu-type per-port lock L-Liu + TEC (WP-I5, M5/M6; PLAN §5.4 data flow; 00_summary §2.2 column F_liu20;
+# D43, D50, D53). Shared time loop and offline blocks: F_common.yaml (header there).
+#
+#   source   pulsed_opo_source, Liu 2026 values: FSR 7.4 GHz, finesse 59 (Δν_c = 125 MHz) / pump finesse 29
+#            (κ_p/κ_c = 2.03), 1.6 ns rectangular pump, ρ = 0.99, x_ss ≤ 4.1 [L-SI §1.1, T17 §5.1]
+#   f_rep    20 MHz (Liu) — CHK rep_rate_tail_check: ≲ 87 MHz for tail ≤ 1e−3 (D50), no warning expected
+#   demux    Pockels block N_b = 4 (L_31 ≈ 1.27 km, 00_summary §2.2); variant passive loops (presets/axes/demux/passive_loops)
+#   FSR      unbalanced MZI × 3 (ΔL = L_c, 2L_c, 4L_c → periods 2, 4, 8 FSR) + 0.4 nm band-pass [L-Methods, T17 §4]
+#   OPO lock Liu type: same polarization / frequency, time-interleaved (lock-light ratio 1, D50); overlay opo_lock/borealis
+#   pump     L-LiuPD-A crystal option (d), transmitted-pump homodyne: presets/locks/L-LiuPD-A_d.yaml (not in the base:
+#            the base is L-Liu only, pump-path phase common to all ports, seen by metric (i) only)
+#   LO / BHD pulsed LO split + delay, Gaussian-shaped (0.955-class, T17 §6.3, D70-2), gate ≥ mode length, BHD 200–500 MHz
+#
+# The OPO cavity is the XTAL segment (kind opo): its length-lock residual Δ_s(t) (opo_length_lock) rotates θ_sq by
+# c·Δ_s with c from pulsed_opo_source's detuning tables at x_ss = 4.129 (cavity-length change, Δ_p = 2Δ_s):
+# −1.154/κ_c (squeezed) [sim: WP-B11 tables, T17 §2.5]. Values move with x_ss (first-order map, T17 V-P9).
+extends: F_common
+
+preset: F_liu20
+
+offline:
+  params:
+    # --- design (00_summary §2.2) -------------------------------------------------------------------------------
+    f_rep_hz: 2.0e+7                      # Liu 2026 (L-SI §1.1)
+    N_b: 4                                # Pockels block (00_summary §2.2): L_31 = 31·4·c/(f_rep n_g) ≈ 1.27 km
+    n_guard: 0
+    n_sub_fiber: 32                       # counter-propagation timing: δ = τ_k/N_sub ≈ 0.19 µs at 1.27 km (PLAN §6.4)
+    L_xtal_m: 0.02                        # OPO round trip / 2: c/(2·FSR·n_g) ≈ 1.1 cm [AE from FSR 7.4 GHz]
+    n_g_xtal: 1.0                         # cavity counted as an effective free-space length [AE]
+    tau_mode_s: 1.0e-8                    # optimal mode 99 % energy span ≈ 1.1–9.8 ns [sim: pulsed_opo_source, WP-B11]
+    f_max_metric_hz: 6.25e+7              # OPO HWHM κ_c/2π (conv §6, T17): flat-source range
+    # --- source (T17 §5.1; pulsed_testing.LIU) ----------------------------------------------------------------------
+    opo_fsr_hz: 7.4e+9                    # [L-SI §1.1]
+    opo_finesse: 59.0                     # [L-SI §1.1] → Δν_c = 125 MHz
+    opo_pump_finesse: 29.0                # [L-SI §1.1] → κ_p/κ_c = 2.03
+    opo_rho: 0.99                         # escape efficiency [T17 §5.1, AE]
+    x_ss: !sweep [1.0, 4.129, 3]          # ≤ 4.1 (00_summary §2.2); 4.129 ↔ r_0 = 1.8 [L-本文, T17 §2.6]
+    pump_duration_s: 1.6e-9               # [L-SI §1.1]
+    kappa_c_rad_s: !expr "pi * opo_fsr_hz / opo_finesse"
+    c_len_sq_per_kappa: -1.154            # ∂θ_sq/∂(Δ_s/κ_c) for a length change at x_ss = 4.129 [sim: WP-B11 tables]
+    c_pt_per_kappa: -0.492               # transmitted pump, θ-units, length change at x_ss = 4.129 [sim: WP-B11 tables] (L-LiuPD-A_xtal_d)
+    # OPO length noise and lock (T02 §2.4, T17 §1; values [AE] UNVERIFIED: Liu documents a PDH-class lock only)
+    opo_dl_h_m2_hz: !sweep_log [1.0e-30, 1.0e-26, 3]   # round-trip length noise h/f² [m²·Hz] [AE]
+    opo_lock_f_ugf_hz: !sweep_log [1.0e+3, 3.0e+4, 3]  # OPO length-lock unity gain [AE]
+    opo_lock_light_ratio: 1.0             # Liu: lock light in the same mode (same pol / freq, D50) → residual (1 − r)Δ_free = 0
+    # --- demux: Pockels-cell block switch (T11 §2 table, pockels_pbs_tree values) ------------------------------------
+    dmx_layout: tree
+    dmx_switching: active
+    dmx_n_stages: 5                       # ⌈log2 32⌉ (T11 §3.2)
+    dmx_t_stage: !sweep [0.96, 0.99, 3]   # PC + PBS per stage (T11 pockels_pbs_tree 0.96–0.99)
+    dmx_er_db: !sweep [20.0, 23.0, 3]     # T11 (PBS > 1200:1 / PC > 100:1)
+    dmx_t_rise_s: !sweep [8.0e-9, 1.0e-8, 3]   # T11 (PC 8–10 ns)
+    dmx_sigma_j_s: 1.0e-10                # [AE]
+    dmx_f_tog_max_hz: !sweep [5.0e+5, 3.0e+6, 3]   # T11 (PC 0.5–3 MHz): first stage at f_rep/(2N_b) = 2.5 MHz
+    # --- FSR filter (T17 §4) ---------------------------------------------------------------------------------------------
+    fsr_mzi_eta: 0.998                    # per stage [L-Methods]
+    fsr_mzi_extinction: 1.0e-4            # > 40 dB [L-Methods]
+    fsr_bp_eta: 0.985                     # 0.4 nm band-pass, three layers on average > 98.5 % [L-Methods]
+    r_fsr_pairs: 1.8                      # FSR pairs squeezed like the centre (pump bandwidth ≪ FSR) [AE, T17 §2.7]
+    # --- LO / BHD (D45, D50; 00_summary §2.2) --------------------------------------------------------------------------
+    bhd_bandwidth_hz: !sweep [2.0e+8, 5.0e+8, 3]   # 200–500 MHz
+    bhd_gate_s: 2.5e-8                    # gate ≥ mode length (D46/D50)
+    lo_shape: gauss                       # Gaussian LO (T17 §6.3); bad_gauss_rect_lo uses rect
+
+  blocks:
+    - block: pulsed_opo_source
+      name: src
+      params: &opo_source
+        cavity_model: fsr_finesse
+        fsr_hz: !expr "offline.params.opo_fsr_hz"
+        finesse: !expr "offline.params.opo_finesse"
+        escape_efficiency: !expr "offline.params.opo_rho"
+        pump_fwhm_hz: !expr "offline.params.opo_fsr_hz / offline.params.opo_pump_finesse"
+        pump_shape: rect
+        pump_duration_s: !expr "offline.params.pump_duration_s"
+        x_ss: !expr "offline.params.x_ss"
+        phi_opa0_rad: 0.0               # conv §4 (D55 rule 4 frame)
+        delta_s_rad_s: 0.0              # the time loop carries the detuning (opo_length_lock, D60-1)
+        delta_p_rad_s: 0.0
+        discretization: van_loan        # exact, physical covariance (D72-1); box via presets/axes/source/opo_discretization_box
+        dt_kappa: 0.025                 # 1/(40 κ_c) (PLAN §6.4)
+        window_kappa: 12.0              # T17 §2.2
+        segment: XTAL
+        rep_rate_hz: !expr "offline.params.f_rep_hz"
+        angle_table_x_ss: [!expr "offline.params.x_ss"]   # tables at the operating point (a null would be stripped by the merge)
+        angle_probe_d: 0.01
+        toggles: {pulsed: true, pump_resonant: true, detuning: false, include_initial_vacuum: true}
+    - block: rep_rate_tail_check        # CHK (D50): ε_tail(T_rep) ≤ 1e−3
+      name: chk_tail
+      params:
+        rep_rate_hz: !expr "offline.params.f_rep_hz"
+        threshold: 1.0e-3
+        tail_model: analytic
+        fwhm_hz: !expr "offline.params.opo_fsr_hz / offline.params.opo_finesse"
+        toggles: {enabled: true}
+    - block: fsr_comb_filter            # MZI cascade (T17 §4)
+      name: fsr
+      params:
+        fsr_hz: !expr "offline.params.opo_fsr_hz"
+        stages:
+          - {type: mzi, period_hz: !expr "2 * offline.params.opo_fsr_hz", offset_hz: 0.0,
+             extinction: !expr "offline.params.fsr_mzi_extinction", eta: !expr "offline.params.fsr_mzi_eta"}
+          - {type: mzi, period_hz: !expr "4 * offline.params.opo_fsr_hz", offset_hz: 0.0,
+             extinction: !expr "offline.params.fsr_mzi_extinction", eta: !expr "offline.params.fsr_mzi_eta"}
+          - {type: mzi, period_hz: !expr "8 * offline.params.opo_fsr_hz", offset_hz: 0.0,
+             extinction: !expr "offline.params.fsr_mzi_extinction", eta: !expr "offline.params.fsr_mzi_eta"}
+          - {type: flat_top, center_hz: 0.0, bandwidth_hz: 5.0e+10, order: 4, floor: 1.0e-6}   # 0.4 nm band-pass [L-Methods]
+        r_m: !expr "offline.params.r_fsr_pairs"
+        m_max: 40
+        insertion_eta: !expr "offline.params.fsr_bp_eta"
+        segment: UP
+        applies_to: [gbs, bhd]
+        source_tag: "[L-Methods] MZI × 3 (99.8 %, > 40 dB) + 0.4 nm band-pass (> 98.5 %); T17 §4"
+        toggles: {fsr_modes: true}
+    - name: stray1                      # stray photons weighted by the OPO mode itself (D72-2, M5-03)
+      params:
+        mode: !replace {source: {block: pulsed_opo_source, name: stray_src, params: *opo_source}}
+    - block: lo_temporal_shape          # LO waveform (D45, D50): η_t registered as a BHD loss
+      name: lo_shape
+      params:
+        source: {block: pulsed_opo_source, name: lo_src, params: *opo_source}
+        shape: !expr "offline.params.lo_shape"
+        fit: true
+        observer: gbs
+        source_tag: "T17 §6.3, D70-2 (Gaussian 0.955 / rectangular 0.866, fitted)"
+        eta_t_carrier: registry         # the metrics read η_t from the LossRegistry with the optimal LO mode (D72-1)
+        toggles: {shape_mismatch: true}
+    - block: pulsed_bhd_kernel          # per-pulse BHD (T13 §1.8); CHK gate ≥ mode length (D46/D50)
+      name: bhd_kernel
+      params:
+        f_rep_hz: !expr "offline.params.f_rep_hz"
+        response: {model: first_order, bandwidth_hz: !expr "offline.params.bhd_bandwidth_hz"}
+        window_s: !expr "offline.params.bhd_gate_s"
+        n_taps: 4
+        sigma_el_e: 300.0               # [AE]
+        n_lo_photons: 1.0e+8            # [AE]
+        qe: !expr "offline.params.qe_bhd"
+        mode_length_s: !expr "offline.params.tau_mode_s"
+        toggles: {pulsed_crosstalk: true, circuit_noise: true}
+
+topology:
+  segments:
+    - {id: XTAL, kind: opo, L_m: !expr "offline.params.L_xtal_m", n_g: !expr "offline.params.n_g_xtal", beta2_s2_per_m: 0.0,
+       beta3_s3_per_m: 0.0, zone: squeezer, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {},
+       drivers: {dT: uniform, detuning: uniform}}
+  coef:
+    - {id: XTAL.detuning.all.phase, segment: XTAL, driver: detuning, beam: "*", effect: phase,
+       value: !expr "offline.params.c_len_sq_per_kappa / offline.params.kappa_c_rad_s"}
+    - {id: XTAL.detuning.all.group_delay, segment: XTAL, driver: detuning, beam: "*", effect: group_delay, value: 0.0}
+
+pipeline:
+  - name: squeezer                      # F_common hook before the path model
+    seq:
+      - block: opo_detuning_noise       # OPO round-trip length noise (T02 §2.4)
+        name: opo.noise
+        params:
+          out: opo.noise.delta
+          segment: XTAL
+          nu0_hz: !expr "299792458.0 / offline.params.lambda0_m"
+          round_trip_m: !expr "299792458.0 / offline.params.opo_fsr_hz"   # c/FSR
+          h_m2_hz: !expr "offline.params.opo_dl_h_m2_hz"
+          f_lo_hz: 1.0                 # [AE]
+          f_c_hz: 1.0e+4               # [AE]
+          toggles: {length_noise: true, peaks: false, thermal: false}
+      - block: opo_length_lock          # Liu-type lock light (D50): residual Δ_s → drv.XTAL.detuning
+        name: opo.lock
+        params:
+          in: opo.noise.delta
+          out: drv.XTAL.detuning
+          f_ugf_hz: !expr "offline.params.opo_lock_f_ugf_hz"
+          lock_light_ratio: !expr "offline.params.opo_lock_light_ratio"
+          offset_rad_s: 0.0
+          sensor_psd: 0.0
+          toggles: {lock: true, sensor_noise: false}
+
+measure:
+  decompose:
+    groups:
+      squeezed_only: [env.mech.fs_sq.mech, env.thermal.xtal.drift, dmx0.drive_phase_noise, dmx0.bias_drift,
+                      dmx1.drive_phase_noise, dmx1.bias_drift, opo.noise.length_noise]

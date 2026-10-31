@@ -1,0 +1,6 @@
+# Probe axis: average probe power P̄ at the detector = 1e-09 W — OPO same-frequency limit ≲ 1–3 nW (T17 §6) (D40). The TIA gain keeps the fringe amplitude
+# K = 2ℜG√(P̄/D·P_ref) inside the ±0.5 V ADC (the loop gain is normalised by K).
+offline:
+  params:
+    p_pr_avg_w: 1e-09
+    liu_gain_v_per_a: 1000

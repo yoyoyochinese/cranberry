@@ -1,0 +1,6 @@
+# BHD axis: pulse-resolved BHD (D45 reference choice; per-pulse estimator pulsed_bhd_kernel). Restates the base.
+offline:
+  blocks:
+    - name: bhd_kernel
+      params:
+        toggles: {pulsed_crosstalk: true, circuit_noise: true}

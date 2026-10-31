@@ -1,0 +1,15 @@
+# Probe axis: CW probe (no AOM gating, D = 1; T10 §3.4.4 compares gated and CW at equal P̄). Distributed backscatter
+# depends on P̄ only; the gate no longer removes discrete reflections and the detector is not gated.
+offline:
+  params:
+    probe_duty: 1.0
+pipeline:
+  - name: pp
+    params:
+      toggles: {gating: false, aom_leak: false}
+  - name: liu0
+    params:
+      toggles: {gating: false}
+  - name: liu1
+    params:
+      toggles: {gating: false}

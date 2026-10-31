@@ -1,0 +1,5 @@
+# BAD (D34, D45; T11 §3.7): LO over the whole pulse train and an integrating BHD: 1 squeezed slot in K = 32 is a pure
+# loss η = 1/32 at the BHD: −10 dB → −0.12 dB.
+extends: ../future/F_wg100_nominal.yaml
+preset: bad_integrating_bhd
+overlays: [bhd/integrating]

@@ -1,0 +1,103 @@
+# L-LiuPD-A crystal / cavity option (d) (D50; Liu-type OPO, T17 §2.5): homodyne of the pump TRANSMITTED through the
+# OPO against the reference (Liu Methods servo (1), balanced homodyne → PZT mirror). The transmitted pump sees the
+# cavity detuning with c_pt (θ-units, per Δ_s/κ_c for a length change: Liu −0.492, Borealis −0.520) while θ_sq turns
+# with c_len (−1.154 / −1.063) [sim: WP-B11 tables], so locking the pump removes only about half of the detuning
+# rotation (T17 §2.5). OPO presets only (they define c_pt_per_kappa). Use with L-LiuPD-A.yaml.
+offline:
+  params:
+    x_p_sig_w: 1.0e-4                   # signal-beam power at the auxiliary detector [AE]
+    x_gain_v_per_a: 1.0e+3              # [AE] keeps K inside the ADC range
+    x_k_v: !expr "2 * liu_responsivity_a_per_w * x_gain_v_per_a * sqrt(x_p_sig_w * p_ref_w)"
+    x_f_u_hz: 1.0e+3                    # auxiliary loop unity gain [AE]
+    x_range_rad: 10.0                   # PZT-mirror half range [AE]
+    x_k_rad_per_v: !expr "x_range_rad / out_range_v"
+topology:
+  segments:
+    - {id: R2W, kind: free_space, L_m: 0.1, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: demux,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}
+    - {id: PUMP, drivers: {strain: uniform, mirror: uniform}}
+  beams:
+    - {id: ptx, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.x_p_sig_w", observer: detx,
+       path: [{segment: PUMP, direction: 1}, {segment: XTAL, direction: 1}]}
+    - {id: r2w, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.p_ref_w", observer: detx,
+       path: [{segment: REF, direction: 1}, {segment: R2W, direction: 1}]}
+  observers:
+    - {id: detx, kind: detector}
+  locks:
+    - {id: LX, combo: {ptx: 1.0, r2w: -1.0}, setpoint_rad: !pi_frac 0.5, observer: detx}
+  coef:
+    - {id: PUMP.mirror.all.phase, segment: PUMP, driver: mirror, beam: "*", effect: phase, value: 1.0}
+    - {id: PUMP.mirror.all.group_delay, segment: PUMP, driver: mirror, beam: "*", effect: group_delay, value: 0.0}
+    - {id: XTAL.detuning.ptx.phase, segment: XTAL, driver: detuning, beam: ptx, effect: phase,
+       value: !expr "offline.params.c_pt_per_kappa / offline.params.kappa_c_rad_s"}
+pipeline:
+  - block: liu_probe_interferometer     # lx: DC homodyne of the two beams (balanced homodyne, T14 §8.2 form)
+    name: lx.det
+    params:
+      mode: homodyne_dc
+      in_pr: beam.ptx.phi
+      in_ref: beam.r2w.phi
+      out: v.lx
+      p_pr_avg_w: !expr "offline.params.x_p_sig_w"
+      p_ref_w: !expr "offline.params.p_ref_w"
+      duty: 1.0
+      visibility: 1.0
+      coupler_sign: 1.0
+      v_off_v: 0.0
+      responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+      gain_v_per_a: !expr "offline.params.x_gain_v_per_a"
+      i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+      toggles: {shot_noise: true, electronic_noise: true, gating: false}
+  - block: adc
+    name: lx.adc
+    params: {in: v.lx, out: v.lx.adc, device: fpga_generic, noise_vrms: 0.0, avg_samples: 1,
+             toggles: {quantization: true, noise: false, saturation: true}}
+  - block: pid
+    name: lx.pid
+    params:
+      in: v.lx.adc
+      out: ctrl.lx.u
+      device: fpga_generic
+      anti_windup: clamp
+      kp: 0.0
+      ki_per_s: !expr "2 * pi * offline.params.x_f_u_hz / (offline.params.x_k_v * offline.params.x_k_rad_per_v)"
+      kd_s: 0.0
+      omega_is_rad_per_s: 0.0
+      omega_ds_rad_per_s: 0.0
+      ki2_per_s2: 0.0
+      setpoint_v: 0.0
+      offset_v: 0.0
+      u_min_v: !expr "-offline.params.out_range_v"
+      u_max_v: !expr "offline.params.out_range_v"
+      toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
+  - block: dac
+    name: lx.dac
+    params: {in: ctrl.lx.u, out: v.lx.dac, device: fpga_generic, bits: !expr "offline.params.dac_bits",
+             range_v: [-0.5, 0.5], noise_vrms: 0.0, r_out_ohm: 50.0, r_load_ohm: .inf,
+             toggles: {quantization: true, noise: false, saturation: true}}
+  - block: delay_buffer
+    name: lx.dl
+    params: {in: v.lx.dac, out: delay.lx.out, method: linear,
+             tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz"}
+  - block: pzt_mirror
+    name: lx.act
+    params:
+      in: delay.lx.out
+      gain_mode: direct
+      k_rad_per_v: !expr "offline.params.x_k_rad_per_v"
+      polarity: 1.0
+      modes: []                  # [AE] no resonance below the loop band
+      discretisation: zoh
+      prewarp_hz: 1.0                # unused (no modes); a null would be stripped by the merge
+      drive_min_v: !expr "-offline.params.out_range_v"
+      drive_max_v: !expr "offline.params.out_range_v"
+      hysteresis_frac: 0.0
+      segment: PUMP
+      driver: mirror
+      n_sub: 1
+      sub: [0, 1]
+      ring_len: 0
+      insertion_loss_lin: 1.0        # lossless (a null would be stripped by the merge)
+      loss_applies_to: [gbs, bhd]
+      loss_source: "actuator outside the squeezed path: lossless [AE]"
+      toggles: {resonance: false, hysteresis: false, saturation: true, insertion_loss: false}

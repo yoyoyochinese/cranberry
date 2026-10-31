@@ -1,0 +1,40 @@
+# Controller axis: Liquid Instruments Moku:Delta PID (devices/moku_delta.yaml; 14-bit DAC, T16 §4.5). Output range
+# ±0.5 V into 50 Ω unless a 10 Vpp path exists (DECISIONS Open, D53); the 915B-class stretcher then uses only its
+# ±0.5 V share (bad_moku_pid_05V).
+offline:
+  params:
+    out_range_v: 0.5
+    dac_bits: 14                   # Moku p.7 (ADC: 16-bit equivalent of the blended 14/20-bit input, ±0.5 V range, p.6)
+pipeline:
+  - name: adc0
+    params: {device: moku_delta, bits: 16, range_v: [-0.5, 0.5]}
+  - name: adc1
+    params: {device: moku_delta, bits: 16, range_v: [-0.5, 0.5]}
+  - name: lock0.stack
+    stack:
+      stages:
+        - name: stage0f
+          seq:
+            - name: pid0f
+              params: {device: moku_delta, discretisation: tustin}
+        - name: pid0s
+          params: {device: moku_delta, discretisation: tustin}
+      actuators:
+        - name: act0f
+          seq:
+            - name: dac0f
+              params: {device: moku_delta, range_v: [-0.5, 0.5]}
+  - name: lock1.stack
+    stack:
+      stages:
+        - name: stage1f
+          seq:
+            - name: pid1f
+              params: {device: moku_delta, discretisation: tustin}
+        - name: pid1s
+          params: {device: moku_delta, discretisation: tustin}
+      actuators:
+        - name: act1f
+          seq:
+            - name: dac1f
+              params: {device: moku_delta, range_v: [-0.5, 0.5]}

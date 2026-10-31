@@ -1,0 +1,5 @@
+# Demux axis: one guard slot between blocks (n_guard = 1, D62-3/4): the switching edge gets 2·T_rep instead of T_rep,
+# L_k grows by (N_b + 1)/N_b.
+offline:
+  params:
+    n_guard: 1

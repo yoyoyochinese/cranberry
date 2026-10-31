@@ -1,0 +1,8 @@
+# Source axis: waveguide OPA supermodes ON (F_wg100 / F_wg6 only; T03 §2.1–§2.2, D44). With τ_p ≪ τ_GVM the OPA
+# output is strongly multimode and the single LO mode captures only part of the squeezing (T03 §0). The preset grid
+# (opa_n_points = 256) is coarse: T03 §5.2 asks for 2400–3200 points at 1 ps; refine it before quoting numbers.
+offline:
+  blocks:
+    - name: src
+      params:
+        toggles: {multimode: true}
