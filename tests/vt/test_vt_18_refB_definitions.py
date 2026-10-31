@@ -63,3 +63,59 @@ def test_v_b6_ideal_limit_sin_2theta(th_deg, target):
     res = minimize_scalar(rmin, bounds=(0.0, 0.9999), method="bounded", options={"xatol": 1e-9})
     assert res.fun == pytest.approx(db(np.sin(2 * th)), abs=1e-4)
     assert res.fun == pytest.approx(target, abs=0.02)
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# WP-I4: V-B4 / V-B5 through the refB preset and the runner (prompt §7-9 per D48).
+#
+# * V-B4 with the preset's opo block and the run's LossRegistry η: x = 0.999 → R′+ = +21.4 dB; the literal
+#   Ω = f/γ (evaluated at f/2π) → +37.4 dB;
+# * V-B5 with presets/axes/refB_loss/measured_100mw.yaml (L = 0.0038 [Ref B §3]): the run's jitter-free V∓ mapped
+#   by Eq. (1) at 1.5° give −9.44 / +14.95 dB; with the HD circuit noise kept (toggle hd_det.subtract_dark off,
+#   −21.7 dB as the pure loss η_el = C/(1 + C), T13) −9.21 / +14.92 dB (±0.02); the closed loop (θ̃ ≈ 1.5°) and its
+#   ESA zero span are within 0.25 dB of the observed −9.01 / +15.12 dB [Ref B §4].
+# ------------------------------------------------------------------------------------------------------------------
+
+import importlib.util  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+_sp = importlib.util.spec_from_file_location("refB_support", Path(__file__).parents[1] / "integration" / "refB_support.py")
+rs = importlib.util.module_from_spec(_sp)
+_sp.loader.exec_module(rs)
+
+
+@pytest.mark.numba
+@pytest.mark.integration
+def test_refB_preset_v_b4():
+    from cranberry.runner.run import run
+
+    res = run(rs.load(run={"duration_s": 0.012}))
+    eta = res.offline.loss_registry.eta("sqz", "bhd")
+    params = rs.offline_block_params(res.spec, "opo")
+    p999 = 0.999**2 * rs.params_of(res.spec)["p_th_w"]
+    good = measured_db(opo(params, pump_w=p999), eta, TH15)[1][rs.I_1MHZ]
+    bad = measured_db(opo(params, pump_w=p999, f_s_hz=[1e6 / (2 * np.pi)]), eta, TH15)[1][0]
+    assert good == pytest.approx(21.4, abs=0.05)
+    assert bad == pytest.approx(37.4, abs=0.2)
+
+
+@pytest.mark.numba
+@pytest.mark.integration
+def test_refB_preset_v_b5_measured_loss_and_circuit_noise():
+    from cranberry.runner.run import run
+
+    sub = run(rs.load(run={"duration_s": 0.3}, overlays=(rs.MEASURED_LOSS,)))
+    raw = run(rs.load(run={"duration_s": 0.3}, overlays=(rs.MEASURED_LOSS,), toggles={"hd_det.subtract_dark": False},
+                      esa=True))
+    prov = sub.offline.source_outputs["opo"].provenance
+    assert prov["loss_ic"] == 0.0038
+    # total loss budget 1 − ρζξ²η = 0.0645 [Ref B §4] (VT-41 Ref B part: escape efficiency in the source, the rest
+    # in the LossRegistry)
+    assert 1 - prov["escape_efficiency"] * sub.offline.loss_registry.eta("sqz", "bhd") == pytest.approx(0.0645, abs=5e-5)
+    nl_s, nl_r = (r.metrics.noise_levels["i.port0"] for r in (sub, raw))
+    assert rs.eq1_db(nl_s["v_minus_db"][rs.I_1MHZ], nl_s["v_plus_db"][rs.I_1MHZ], TH15) == pytest.approx((-9.44, 14.95), abs=0.02)
+    assert rs.eq1_db(nl_r["v_minus_db"][rs.I_1MHZ], nl_r["v_plus_db"][rs.I_1MHZ], TH15) == pytest.approx((-9.21, 14.92), abs=0.02)
+    observed = (-9.01, 15.12)   # [Ref B §4]
+    assert (nl_r["r_minus_db"][rs.I_1MHZ], nl_r["r_plus_db"][rs.I_1MHZ]) == pytest.approx(observed, abs=0.25)
+    esa = raw.measurements["esa"]
+    assert (esa["squeezed"]["mean_db"], esa["anti_squeezed"]["mean_db"]) == pytest.approx(observed, abs=0.25)

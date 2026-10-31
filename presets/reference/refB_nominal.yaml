@@ -1,0 +1,30 @@
+# refB at one representative point of every sweep axis (single runs, integration tests, VT-17/18/22/23).
+#
+# The point is the value each source names as nominal (Ref B's own numbers, T-note placeholders, fpga_generic
+# values) or the middle of an [AE] axis. One value is TUNED: h_ref_rad2_hz, set so that the closed-loop rms of
+# Δ = φ_LO − θ_sq is θ̃ = 1.5° at 100 mW [Ref B §3, §4] (refB.yaml header; 12-seed mean 1.50°, spread 0.024° at
+# 0.5 s; VT-17 checks 1.5° ± 0.1° at 100 mW and the Fig. 3 solid curve ±0.3 dB at all nine pump powers). It fixes
+# only h_ref/f_u, not the table's acoustic level.
+extends: refB
+
+offline:
+  params:
+    pump_w: 0.100                # Fig. 2 / §4 operating point [Ref B]: x = 0.7454 (D56-9)
+    h0_hz2_per_hz: 100.0         # [AE] (32 Hz Lorentz width; the MBR110 linewidth is not in Ref B)
+    peak_area_hz2: 1.0e+6        # [AE] 1 kHz rms frequency excursion per peak
+    peak_quantity: freq          # T05 §2.4 (first of the two readings)
+    h_ref_rad2_hz: 0.089         # TUNED [AE]: θ̃ = 1.5° at 100 mW with the 14 / 22 kHz stack PZTs (header)
+    mech_f_c_hz: 3000.0          # [AE] middle of the axis (acoustic band of a table)
+    opo_h_m2_hz: 1.0e-18         # [AE]: 1 nm rms free-running round-trip path (f_lo = 1 Hz)
+    opo_f_ugf_hz: 1000.0         # [AE] → residual ≈ 0.06 nm rms, ≈ 0.06° on Δ at x = 0.745 (T02 §6.1: 0.94°/nm)
+    dnu_mcc_hz: 1.0e+6           # [AE] (only with the refB_mcc overlay)
+    m_dither_rad: 0.1            # [AE] middle of the axis
+    p_pd_w: 1.0e-6               # [AE] 1 % of a 100 µW probe
+    p_pr_w: 1.0e-8               # [AE] (T14 §3.4 Ref A order: nW at the HD)
+    latency_s: 1.0e-6            # fpga_generic centre (refA value)
+    dac_bits: 16                 # fpga_generic
+    loop_gain_frac: 0.3          # [AE] 10 dB gain margin at the PZT resonance
+    pzt1_f_res_hz: 1.4e+4        # stack PZT1 [Ref B §3]
+    pzt3_f_res_hz: 2.2e+4        # stack PZT3 [Ref B §3]
+    pzt_q: 10.0                  # T15/T16 placeholder Q (refD, refC nominal)
+    pzt_k_rad_per_v: 30.0        # [AE] ±15 rad over the ±0.5 V output

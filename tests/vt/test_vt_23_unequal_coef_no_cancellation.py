@@ -111,3 +111,41 @@ def test_noisy_detuning_probe_does_not_follow(compiled):
     np.testing.assert_allclose(err[1:], lin(c_res * drv, mu1 + mu2), rtol=1e-9, atol=1e-12 * scale)  # fibre cancels
     resid = pr * (1 - 2 / (1 + X**2))
     assert np.std(resid) / np.std(pr) == pytest.approx((1 - X**2) / (1 + X**2), rel=1e-9)
+
+
+# ------------------------------------------------------------------------------------------------------------------
+# WP-I4 (M3): through the refB preset with both locks closed (refB.yaml header). A constant OPO detuning Δ is set
+# through the length lock's offset (every other noise source and quantiser off). Lock 1 holds the probe input at
+# the de-amplification extremum, lock 2 (dither, demodulated HD) holds the LO on the probe's output gain frame, so
+# the measured Δ_metric = φ_LO − θ_sq is the residual (Δ/κ)(1 − x²)/(2(1 + x²)) (T02 §2.4, V-B7) at every x, and
+# the co-propagating probe keeps only (1 − x²)/(1 + x²) of its OPO phase as error (`cop` / ψ_OPO,pr).
+# ------------------------------------------------------------------------------------------------------------------
+
+import importlib.util  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+_sp = importlib.util.spec_from_file_location("refB_support", Path(__file__).parents[1] / "integration" / "refB_support.py")
+rs = importlib.util.module_from_spec(_sp)
+_sp.loader.exec_module(rs)
+
+
+@pytest.mark.numba
+@pytest.mark.integration
+@pytest.mark.parametrize("x", [0.3, 0.745, 0.9])
+def test_refB_preset_probe_does_not_follow_detuning(x):
+    from cranberry.runner.run import run
+
+    d = 1e-3
+    params = {"pump_w": x * x * 0.18}
+    kappa = rs.params_of(rs.load(params=params))["kappa_rad_s"]
+    res = run(rs.load(params=params, run={"duration_s": 0.03}, toggles=rs.NOISE_OFF,
+                      pipeline=[{"name": "opo_ll", "params": {"offset_rad_s": d * kappa}}],
+                      measure={"record": {"slots": ["lock.cop.err", "metric.mi.port0", "psi.OPO.pr_bhd",
+                                                    "drv.OPO.detuning"], "decim": 1}}))
+    s = res.series
+    assert s["drv.OPO.detuning"][-1] == pytest.approx(d * kappa, rel=1e-9)
+    want = d * (1 - x * x) / (2 * (1 + x * x))
+    assert s["metric.mi.port0"][-1] == pytest.approx(want, rel=1e-6)
+    assert s["lock.cop.err"][-1] == pytest.approx(want, rel=1e-9)
+    assert s["lock.cop.err"][-1] / s["psi.OPO.pr_bhd"][-1] == pytest.approx(-(1 - x * x) / (1 + x * x), rel=1e-9)
+    assert res.metrics.noise_levels["i.port0"]["mean_loop_rad"][0] == pytest.approx(want, rel=1e-3)
