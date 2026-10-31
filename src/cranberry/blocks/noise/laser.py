@@ -23,7 +23,9 @@ Model (each term toggled independently; off ⇒ zero contribution; T05 §2.1)::
 Band ledger (G05, F3 contract): the loop represents [0, f_N], f_N = f_b/2. For every entry of
 ``oob_pairs`` ({target, tau_s}: a beam pair whose laser phases differ by the delay τ) the block
 declares a ``freq`` band on ``target`` with psd_outside = 4 sin²(πfτ)·S_ν(f) (the decorrelation folded
-in; the ledger converts with S_φ = S_ν/f²). RIN above f_N is declared as ``rin`` on ``rin_targets``.
+in; the ledger converts with S_φ = S_ν/f²). An entry {target, dnu_fc_hz} instead folds in
+|1 − H_FC(f)|² = (2f/Δν)²/(1 + (2f/Δν)²): one beam passes a filter cavity of FWHM Δν (``filter_cavity``
+with ``laser_lowpass``), the other not (T05 §6; WP-I1 addition). RIN above f_N is declared as ``rin`` on ``rin_targets``.
 :func:`laser_oob_variance` integrates the same quantity accurately (offline table, T05 §3.5 item 3).
 
 Slots: writes ``laser.<s>.phi`` [rad], ``.dnu`` [Hz], ``.dp`` [1], ``.power`` [W], ``.acc`` [rad]
@@ -49,7 +51,7 @@ import numba
 import numpy as np
 
 from cranberry.blocks.noise._lgs import EMPTY_BANK, Bank, bank_step, bank_step_nb, flicker, resonance
-from cranberry.core.block import BaseBlock, Block, require
+from cranberry.core.block import BaseBlock, Block, MissingParameterError, require
 from cranberry.core.rates import block_dt_s
 from cranberry.core.registry import register_block
 from cranberry.core.rng import DrawBuffer, substream
@@ -116,6 +118,28 @@ def s_rin_model(params: Mapping[str, Any]) -> Callable[[np.ndarray], np.ndarray]
         return s
 
     return s_rin
+
+
+def _pair_psd(pair: Mapping[str, Any], s_nu: Callable[[np.ndarray], np.ndarray], block: str):
+    """Decorrelated S_ν of one ``oob_pairs`` entry: ``tau_s`` → 4 sin²(πfτ)·S_ν (delay, T05 §3.1);
+    ``dnu_fc_hz`` → |1 − H_FC|²·S_ν = (2f/Δν)²/(1 + (2f/Δν)²)·S_ν (one beam through a filter cavity of
+    FWHM Δν, the other not, T05 §6; WP-I1 addition, matches ``filter_cavity``'s ``laser_lowpass``)."""
+    given = [k for k in ("tau_s", "dnu_fc_hz") if k in pair]
+    if len(given) != 1:
+        raise MissingParameterError(f"block {block!r}: each oob_pairs entry needs exactly one of tau_s / dnu_fc_hz, "
+                                    f"got {given}")
+    if given[0] == "tau_s":
+        tau = float(pair["tau_s"])
+        return lambda f: 4.0 * np.sin(np.pi * np.asarray(f) * tau) ** 2 * s_nu(f)
+    dnu = float(pair["dnu_fc_hz"])
+    if not dnu > 0.0:
+        raise ValueError(f"block {block!r}: oob_pairs dnu_fc_hz must be > 0")
+
+    def psd(f):
+        x2 = (2.0 * np.asarray(f, dtype=float) / dnu) ** 2
+        return x2 / (1.0 + x2) * s_nu(f)
+
+    return psd
 
 
 def laser_oob_variance(s_nu: Callable[[np.ndarray], np.ndarray], tau_s: float, f_lo_hz: float, f_hi_hz: float,
@@ -290,10 +314,8 @@ class LaserSource(BaseBlock):
         s_nu = s_nu_model(self.params)
         if s_nu is not None:
             for pair in self.params["oob_pairs"]:
-                tau = float(pair["tau_s"])
                 out.append(BandDecl(source=self.name, quantity="freq", targets=(str(pair["target"]),), f_lo_hz=0.0,
-                                    f_hi_hz=f_n, unit="Hz",
-                                    psd_outside=lambda f, tau=tau: 4.0 * np.sin(np.pi * np.asarray(f) * tau) ** 2 * s_nu(f)))
+                                    f_hi_hz=f_n, unit="Hz", psd_outside=_pair_psd(pair, s_nu, self.name)))
         s_rin = s_rin_model(self.params)
         if s_rin is not None and self.params["rin_targets"]:
             out.append(BandDecl(source=self.name, quantity="rin", targets=tuple(self.params["rin_targets"]),

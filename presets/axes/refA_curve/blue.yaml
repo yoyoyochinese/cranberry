@@ -1,0 +1,11 @@
+# Ref A Fig. 5 blue curve: θ = 0, L = 8 % [Ref A Fig. 5 caption] (VT-04). Overlay on refA: every phase-
+# noise source of the time loop is switched off (D34 toggles); the loops still run, so the only residual
+# left is the static lock-point offset that lock 1's non-common probe phase leaves through A−/A+
+# (≈ 0.2 mrad, T14 §3.4). The out-of-band ledger part goes with the laser toggle.
+
+toggles:
+  koheras.fm_white: false        # seed-laser white FM (and its out-of-band ledger part)
+  mech.mech: false               # fibre acoustics on PR / LO
+  pd1.shot_noise: false          # lock-1 sensor noise
+  pd1.electronic_noise: false
+  bhdbeat.shot_noise: false      # lock-2 sensor noise

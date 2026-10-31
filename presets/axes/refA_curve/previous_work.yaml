@@ -1,0 +1,20 @@
+# Ref A Fig. 5 dashed curve ("previous work", Kashiwazaki et al. 2023): θ = 14 mrad, L = 12 % [Ref A §4.1,
+# Fig. 5 caption] (VT-04; D48 §7-2: the right end of this curve is excluded from the shape comparison).
+# Overlay on refA. θ as in green.yaml. The breakdown of the previous 12 % is not published: the whole
+# difference is put into the squeezed–LO mode overlap [AE], i.e. η_mm = 0.88 / (wg · optics · QE · η_e).
+
+pipeline:
+  - name: koheras
+    params:
+      oob_pairs:
+        - {target: FC, dnu_fc_hz: 1.175e+6}   # must equal fc.dnu_fc_hz
+  - name: fc
+    params:
+      dnu_fc_hz: 1.175e+6                     # tuned to θ = 14 mrad [AE] (green.yaml)
+
+offline:
+  blocks:
+    - name: mm
+      params:
+        eta: !expr "0.88 / (0.98 * 0.99 * 0.99 * (1 / (1 + 10 ** -2.8)))"   # total L = 12 % [Ref A §4.1] [AE breakdown]
+        source: "[Ref A §4.1] previous total loss 12 %; breakdown unpublished, assigned to the mode overlap [AE]"

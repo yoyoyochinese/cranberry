@@ -14,8 +14,12 @@ so the segment must not also be handled by ``segment_phase``):
     ψ = arctan(2δ(t)/Δν_FC)  [lock_residual]  +  (H_FC φ_L)(t) − φ_L(t)  [laser_lowpass]
 
 ``beam_assembler`` adds φ_L(t − τ_b), so the LO carries H_FC φ_L. The low pass has corner Δν_FC/2
-(y_n = a y_{n−1} + (1 − a)(x_n + x_{n−1})/2, a = e^{−πΔν_FC h}: DC group delay τ_eff to O(h²)). It reads
-φ_L at emission "now", not at the cavity entrance (see the ``ponytail`` note in the step).
+(y_n = a y_{n−1} + (1 − a)(x_n + x_{n−1})/2, a = e^{−πΔν_FC h}: DC group delay τ_eff to O(h²)). Its input
+is φ_L(t − ``in_delay_s``): set in_delay_s = τ_b of the beam (emission → leaving the cavity segment) so
+the LO is exactly H_FC φ_L(t − τ_b). Without the key the input is φ_L "now" (the original behaviour); that
+mismatch leaves a delay-interferometer term (1 − H_FC)[φ_L(t) − φ_L(t − τ_b)] of variance ≈ 4π² h0 τ_b
+for white FM, which is not small against π h0/Δν_FC when 2π τ_b Δν_FC is not ≪ 1 (Ref A: τ_b = 25 ns,
+Δν_FC = 2.5 MHz → +36 %; WP-I1 addition).
 
 Slots: reads ``in_detuning`` [Hz] (cavity lock residual, e.g. a T16 lock block) and ``in_phase`` [rad]
 (laser.<s>.phi); writes ``psi.<segment>.<beam>`` [rad], ``psi.<segment>.<beam>.trans`` (|T|²) and the
@@ -28,7 +32,7 @@ FSR), :func:`ase_epsilon`, :func:`ase_mixed_variance` (V = (1 − ε)V_θ + ε(V
 Params (D34)::
 
     segment, beam, dnu_fc_hz, t0, source (provenance of T0), toggles {lock_residual, laser_lowpass}
-    lock_residual: in_detuning      laser_lowpass: in_phase
+    lock_residual: in_detuning      laser_lowpass: in_phase, optional in_delay_s [s] (≥ 0, see above)
 """
 
 from __future__ import annotations
@@ -88,7 +92,7 @@ def ase_mixed_variance(v_theta, v_plus, v_minus, eps):
     return (1.0 - eps) * v_theta + eps * 0.5 * (v_plus + v_minus)
 
 
-FC = namedtuple("FC", "f_lock f_lp det ph o tr lp t02 inv a")
+FC = namedtuple("FC", "f_lock f_lp det ph o tr lp t02 inv a hist nh k mu")
 
 
 def _build(jit: bool):
@@ -100,9 +104,14 @@ def _build(jit: bool):
             psi += math.atan(x)
             tr = c.t02 / (1.0 + x * x)
         if c.f_lp:
-            # ponytail: φ_L read at emission "now", not at the cavity entrance t − τ_in; exact for
-            # τ_in ≪ 1/Δν_FC, else add a ring of laser.<s>.phi delayed by τ_in.
+            # φ_L at the emission time of the light leaving the cavity now, t − in_delay_s (history
+            # shift register, linear interpolation as core.delay); in_delay_s absent → 0 ("now").
             x = S[c.ph]
+            if c.nh > 0:
+                for j in range(c.nh - 1, 0, -1):
+                    S[c.hist + j] = S[c.hist + j - 1]
+                S[c.hist] = x
+                x = (1.0 - c.mu) * S[c.hist + c.k] + c.mu * S[c.hist + c.k + 1]
             y = c.a * S[c.lp] + (1.0 - c.a) * 0.5 * (x + S[c.lp + 1])
             S[c.lp] = y
             S[c.lp + 1] = x
@@ -132,10 +141,11 @@ class FilterCavity(BaseBlock):
         if not 0.0 <= float(params["t0"]) <= 1.0:
             raise ValueError(f"block {name!r}: t0 must be in [0, 1]")
         base = f"psi.{params['segment']}.{params['beam']}"
-        self.o = {"psi": base, "trans": f"{base}.trans", "lp": f"{base}.lp"}
+        self.o = {"psi": base, "trans": f"{base}.trans", "lp": f"{base}.lp", "hist": f"{base}.hist"}
         reads = [params["in_detuning"]] if tg.get("lock_residual") else []
         reads += [params["in_phase"]] if tg.get("laser_lowpass") else []
-        super().__init__("filter_cavity", name, params, reads=reads, writes=tuple(self.o.values()))
+        super().__init__("filter_cavity", name, params, reads=reads,
+                         writes=tuple(v for k, v in self.o.items() if k != "hist"))
         self.slot_units = {self.o["psi"]: "rad", self.o["trans"]: "1"}
         if tg.get("lock_residual"):
             self.slot_units[params["in_detuning"]] = "Hz"
@@ -149,6 +159,15 @@ class FilterCavity(BaseBlock):
         layout.add(self.o["trans"], (), np.float64, "1", init=t02)
         layout.add(self.o["lp"], (2,), np.float64, "rad")
         self._h = block_dt_s(layout.f_sim_hz, self.rate_div)
+        self._k, self._mu, self._nh = 0, 0.0, 0
+        tau_in = self.params.get("in_delay_s")
+        if self.toggles["laser_lowpass"] and tau_in is not None and float(tau_in) > 0.0:
+            from cranberry.path.segments import frac_delay
+
+            self._k, self._mu = frac_delay(float(tau_in), self._h)
+            self._nh = self._k + 2
+            layout.add(self.o["hist"], (self._nh,), np.float64, "rad")
+            self.writes = (*self.writes, self.o["hist"])
 
     def bind(self, layout):
         tg, p = self.toggles, self.params
@@ -158,7 +177,8 @@ class FilterCavity(BaseBlock):
                      off(p["in_detuning"]) if tg["lock_residual"] else -1,
                      off(p["in_phase"]) if tg["laser_lowpass"] else -1,
                      off(self.o["psi"]), off(self.o["trans"]), off(self.o["lp"]), float(p["t0"]) ** 2, 1.0 / dnu,
-                     math.exp(-math.pi * dnu * self._h))
+                     math.exp(-math.pi * dnu * self._h), off(self.o["hist"]) if self._nh else -1, self._nh, self._k,
+                     self._mu)
         c, nb = self._c, _STEP_NB
 
         @numba.njit
