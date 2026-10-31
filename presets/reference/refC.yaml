@@ -1,0 +1,671 @@
+# Reference preset refC: phase-stabilised fibre distribution of GHz-bandwidth squeezed vacuum between two
+# buildings (S. Verclas, C. Darsow-Fromm, B. Tohermes, R. Schnabel, Optica Quantum 4, 1 (2026),
+# doi:10.1364/OPTICAQ.567418; D03, D25, D51-7; PLAN §5.3, lock topology `L-C`; 00_summary §2.1). WP-I3.
+#
+#   building A: laser 1550 nm → SHG 775 nm → monolithic ppKTP OPO (2.6 mm, 1.75 GHz FWHM fit) → squeezed vacuum
+#               (no probe, no coherent displacement)                                    [Ref C §2, Fig. 1]
+#   two separately jacketed 1 km SMF (0.2 dB/km), side by side in one rigid conduit for ≈ 180 m, the rest
+#   spooled in the IQP lab: fibre SQF carries the squeezed vacuum, fibre LOF the LO      [Ref C §2]
+#   building B: LO → fibre EOM (MPZ-LN-10, U_π = 4 V, + 1 MHz dither 200 mVpp) → fibre stretcher → piezo
+#               mirror (HV amp + ramp generator) → 50/50 → self-built GHz BHD (BHD_B)    [Ref C §2, §3, Fig. 3]
+#   lock: BHD high-pass output → x50 → envelope detector with log amplifier (8–300 MHz) → Moku:Pro demod at
+#         1 MHz → three stacked PIDs: EOM (kHz) → piezo mirror (below) → fibre stretcher (Hz–sub-Hz)  [Ref C §2]
+#
+# Every value carries its source: [Ref C §x / Fig. y] the paper; Dnn decisions; Txx notes; [AE] agent estimate;
+# UNVERIFIED = no primary document. D25: controller values from the paper (only the band assignment is
+# published), generic FPGA device (devices/fpga_generic.yaml), no Moku:Pro preset (D51-7, VT-20).
+# Quantities the paper does not fix are NAMED SWEEP AXES in `offline.params` (D34, refD pattern); a single
+# run needs a point: `runner.sweep(spec, axes=...)` or the overlay `refC_nominal.yaml`.
+#
+# Conventions: conv §5/§10: Δ = φ_LO − θ_sq (metric (i), lock `lockC`, set point 0 = squeezing). The squeezed
+# beam `sqz` carries θ_sq: it is emitted by the laser phase (θ_sq = φ_p/2 + π/2, φ_p = 2φ_L(t − τ_SHG), conv §4,
+# the static π/2 absorbed, D56-4) and its fibre phase ψ rotates θ_sq one to one (T08 §2.9, T04 §4).
+# `quantum_noise_power` reads φ_LO and φ_p := 2θ_sq (adder `p_bhd`) with phi_opa_rad = −π, so its Δ is
+# φ_LO − θ_sq exactly (as Ref A's bhdbeat).
+# Loop delay (D55-1, D61-2): total = tau_s + 1/f_sim per actuator path; no block models a part of τ_L
+# explicitly (the demodulator LPF is a filter, not a delay), so tau_s = τ_L − 1/f_sim.
+# Dither (T14 §6.2, T04 §6, PLAN §5.3 "timeseries or analytic J0, not both"): this preset applies it
+# ANALYTICALLY (baseband quantum_noise_power with dither_m_rad = m, metric χ_dither = J0(2m)); the overlay
+# presets/axes/refC_dither/timeseries.yaml puts it into the time series instead (EOM drive, RF-rate QNL).
+# Actuators (T16 §4.4 stack, Ref C Fig. 3 wiring): all three on the LO, at the BHD end of the LO path on
+# zero-length segments (no transit interpolation of the 1 MHz dither; the pigtail / free-space lengths in
+# building B are in LO_B): LO_act (fibre EOM `eom`, fibre stretcher `stretcher`) then LO_mir (piezo mirror;
+# path/coef.DRIVERS has no mirror driver, a free-space length actuator is the `stretcher` driver of its own
+# segment). Driver values are intensive with a 1-element driver (D61-1).
+
+preset: refC
+
+run:
+  duration_s: 0.625          # zero-span records of 0.6 s [Ref C §3] after the metric settle of 0.02 s; tests shorten it
+  f_sim_hz: 4.0e+6           # G10 / D52: refC 4 MHz (f_N = 2 MHz > f_m = 1 MHz for the time-series dither)
+  chunk_samples: 262144      # results independent of it (VT-F2)
+  seed: 20261031
+  seed_mode: per_point       # D56-2 (required by sweeps)
+
+topology:
+  segments:
+    # building A (lengths unpublished: table-top [AE]). The OPO crystal is a segment of the squeezed path
+    # (D47; no driver here: its temperature tuning is not modelled, T02 §6.2 needs ≲ 6 mK).
+    - {id: SQ_A, kind: free_space, L_m: 1.0, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: lab_A,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}        # laser → SHG → OPO → fibre coupler [AE]
+    - {id: OPO, kind: opo, L_m: 0.0026, n_g: 1.816, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: lab_A,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}        # 2.6 mm ppKTP [Ref C §2]; n_g UNVERIFIED (T02 §4)
+    - {id: LO_A, kind: free_space, L_m: 1.0, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: lab_A,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}        # laser → LO fibre coupler [AE]
+    # the two 1 km fibres [Ref C §2]: conduit part (both fibres, one thermal / mechanical zone) and spools
+    - {id: SQF_dep, kind: smf, L_m: !expr "offline.params.L_deployed_m", n_g: !expr "offline.params.n_g",
+       beta2_s2_per_m: -2.17e-26, beta3_s3_per_m: 1.27e-40, zone: conduit, n_sub: 1, spatial: lumped,
+       pol_model: "off", pol_params: {}, drivers: {dT: uniform, strain: uniform}}      # β2/β3 SMF (D49, T06; CW: no effect)
+    - {id: SQF_spool, kind: smf, L_m: !expr "offline.params.L_fiber_m - offline.params.L_deployed_m", n_g: !expr "offline.params.n_g",
+       beta2_s2_per_m: -2.17e-26, beta3_s3_per_m: 1.27e-40, zone: spool_sq, n_sub: 1, spatial: lumped,
+       pol_model: "off", pol_params: {}, drivers: {dT: uniform, strain: uniform}}
+    - {id: LOF_dep, kind: smf, L_m: !expr "offline.params.L_deployed_m", n_g: !expr "offline.params.n_g",
+       beta2_s2_per_m: -2.17e-26, beta3_s3_per_m: 1.27e-40, zone: conduit, n_sub: 1, spatial: lumped,
+       pol_model: "off", pol_params: {}, drivers: {dT: uniform, strain: uniform}}
+    - {id: LOF_spool, kind: smf, L_m: !expr "offline.params.L_fiber_m - offline.params.L_deployed_m + offline.params.dL_m",
+       n_g: !expr "offline.params.n_g", beta2_s2_per_m: -2.17e-26, beta3_s3_per_m: 1.27e-40, zone: spool_lo, n_sub: 1,
+       spatial: lumped, pol_model: "off", pol_params: {}, drivers: {dT: uniform, strain: uniform}}
+    # building B: collimators and free space to the 50/50 [AE]; LO pigtails of EOM and stretcher [AE]
+    - {id: SQ_B, kind: free_space, L_m: 1.0, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: lab_B,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}
+    - {id: LO_B, kind: free_space, L_m: 1.0, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: lab_B,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}
+    - {id: LO_act, kind: component, L_m: 0.0, n_g: 1.0, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: lab_B,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {},
+       drivers: {eom: uniform, stretcher: uniform}}                                    # fibre EOM + fibre stretcher (header)
+    - {id: LO_mir, kind: free_space, L_m: 0.0, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: lab_B,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {},
+       drivers: {stretcher: uniform}}   # piezo mirror: a free-space length actuator, i.e. the `stretcher` driver of this point
+  beams:
+    - {id: sqz, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: bhd,
+       path: [{segment: SQ_A, direction: 1}, {segment: OPO, direction: 1}, {segment: SQF_dep, direction: 1},
+              {segment: SQF_spool, direction: 1}, {segment: SQ_B, direction: 1}]}       # θ_sq bookkeeping beam (header)
+    - {id: lo, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.p_lo_w", observer: bhd,
+       path: [{segment: LO_A, direction: 1}, {segment: LOF_dep, direction: 1}, {segment: LOF_spool, direction: 1},
+              {segment: LO_B, direction: 1}, {segment: LO_act, direction: 1},
+              {segment: LO_mir, direction: 1}]}
+  observers:
+    - {id: bhd, kind: detector}
+  locks:     # L-C (00_summary §2.4): Δ at the BHD, no probe
+    - {id: lockC, combo: {lo: 1.0, sqz: -1.0}, setpoint_rad: 0.0, observer: bhd}
+  ports: []  # port-less reference config: metric (i) under port 0, metric (ii) n/a (G13)
+  coef:
+    # dT → k_T·L, κ_τ·L (T08 eq. 2.1, 2.4); strain → k_ε·L, n_g·L/c (T08 eq. 2.1, refD); actuators 1 rad/rad
+    - {segment: SQF_dep, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * offline.params.L_deployed_m"}
+    - {segment: SQF_dep, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * offline.params.L_deployed_m"}
+    - {segment: SQF_dep, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_rad_per_m * offline.params.L_deployed_m"}
+    - {segment: SQF_dep, driver: strain, beam: "*", effect: group_delay, value: !expr "offline.params.n_g * offline.params.L_deployed_m / 299792458.0"}
+    - {segment: LOF_dep, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * offline.params.L_deployed_m"}
+    - {segment: LOF_dep, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * offline.params.L_deployed_m"}
+    - {segment: LOF_dep, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_rad_per_m * offline.params.L_deployed_m"}
+    - {segment: LOF_dep, driver: strain, beam: "*", effect: group_delay, value: !expr "offline.params.n_g * offline.params.L_deployed_m / 299792458.0"}
+    - {segment: SQF_spool, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * (offline.params.L_fiber_m - offline.params.L_deployed_m)"}
+    - {segment: SQF_spool, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * (offline.params.L_fiber_m - offline.params.L_deployed_m)"}
+    - {segment: SQF_spool, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_rad_per_m * (offline.params.L_fiber_m - offline.params.L_deployed_m)"}
+    - {segment: SQF_spool, driver: strain, beam: "*", effect: group_delay, value: !expr "offline.params.n_g * (offline.params.L_fiber_m - offline.params.L_deployed_m) / 299792458.0"}
+    - {segment: LOF_spool, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * (offline.params.L_fiber_m - offline.params.L_deployed_m + offline.params.dL_m)"}
+    - {segment: LOF_spool, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * (offline.params.L_fiber_m - offline.params.L_deployed_m + offline.params.dL_m)"}
+    - {segment: LOF_spool, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_rad_per_m * (offline.params.L_fiber_m - offline.params.L_deployed_m + offline.params.dL_m)"}
+    - {segment: LOF_spool, driver: strain, beam: "*", effect: group_delay, value: !expr "offline.params.n_g * (offline.params.L_fiber_m - offline.params.L_deployed_m + offline.params.dL_m) / 299792458.0"}
+    - {segment: LO_act, driver: eom, beam: "*", effect: phase, value: 1.0}
+    - {segment: LO_act, driver: eom, beam: "*", effect: group_delay, value: 0.0}
+    - {segment: LO_mir, driver: stretcher, beam: "*", effect: phase, value: 1.0}
+    - {segment: LO_mir, driver: stretcher, beam: "*", effect: group_delay, value: 0.0}
+    - {segment: LO_act, driver: stretcher, beam: "*", effect: phase, value: 1.0}
+    - {segment: LO_act, driver: stretcher, beam: "*", effect: group_delay, value: 1.05e-15}   # n_g/(n ξ_eo ω0) (T08 §2.3)
+
+offline:
+  params:
+    # --- source: monolithic ppKTP OPO (T02 §6.2) -------------------------------------------------------
+    lambda0_m: 1.55e-6                    # [Ref C §2] 1550 nm
+    fwhm_hz: 1.75e+9                      # fitted squeezing-resonator linewidth, FWHM reading [Ref C §3, Fig. 5]; T02 §0-6
+    escape_efficiency: 0.99               # η_esc of the monolithic resonator [Tohermes 2024 via T02; opo_testing.REF_C] UNVERIFIED
+    x: !choice [0.56, 0.75]               # x = √(P/P_th) (P_th unpublished): 0.56 ← 10.0 dB anti-squeezing at 30 MHz after the
+                                          # fibre with θ̃ = 0.1 rad (T02 V-C1, Fig. 4 / Fig. 5 right, lower pump);
+                                          # 0.75 ← 16 dB before the fibre (T02 §6.2, Fig. 5 left, ≈ 180 mW [Ref C §2])
+    # --- loss budget [Ref C §3, §4] ------------------------------------------------------------------------
+    qe: 0.97                              # BHD quantum efficiency [Ref C §3]
+    eta_pre_fiber: 0.85                   # 15 % before the fibre "applied to both stations", incl. table-top propagation,
+                                          # mode matching, QE 97 % [Ref C §3]; the escape efficiency is taken to be inside it [AE]
+    eta_fiber_link: !choice [0.9294118, 0.92]   # in/out coupling + 1 km (0.2 dB/km): 0.79/0.85 makes the total the fitted
+                                          # 21 % [Ref C §3, Fig. 5 fit; T02 V-C1]; 0.92 = the separate loss analysis
+                                          # "8 % (0.4 dB)" [Ref C §4] (total 21.8 %)
+    # --- fibres [Ref C §2] ---------------------------------------------------------------------------------
+    L_fiber_m: 1000.0                     # each fibre 1 km [Ref C §2]
+    L_deployed_m: 180.0                   # ≈ 180 m deployed in the conduit, the rest spooled in the IQP lab [Ref C §2]
+    dL_m: !sweep [-2.0, 2.0, 3]           # LO-path minus squeezed-path length (fibres "of the same type and length"
+                                          # [Ref C §2]; mismatch not published) [AE]; 00_summary §2.1 "Ref C の δL"
+    n_g: 1.468                            # SMF group index (T08 §1) UNVERIFIED for the fibre used
+    k_T_rad_per_m_K: !sweep [40.0, 48.0, 3]      # thermal phase coefficient, T08 §2.2 (nominal 44)
+    kappa_tau_s_per_m_K: 3.9e-14          # thermal group-delay coefficient 39 ps/(km·K), T08 §2.3 (Slavík 2015)
+    k_eps_rad_per_m: !expr "0.78 * 2 * pi * 1.468 / 1.55e-6"   # strain phase coefficient ξ_eo·2πn/λ0 (conv §4, T16 ξ_eo 0.78)
+    # --- environment (D27: parametric models swept; Ref C gives no numbers, T08 §2.8, §6.2) -----------------
+    r_T_conduit_k_per_s: !sweep_log [1.0e-6, 1.0e-3, 3]   # ambient drift of the conduit zone, common to both fibres (T08 §2.4)
+    r_T_spool_k_per_s: !sweep_log [1.0e-6, 1.0e-3, 3]     # mean ambient drift of the two spools in the IQP lab (T08 §2.4)
+    dr_T_spool_k_per_s: !sweep [0.0, 1.0e-5, 3]  # spool_sq minus spool_lo drift [AE]: the differential drift that the slow
+                                          # actuator must follow; k_T·820 m·5e-6 K/s ≈ 0.18 rad/s uses ±32 rad in ≈ 3 min,
+                                          # the "several minutes" of [Ref C §4]
+    tau_th_conduit_s: !sweep_log [1.0, 3000.0, 3]   # ambient → fibre lag in the conduit, T08 §2.4 (nominal 300 s)
+    tau_th_spool_s: !sweep_log [1.0, 3000.0, 3]     # ambient → fibre lag of the spools, T08 §2.4
+    h_ref_conduit_rad2_hz: !sweep_log [0.04, 40.0, 4]   # f⁻² mechanical noise at L_ref = 1 km of the deployed part:
+                                          # nominal 4 rad²·Hz (Williams 2008 real link, T08 §2.5, §6.2)
+    h_ref_spool_rad2_hz: !sweep_log [1.0e-3, 0.4, 3]    # spooled part: nominal 0.04 rad²·Hz (spool, 20–25 dB below, T08 §2.5)
+    mech_gamma: !choice [1.0, 2.0]        # length exponent, T08 §2.5
+    mech_f_c_hz: !sweep_log [100.0, 1.0e+4, 3]   # f⁻² corner, T08 §2.5 (nominal 1 kHz)
+    rho_conduit: !sweep [0.0, 0.99, 4]    # SQF–LOF correlation of the conduit noise, ρ(f) = ρ0/(1 + (f/f_ρ)²) (D57-5):
+                                          # "correlated phase noise is canceled out in balanced detection" [Ref C §2],
+                                          # no number (T08 §2.8) — THE correlation axis of this preset
+    rho_spool: !sweep [0.0, 0.99, 3]      # correlation of the two spools (separate spools assumed: nominal 0) [AE]
+    f_rho_hz: !sweep_log [1.0, 1.0e+3, 3] # correlation corner (T08 §2.8 shape only, Koke 2019) [AE]
+    # --- laser (not specified beyond 1550 nm [Ref C §2]; same laser for squeezer and LO) --------------------
+    h0_hz2_per_hz: !sweep_log [64.0, 1.0e+4, 3]   # white FM; enters only through dL (T05 §3.5); 64 = the Ref A stand-in
+                                          # 0.2 kHz/π (UNVERIFIED), 1e4 ≈ 31 kHz Lorentz linewidth [AE]
+    # --- QNL error signal [Ref C §2; T14 §6] ----------------------------------------------------------------
+    f_dither_hz: 1.0e+6                   # [Ref C §2] 1 MHz dither / demodulation
+    v_pi_v: 4.0                           # MPZ-LN-10 U_π = 4 V [Ref C §3]
+    v_dither_pp_v: 0.2                    # 200 mVpp [Ref C §3]
+    m_dither_rad: !expr "pi * 0.5 * v_dither_pp_v / v_pi_v"   # ±4.5° = 0.0785 rad peak (T16 §3.2, prompt §7-10)
+    f1_hz: 8.0e+6                         # envelope-detector band 8–300 MHz [Ref C §2]
+    f2_hz: 3.0e+8
+    clearance_db: 11.0                    # dark-noise clearance at 30 MHz [Ref C Fig. 4 caption]; used over 8–300 MHz
+                                          # (optimistic: 7.4 dB at 0.25 GHz, T14 §6.3)
+    log_amp_slope_v: 0.025                # log-amplifier slope per dB of P [V] [AE] (25 mV/dB class); only scales the loop
+                                          # gain, which is normalised below (qnl_slope). (A `_db` name would be linearised, D56-1.)
+    kappa_det: 1.32                       # radiometer factor of the log detector (T14 §6.3 MC; D58-4)
+    p_lo_w: 0.01                          # LO power at the BHD, not published [AE]; enters only the absolute PSDs
+    demod_phase_rad: !pi_frac -0.5        # I = b (the dither-synchronous quadrature, err._common)
+    demod_lpf_hz: 1.0e+5                  # Moku demodulation low-pass [AE] (≫ loop band, ≪ f_m)
+    # band integrals of S_x(f; Δ) = A + C cos 2Δ over [f1, f2] (T14 §6.1; quantum_noise_power runtime params):
+    # closed forms of qnl_band_integrals for the Lorentzian OPO spectra R± = 1 ± η 4x/((1 ∓ x)² + (f/f_h)²)
+    # (T02 eq. closed_form, Δ0 = 0, η = total efficiency incl. escape), flat |H| (dip at 0.83 GHz is outside
+    # the band), S_SN = 1 per Hz, S_el = 10^(−clearance/10). tests/integration/test_refC_preset.py checks them
+    # against qnl_band_integrals of the opo_cw_spectrum source and the LossRegistry η to 1e−9.
+    eta_total: !expr "eta_pre_fiber * eta_fiber_link"     # incl. escape efficiency (inside the 15 %, see eta_pre_fiber)
+    qnl_fh: !expr "0.5 * fwhm_hz"
+    qnl_I1: !expr "(atan(f2_hz / qnl_fh / (1 - x)) - atan(f1_hz / qnl_fh / (1 - x))) / (1 - x)"
+    qnl_I2: !expr "(atan(f2_hz / qnl_fh / (1 + x)) - atan(f1_hz / qnl_fh / (1 + x))) / (1 + x)"
+    qnl_J11: !expr "(f2_hz / qnl_fh) / (2 * (1 - x)**2 * ((1 - x)**2 + (f2_hz / qnl_fh)**2)) - (f1_hz / qnl_fh) / (2 * (1 - x)**2 * ((1 - x)**2 + (f1_hz / qnl_fh)**2)) + (atan(f2_hz / qnl_fh / (1 - x)) - atan(f1_hz / qnl_fh / (1 - x))) / (2 * (1 - x)**3)"
+    qnl_J22: !expr "(f2_hz / qnl_fh) / (2 * (1 + x)**2 * ((1 + x)**2 + (f2_hz / qnl_fh)**2)) - (f1_hz / qnl_fh) / (2 * (1 + x)**2 * ((1 + x)**2 + (f1_hz / qnl_fh)**2)) + (atan(f2_hz / qnl_fh / (1 + x)) - atan(f1_hz / qnl_fh / (1 + x))) / (2 * (1 + x)**3)"
+    qnl_J12: !expr "(qnl_I1 - qnl_I2) / ((1 + x)**2 - (1 - x)**2)"
+    qnl_k: !expr "2 * eta_total * x"
+    qnl_c: !expr "1 + 10 ** (-clearance_db / 10)"
+    qnl_p_mean: !expr "qnl_c * (f2_hz - f1_hz) + qnl_k * qnl_fh * (qnl_I1 - qnl_I2)"
+    qnl_p_delta: !expr "qnl_k * qnl_fh * (qnl_I1 + qnl_I2)"
+    qnl_q0: !expr "qnl_c**2 * (f2_hz - f1_hz) + 2 * qnl_c * qnl_k * qnl_fh * (qnl_I1 - qnl_I2) + qnl_k**2 * qnl_fh * (qnl_J11 - 2 * qnl_J12 + qnl_J22)"
+    qnl_q1: !expr "-2 * qnl_c * qnl_k * qnl_fh * (qnl_I1 + qnl_I2) - 2 * qnl_k**2 * qnl_fh * (qnl_J11 - qnl_J22)"
+    qnl_q2: !expr "qnl_k**2 * qnl_fh * (qnl_J11 + 2 * qnl_J12 + qnl_J22)"
+    # error slope at Δ = 0 of the log detector after demodulation [V/rad] (T14 §6.2; dither-synchronous first
+    # harmonic of k·10 log10 P(θ), P(θ) = P̄ − ΔP cos(2Δ0 + 2m sin θ)). Small-m expansion that keeps the log's
+    # curvature over the dither cycle (P varies by ε = 2m²ΔP/P0 ≈ 0.14 around P0 = P̄ − ΔP):
+    # K_d = (10/ln 10) k · (8 ΔP m / P0) · (1 − (1 + ε)^(−1/2))/ε  (→ (10/ln 10) k 4ΔP m/P0 for ε → 0);
+    # 0.3 % from the exact harmonic at the nominal point (VT-20 (c) checks it to 1 %)
+    qnl_p0: !expr "qnl_p_mean - qnl_p_delta"
+    qnl_eps: !expr "2 * m_dither_rad**2 * qnl_p_delta / qnl_p0"
+    qnl_slope_v_per_rad: !expr "10 / log(10) * log_amp_slope_v * 8 * qnl_p_delta * m_dither_rad / qnl_p0 * (1 - 1 / sqrt(1 + qnl_eps)) / qnl_eps"
+    # --- controller: generic FPGA (devices/fpga_generic.yaml; D25, T16 §4.5 "Moku:Pro") ----------------------
+    latency_s: !choice [2.5e-7, 1.0e-6, 2.0e-6]   # τ_L (fpga_generic loop.latency_s 0.1–2 µs; Ref C stand-in 0.2–1 µs, T16 §4.5);
+                                          # ≥ 1/f_sim (D55-1). VT-20 runs 0.1 µs at f_sim = 10 MHz
+    dac_bits: !choice [14, 16]            # PLAN §2.10 / VT-20 (fpga_generic 12–16 bit)
+    out_range_v: 0.5                      # controller output ±0.5 V (fpga_generic, Moku:Delta stand-in, T16 §4.5)
+    f_u1_hz: !sweep_log [1.0e+3, 3.0e+4, 4]   # EOM loop unity gain: "fiber EOM compensated phase fluctuations in the kHz
+                                          # regime" [Ref C §2]; 10 kHz = T14 §6.3 placeholder
+    f_12_hz: !sweep_log [30.0, 3.0e+3, 3] # EOM → piezo-mirror crossover: "took over the band below" [Ref C §2] [AE]
+    f_23_hz: !sweep_log [0.1, 10.0, 3]    # piezo → stretcher crossover: "slow drifts in the Hertz to sub-hertz range" [Ref C §2] [AE]
+    # --- actuators (all on the LO [Ref C Fig. 3]) ---------------------------------------------------------------
+    mirror_range_rad: !sweep_log [1.0, 50.0, 3]   # piezo mirror + HV amp half range at ±out_range_v: not published [AE]
+    mirror_f_res_hz: !sweep [1.0e+4, 2.0e+4, 3]   # piezo-mirror resonance (T16 §3.3: Ref B-like 10–20 kHz) UNVERIFIED
+    mirror_q: !sweep_log [3.0, 30.0, 3]   # UNVERIFIED (T16 §3.3)
+    stretcher_range_rad: !sweep_log [5.0, 200.0, 4]   # fibre-stretcher half range: not published; the lock-time limit
+                                          # [Ref C §4]; 915B-like 32.5 rad as placeholder (T16 §7.2) UNVERIFIED
+    # --- detector BHD_B [Ref C §3, Fig. 4, Fig. 5] ----------------------------------------------------------------
+    dip_f_hz: 0.83e+9                     # destructive interference of the BHD_B signal output [Ref C Fig. 5 caption]
+    dip_r: !sweep [0.3, 0.9, 3]           # dip depth parameter (T13 §1.4; mechanism and depth not published) UNVERIFIED.
+                                          # With C0 = 11 dB, r = 0.5 gives clearances 10.1 / 3.4 / 8.0 dB at 0.25 / 0.69 /
+                                          # 1.21 GHz vs 7.4 / 5 / 5.7 dB measured [Fig. 4 caption]: the dip alone does not
+                                          # reproduce the GHz roll-off (not fitted; irrelevant for the dark-corrected values)
+
+  blocks:
+    - block: opo_cw_spectrum           # monolithic ppKTP OPO (T02 §2.1, §6.2; WP-B6)
+      name: opo
+      params:
+        cavity_model: linewidth        # the fitted linewidth is given directly (T02 §4: c(T + L)/l is 24 % off for T = 0.36)
+        fwhm_hz: !expr "offline.params.fwhm_hz"
+        escape_efficiency: !expr "offline.params.escape_efficiency"
+        pump_mode: x
+        x: !expr "offline.params.x"
+        detuning_rad_s: 0.0            # resonance held by the crystal temperature (T02 §2.4, §6.2); toggle off
+        # sideband grid for the ESA hooks (zero spans at 30 MHz, 0.25, 0.69, 1.21 GHz [Ref C Fig. 4]; spectrum to 1.3 GHz)
+        f_s_hz: [1.0e+7, 3.0e+7, 5.0e+7, 1.0e+8, 1.5e+8, 2.0e+8, 2.5e+8, 3.0e+8, 3.5e+8, 4.0e+8, 4.5e+8, 5.0e+8, 5.5e+8,
+                 6.0e+8, 6.5e+8, 6.9e+8, 7.5e+8, 8.0e+8, 8.5e+8, 9.0e+8, 9.5e+8, 1.0e+9, 1.05e+9, 1.1e+9, 1.15e+9,
+                 1.21e+9, 1.25e+9, 1.3e+9]
+        phi_opa0_rad: 0.0              # conv §4 (D55 rule 4 frame)
+        segment: OPO
+        gain_table_grid: null          # no probe (Ref C): A± not needed
+        coef_table_x: null
+        toggles: {frequency_dependence: true, pump_dependent_loss: false, detuning: false}
+    - block: loss_budget
+      name: optics
+      params:
+        elements:
+          - {id: stations, eta: !expr "offline.params.eta_pre_fiber / (offline.params.escape_efficiency * offline.params.qe)",
+             kind: component, applies_to: [bhd], segment: SQ_A, observer: null,
+             source: "[Ref C §3] 15 % before the fibre incl. table-top, mode matching, QE (QE and escape efficiency booked separately)"}
+          - {id: fiber_link, eta: !expr "offline.params.eta_fiber_link", kind: component, applies_to: [bhd],
+             segment: SQF_spool, observer: null,
+             source: "[Ref C §3, §4] fibre in/out coupling + 1 km at 0.2 dB/km (fit total 21 % / analysis 8 %)"}
+        toggles: {enabled: true}
+    - block: detector_efficiency       # BHD_B (T13; D58-1): QE; values are dark-noise corrected [Ref C Fig. 4 caption]
+      name: bhd_det
+      params:
+        device: null
+        observer: bhd
+        applies_to: [bhd]
+        source: "[Ref C §3, Fig. 4] QE 97 %; clearance 11 dB at 30 MHz; dark noise corrected"
+        f_s_hz: 3.0e+7
+        p_lo_w: !expr "offline.params.p_lo_w"
+        qe: !expr "offline.params.qe"
+        clearance_lin: !expr "10 ** (offline.params.clearance_db / 10)"
+        p_lo_ref_w: !expr "offline.params.p_lo_w"
+        dip_r: !expr "offline.params.dip_r"
+        dip_tau_s: !expr "0.5 / offline.params.dip_f_hz"      # min of |H| at 1/(2τ) (T13 §1.4)
+        toggles: {qe: true, circuit_noise: true, imbalance_leak: false, freq_response: false, dip: true,
+                  subtract_dark: true}   # GHz BHD roll-off not modelled (first-order form cannot give 11/7.4/5/5.7 dB, see header)
+    - block: bhd_frontend              # raw RF output for the swept spectrum (T13 §1.3–1.4; Fig. 5)
+      name: frontend
+      params:
+        device: null
+        p_lo_w: !expr "offline.params.p_lo_w"
+        responsivity_a_per_w: !expr "offline.params.qe * 1.602176634e-19 * offline.params.lambda0_m / (6.62607015e-34 * 299792458.0)"
+        gain_v_per_a: 1.0e+4           # self-built BHD transimpedance not published [AE]
+        load: high_z
+        coupler_sign: 1
+        v_off_v: 0.0
+        clearance_lin: !expr "10 ** (offline.params.clearance_db / 10)"
+        p_lo_ref_w: !expr "offline.params.p_lo_w"
+        dip_r: !expr "offline.params.dip_r"
+        dip_tau_s: !expr "0.5 / offline.params.dip_f_hz"
+        toggles: {circuit_noise: true, imbalance_leak: false, freq_response: false, dip: true, subtract_dark: true,
+                  saturation: false}
+    - block: esa_zero_span             # Fig. 4: RBW 300 kHz, VBW 300 Hz, 0.6 s [Ref C §3]
+      name: esa_30m
+      params:
+        f_s_hz: 3.0e+7
+        rbw_hz: 3.0e+5
+        vbw_hz: 300.0
+        enbw_factor: 1.0               # T04 §5.3, UNVERIFIED instrument value
+        rbw_shape: gaussian            # [AE]
+        average: power                 # averaging type not published (T04 §5.2, UNVERIFIED)
+        detector: sample               # [AE]
+        oversample: 4                  # T04 §5.1
+        sweep_time_s: 0.6              # [Ref C §3]
+        n_points: 1001                 # [AE]
+        n_traces: 1
+        toggles: {radiometer_noise: true}
+    - block: esa_zero_span
+      name: esa_250m
+      params: {f_s_hz: 2.5e+8, rbw_hz: 3.0e+5, vbw_hz: 300.0, enbw_factor: 1.0, rbw_shape: gaussian, average: power, detector: sample,
+               oversample: 4, sweep_time_s: 0.6, n_points: 1001, n_traces: 1, toggles: {radiometer_noise: true}}   # as esa_30m
+    - block: esa_zero_span
+      name: esa_690m
+      params: {f_s_hz: 6.9e+8, rbw_hz: 3.0e+5, vbw_hz: 300.0, enbw_factor: 1.0, rbw_shape: gaussian, average: power, detector: sample,
+               oversample: 4, sweep_time_s: 0.6, n_points: 1001, n_traces: 1, toggles: {radiometer_noise: true}}   # as esa_30m
+    - block: esa_zero_span
+      name: esa_1210m
+      params: {f_s_hz: 1.21e+9, rbw_hz: 3.0e+5, vbw_hz: 300.0, enbw_factor: 1.0, rbw_shape: gaussian, average: power, detector: sample,
+               oversample: 4, sweep_time_s: 0.6, n_points: 1001, n_traces: 1, toggles: {radiometer_noise: true}}   # as esa_30m
+    - block: esa_swept_spectrum        # Fig. 5 right: dark-noise-corrected spectrum to 1.3 GHz (RBW not given: 300 kHz [AE])
+      name: esa_spec
+      params:
+        f_start_hz: 1.0e+7
+        f_stop_hz: 1.3e+9
+        n_points: 130
+        rbw_hz: 3.0e+5
+        vbw_hz: 300.0
+        enbw_factor: 1.0
+        rbw_shape: gaussian
+        average: power
+        n_sub: 41
+        toggles: {radiometer_noise: true, subtract_circuit_noise: true}
+
+pipeline:
+  # ---- laser and environment ----------------------------------------------------------------------------
+  - block: laser_source
+    name: laser
+    params:
+      source: laser
+      power_w: !expr "offline.params.p_lo_w"     # not used by the phase model
+      h0_hz2_per_hz: !expr "offline.params.h0_hz2_per_hz"
+      oob_pairs:
+        - {target: LOF_spool, tau_s: !expr "offline.params.n_g * offline.params.dL_m / 299792458.0"}   # T05 §3.5 (δL on the LO)
+      rin_targets: []
+      toggles: {fm_white: true, fm_flicker: false, peaks: false, drift: false, dither: false, sbs: false, rin: false}
+  - block: segment_thermal              # conduit zone: both fibres, same ambient (T08 §2.4, §2.8)
+    name: env.thermal.conduit
+    params:
+      segments: [SQF_dep, LOF_dep]
+      tau_th_s: {SQF_dep: !expr "offline.params.tau_th_conduit_s", LOF_dep: !expr "offline.params.tau_th_conduit_s"}
+      r_T_k_per_s: !expr "offline.params.r_T_conduit_k_per_s"
+      toggles: {drift: true, random: false, periodic: false}
+  - block: segment_thermal              # spool of the squeezed-light fibre (IQP lab)
+    name: env.thermal.spool_sq
+    params:
+      segments: [SQF_spool]
+      tau_th_s: {SQF_spool: !expr "offline.params.tau_th_spool_s"}
+      r_T_k_per_s: !expr "offline.params.r_T_spool_k_per_s + 0.5 * offline.params.dr_T_spool_k_per_s"
+      toggles: {drift: true, random: false, periodic: false}
+  - block: segment_thermal              # spool of the LO fibre (IQP lab)
+    name: env.thermal.spool_lo
+    params:
+      segments: [LOF_spool]
+      tau_th_s: {LOF_spool: !expr "offline.params.tau_th_spool_s"}
+      r_T_k_per_s: !expr "offline.params.r_T_spool_k_per_s - 0.5 * offline.params.dr_T_spool_k_per_s"
+      toggles: {drift: true, random: false, periodic: false}
+  - block: segment_mech_noise           # conduit: seismic / acoustic noise, partially correlated (T08 eq. 2.7, 2.12)
+    name: env.mech.conduit
+    params:
+      segments: [SQF_dep, LOF_dep]
+      L_ref_m: 1000.0                    # T08 §2.5
+      gamma: !expr "offline.params.mech_gamma"
+      k_eps_rad_per_m: !expr "offline.params.k_eps_rad_per_m"
+      h_ref_rad2_hz: !expr "offline.params.h_ref_conduit_rad2_hz"
+      f_c_hz: !expr "offline.params.mech_f_c_hz"
+      f_lo_hz: 0.1                       # T08 §2.5 (thermal model below)
+      rho_0: !expr "offline.params.rho_conduit"
+      f_rho_hz: !expr "offline.params.f_rho_hz"
+      toggles: {mech: true, peaks: false, correlation: true}
+  - block: segment_mech_noise           # spools (T08 §2.5 spool level)
+    name: env.mech.spool
+    params:
+      segments: [SQF_spool, LOF_spool]
+      L_ref_m: 1000.0
+      gamma: !expr "offline.params.mech_gamma"
+      k_eps_rad_per_m: !expr "offline.params.k_eps_rad_per_m"
+      h_ref_rad2_hz: !expr "offline.params.h_ref_spool_rad2_hz"
+      f_c_hz: !expr "offline.params.mech_f_c_hz"
+      f_lo_hz: 0.1
+      rho_0: !expr "offline.params.rho_spool"
+      f_rho_hz: !expr "offline.params.f_rho_hz"
+      toggles: {mech: true, peaks: false, correlation: true}
+  # ---- path model (F6) ------------------------------------------------------------------------------------
+  - block: segment_phase
+    name: path.phase
+    params:
+      segments: all
+      toggles: {phase: true, group_delay: true, pm_axis_drift: false}
+  - block: beam_assembler
+    name: path.beams
+    params:
+      beams: all
+      sources: {laser: laser.laser.phi}
+      toggles: {emission_time: true, polarization: false}
+  - block: lock_error                   # true Δ − 0 (diagnostics, supervisor slip count)
+    name: path.lock
+    params: {locks: all}
+  - block: adder                        # φ_p := 2 θ_sq for the QNL (header)
+    name: p_bhd
+    params: {ins: [beam.sqz.phi], gains: [2.0], out: pump.bhd.phi, unit: rad}
+  # ---- error signal #4: quantum noise lock (T14 §6) -----------------------------------------------------------
+  - block: quantum_noise_power
+    name: qnl
+    params:
+      detector_law: log                  # "envelope detector ... logarithmic amplifier" [Ref C §2]
+      in_lo: beam.lo.phi
+      in_p: pump.bhd.phi
+      out: v.qnl
+      phi_opa_rad: !pi_frac -1.0         # Δ = φ_LO − θ_sq (header)
+      p_mean: !expr "offline.params.qnl_p_mean"
+      p_delta: !expr "offline.params.qnl_p_delta"
+      q0: !expr "offline.params.qnl_q0"
+      q1: !expr "offline.params.qnl_q1"
+      q2: !expr "offline.params.qnl_q2"
+      k_det: !expr "offline.params.log_amp_slope_v"
+      kappa_det: !expr "offline.params.kappa_det"
+      dither_m_rad: !expr "offline.params.m_dither_rad"   # analytic dither (baseband); unused in rf_rate_mode
+      f_dither_hz: !expr "offline.params.f_dither_hz"
+      ram_a: 0.0                         # EOM RAM (T14 §6.4, T16 §3.2 placeholder); toggle off
+      ram_phase_rad: 0.0
+      toggles: {radiometer_noise: true, ram_offset: false, rf_rate_mode: false}
+  - block: demodulator                  # Moku:Pro demodulation at 1 MHz [Ref C §2]
+    name: dem
+    params:
+      in: v.qnl
+      in_phase: null
+      out_i: dem.dem.i
+      out_q: dem.dem.q
+      lpf_order: 2
+      f_ref_hz: !expr "offline.params.f_dither_hz"
+      phi_d_rad: !expr "offline.params.demod_phase_rad"
+      v_off_v: 0.0
+      lpf_hz: !expr "offline.params.demod_lpf_hz"
+      toggles: {rf_rate_mode: false, demod_offset: false, rf_reference_phase_noise: false}
+  - block: adc
+    name: adc
+    params:
+      in: dem.dem.i
+      out: v.adc
+      device: fpga_generic               # D25 generic device (16 bit, ±0.5 V)
+      noise_vrms: 0.0
+      avg_samples: 1
+      toggles: {quantization: true, noise: false, saturation: true}   # D49: quantisation on
+  # ---- three stacked PIDs (T16 §4.4; Ref C Fig. 3): pid1 → EOM (+ dither), pid2 → piezo mirror (+ ramp),
+  #      pid3 → stretcher. Integrators with crossovers f_u1 > f_12 > f_23: |K1 C1| = 1/K_d at f_u1,
+  #      |K2 C2| = K1 at f_12, |K3 C3| = K2 at f_23 (positive C2, C3: offload is negative feedback, T16 §4.4).
+  - stack:
+      stages:
+        - block: pid
+          name: pid1
+          params:
+            in: v.adc
+            out: ctrl.pid1.u
+            device: fpga_generic         # Tustin (D56-6)
+            anti_windup: clamp           # [AE]
+            kp: 0.0
+            # Δ grows with u1 (σ_act = +1, slope K_d > 0): negative feedback needs K_i < 0
+            ki_per_s: !expr "-2 * pi * offline.params.f_u1_hz / (offline.params.qnl_slope_v_per_rad * pi / offline.params.v_pi_v)"
+            kd_s: 0.0
+            omega_is_rad_per_s: 0.0
+            omega_ds_rad_per_s: 0.0
+            ki2_per_s2: 0.0
+            setpoint_v: 0.0
+            offset_v: 0.0
+            u_min_v: !expr "-offline.params.out_range_v"
+            u_max_v: !expr "offline.params.out_range_v"
+            toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
+        - block: pid
+          name: pid2
+          params:
+            in: ctrl.pid1.u
+            out: ctrl.pid2.u
+            device: fpga_generic
+            anti_windup: clamp
+            kp: 0.0
+            ki_per_s: !expr "2 * pi * offline.params.f_12_hz * (pi / offline.params.v_pi_v) / (offline.params.mirror_range_rad / offline.params.out_range_v)"
+            kd_s: 0.0
+            omega_is_rad_per_s: 0.0
+            omega_ds_rad_per_s: 0.0
+            ki2_per_s2: 0.0
+            setpoint_v: 0.0
+            offset_v: 0.0
+            u_min_v: !expr "-offline.params.out_range_v"
+            u_max_v: !expr "offline.params.out_range_v"
+            toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
+        - seq:
+            - block: pid
+              name: pid3
+              params:
+                in: ctrl.pid2.u
+                out: ctrl.pid3.u
+                device: fpga_generic
+                anti_windup: clamp
+                kp: 0.0
+                ki_per_s: !expr "2 * pi * offline.params.f_23_hz * (offline.params.mirror_range_rad / offline.params.stretcher_range_rad)"
+                kd_s: 0.0
+                omega_is_rad_per_s: 0.0
+                omega_ds_rad_per_s: 0.0
+                ki2_per_s2: 0.0
+                setpoint_v: 0.0
+                offset_v: 0.0
+                u_min_v: !expr "-offline.params.out_range_v"
+                u_max_v: !expr "offline.params.out_range_v"
+                toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
+            - block: lock_supervisor     # lock time = slow actuator at its range [Ref C §4] (T16 §3.6)
+              name: sup
+              params:
+                u_in: ctrl.pid3.u
+                e_in: v.adc
+                true_in: null                 # QNL lock points repeat every π (not 2π): no fringe-slip count
+                out: ctrl.sup.u
+                relock: none             # no automatic re-acquisition is described [Ref C]
+                # saturated = demand beyond the stretcher DAC's end codes (one LSB inside ±out_range_v; the clamped
+                # Tustin integrator approaches the clip level from below, so a 1 nV margin as in refD is too tight)
+                u_min_v: !expr "-offline.params.out_range_v * (1 - 2.0 ** (1 - offline.params.dac_bits))"
+                u_max_v: !expr "offline.params.out_range_v * (1 - 2.0 ** (1 - offline.params.dac_bits))"
+                t_sat_s: 0.0
+                e_th: 1.0e+9             # error criterion off (range criterion only)
+                t_e_s: 0.0
+                toggles: {relock: false}
+          name: stage3
+      actuators:
+        - seq:                           # fibre EOM (MPZ-LN-10) with the 1 MHz dither added to its drive [Ref C Fig. 3]
+            - block: dac
+              name: dac1
+              params:
+                in: ctrl.pid1.u
+                out: v.dac1
+                device: fpga_generic
+                bits: !expr "offline.params.dac_bits"
+                range_v: [-0.5, 0.5]     # = ±out_range_v (fpga_generic)
+                noise_vrms: 0.0
+                r_out_ohm: 50.0
+                r_load_ohm: .inf         # high-impedance driver inputs [AE]
+                toggles: {quantization: true, noise: false, saturation: true}
+            - block: delay_buffer
+              name: dl1
+              params: {in: v.dac1, out: delay.dl1.out, method: linear,
+                       tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz"}   # D55-1
+            - block: sine_injection      # dither FG, 200 mVpp at 1 MHz [Ref C §2, §3]; on only in the time-series variant
+              name: dither
+              params: {in: delay.dl1.out, out: v.eom.in, unit: V, freq_hz: !expr "offline.params.f_dither_hz",
+                       amplitude: !expr "0.5 * offline.params.v_dither_pp_v", toggles: {enabled: false}}
+            - block: eom_phase
+              name: eom
+              params:
+                in: v.eom.in
+                gain_mode: vpi
+                v_pi_v: !expr "offline.params.v_pi_v"    # U_π = 4 V [Ref C §3] (LF value assumed equal, T16 §3.2)
+                polarity: 1.0
+                poles_hz: []             # GHz LiNbO3 device: static (T16 §3.2)
+                discretisation: zoh
+                prewarp_hz: null
+                drive_min_v: -1.0e+3
+                drive_max_v: 1.0e+3
+                segment: LO_act
+                driver: eom
+                n_sub: 1
+                sub: [0, 1]
+                ring_len: 0
+                insertion_loss_lin: null # on the LO: no effect on the squeezed light (T16 §3.2)
+                toggles: {bandwidth: false, saturation: false, insertion_loss: false}
+          name: act1
+        - seq:                           # piezo-mounted mirror behind the HV amp; ramp generator added before it [Ref C Fig. 3]
+            - block: ramp
+              name: ramp
+              params: {out: v.ramp, waveform: triangle, amplitude_v: !expr "offline.params.out_range_v",
+                       period_s: 0.1, offset_v: 0.0, toggles: {enabled: false}}   # acquisition / scan only [AE period]
+            - block: adder
+              name: mirror_sum
+              params: {ins: [ctrl.pid2.u, v.ramp], gains: [1.0, 1.0], out: v.mirror.sum, unit: V}
+            - block: dac
+              name: dac2
+              params: {in: v.mirror.sum, out: v.dac2, device: fpga_generic, bits: !expr "offline.params.dac_bits", range_v: [-0.5, 0.5],
+                       noise_vrms: 0.0, r_out_ohm: 50.0, r_load_ohm: .inf, toggles: {quantization: true, noise: false, saturation: true}}   # as dac1
+            - block: delay_buffer
+              name: dl2
+              params: {in: v.dac2, out: delay.dl2.out, method: linear,
+                       tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz"}
+            - block: pzt_mirror
+              name: mirror
+              params:
+                in: delay.dl2.out
+                gain_mode: direct
+                k_rad_per_v: !expr "offline.params.mirror_range_rad / offline.params.out_range_v"
+                polarity: 1.0
+                modes: [{f_hz: !expr "offline.params.mirror_f_res_hz", q: !expr "offline.params.mirror_q", r: 1.0}]
+                discretisation: tustin
+                prewarp_hz: !expr "offline.params.mirror_f_res_hz"
+                drive_min_v: !expr "-offline.params.out_range_v"
+                drive_max_v: !expr "offline.params.out_range_v"
+                hysteresis_frac: 0.0     # not documented; toggle off
+                segment: LO_mir
+                driver: stretcher
+                n_sub: 1
+                sub: [0, 1]
+                ring_len: 0
+                insertion_loss_lin: null
+                toggles: {resonance: true, hysteresis: false, saturation: true, insertion_loss: false}
+          name: act2
+        - seq:                           # fibre stretcher / "fiber phase shifter" (slow drifts) [Ref C §2, Fig. 3]
+            - block: dac
+              name: dac3
+              params: {in: ctrl.sup.u, out: v.dac3, device: fpga_generic, bits: !expr "offline.params.dac_bits", range_v: [-0.5, 0.5],
+                       noise_vrms: 0.0, r_out_ohm: 50.0, r_load_ohm: .inf, toggles: {quantization: true, noise: false, saturation: true}}   # as dac1
+            - block: delay_buffer
+              name: dl3
+              params: {in: v.dac3, out: delay.dl3.out, method: linear,
+                       tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz"}
+            - block: pzt_fiber_stretcher
+              name: stretcher
+              params:
+                in: delay.dl3.out
+                gain_mode: direct
+                k_rad_per_v: !expr "offline.params.stretcher_range_rad / offline.params.out_range_v"
+                polarity: 1.0
+                modes: []                # dynamics not published; Hz–sub-Hz duty (T16 §3.1.5)
+                discretisation: zoh
+                prewarp_hz: null
+                drive_min_v: !expr "-offline.params.out_range_v"
+                drive_max_v: !expr "offline.params.out_range_v"
+                hysteresis_frac: 0.0
+                segment: LO_act
+                driver: stretcher
+                n_sub: 1
+                sub: [0, 1]
+                ring_len: 0
+                insertion_loss_lin: null # on the LO
+                toggles: {resonance: false, hysteresis: false, saturation: true, insertion_loss: false}
+          name: act3
+    name: lockC.stack
+  # ---- metric --------------------------------------------------------------------------------------------------
+  - block: metric_i
+    name: mi
+    params:
+      ports: {"0": {squeezed: sqz, lo: lo}}
+      setpoint_rad: 0.0
+      t_settle_s: 0.02                 # moments start after the lock acquisition from the random initial fibre phase
+                                       # (EOM saturates, the mirror takes over within ~3 ms) [AE]
+
+measure:
+  record:
+    slots: [lock.lockC.err, v.adc, ctrl.pid1.u, ctrl.pid2.u, ctrl.pid3.u, act.eom.dpsi, act.mirror.dpsi,
+            act.stretcher.dpsi]
+    decim: 25                          # 160 kHz ≫ VBW 300 Hz; 25 mod 4 ≠ 0 keeps a time-series 1 MHz dither from aliasing to DC
+  metrics:
+    i:
+      f_max_hz: 8.75e+8                # OPO HWHM κ_c/2π: flat-source range (conv §6, T17)
+      weight: null
+      source: opo
+      lo_mode: null
+      average: exact
+      include_hf_phase_noise: true
+      dither_m_rad: [!expr "offline.params.m_dither_rad"]   # analytic dither (header); [] in the time-series variant
+  esa:                                 # measurement-stage hooks (D58-6); a cw_sideband metric is read at the block's f_s_hz
+    sqz_30m:    {block: esa_30m, metric: i.port0, quadrature_rad: 0.0}
+    anti_30m:   {block: esa_30m, metric: i.port0, quadrature_rad: !pi_frac 0.5}
+    sqz_250m:   {block: esa_250m, metric: i.port0, quadrature_rad: 0.0}
+    anti_250m:  {block: esa_250m, metric: i.port0, quadrature_rad: !pi_frac 0.5}
+    sqz_690m:   {block: esa_690m, metric: i.port0, quadrature_rad: 0.0}
+    anti_690m:  {block: esa_690m, metric: i.port0, quadrature_rad: !pi_frac 0.5}
+    sqz_1210m:  {block: esa_1210m, metric: i.port0, quadrature_rad: 0.0}
+    anti_1210m: {block: esa_1210m, metric: i.port0, quadrature_rad: !pi_frac 0.5}
+    spectrum_sqz:  {block: esa_spec, metric: i.port0, quadrature_rad: 0.0, frontend: frontend, exclude_losses: []}
+    spectrum_anti: {block: esa_spec, metric: i.port0, quadrature_rad: !pi_frac 0.5, frontend: frontend, exclude_losses: []}

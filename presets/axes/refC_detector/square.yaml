@@ -1,0 +1,16 @@
+# Ref C quantum noise lock with a square-law (power) detector instead of the paper's log amplifier
+# (T14 §6.2–§6.3: the law changes the slope at the two lock points by P+/P− but not the SNR; κ_det square 0.97
+# from T14's MC; T14 V7's 3.2 mrad example uses this law). Overlay on refC / refC_nominal (D34 comparison).
+
+offline:
+  params:
+    square_k_v: 1.0e-9                    # detector gain per band-power unit (S_SN·Hz) [AE]; only scales the loop gain
+    kappa_det: 0.97                       # T14 §6.3 MC, square law
+    # exact first-harmonic slope of the square law: b = 2kΔP J1(2m) sin 2Δ0 (T14 §6.2), J1(2m) = m − m³/2 + m⁵/12 + O(m⁷)
+    qnl_slope_v_per_rad: !expr "4 * square_k_v * qnl_p_delta * (m_dither_rad - m_dither_rad**3 / 2 + m_dither_rad**5 / 12)"
+
+pipeline:
+  - name: qnl
+    params:
+      detector_law: square
+      k_det: !expr "offline.params.square_k_v"

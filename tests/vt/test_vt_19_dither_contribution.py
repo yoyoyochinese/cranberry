@@ -6,8 +6,8 @@ quantum-noise detector of ``quantum_noise_power`` averages to P̄ − ΔP·χ·c
 J0(2m) = 0.99384 (conv §6), i.e. the block's noise power responds to the dither exactly as the phase →
 squeezing map assumes. Tolerances: 1e−6 (deterministic, integer number of dither periods).
 
-Still to add by their owners: the Ref C source mapping −5.63 → −5.18 dB and the time-domain PSD check
-(±0.05 dB) via ``phase_to_quadrature`` (WP-F4) and the Ref C preset (WP-I3).
+The Ref C source mapping −5.63 → −5.18 → −4.32 dB and the time-series vs analytic check (±0.05 dB) in the
+closed Ref C loop are in test_vt_19_refC_dither.py (WP-I3).
 """
 
 import math
