@@ -1,10 +1,39 @@
 [project]
 name = "cranberry"
 version = "0.1.0"
-description = "Add your description here"
+description = "Modular simulation of phase-stabilized squeezed light (offline stage + time-loop stage)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "numba>=0.68.1",
     "numpy>=2.5.3",
+    "pyyaml>=6.0.3",
     "scipy>=1.18.1",
+]
+
+[project.optional-dependencies]
+plot = [
+    "matplotlib>=3.11.2",
+]
+
+[project.scripts]
+cranberry = "cranberry.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.5,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --import-mode=importlib"
+markers = [
+    "slow: long-running test (nightly / milestone gate only; PLAN §6.3)",
+    "vt: validation test (protected list; PLAN §6.2, tests/vt/README.md)",
+    "integration: preset-level or cross-module run (PLAN §6.1)",
+    "numba: requires numba JIT compilation (compiled kernels, G01/G02)",
 ]
