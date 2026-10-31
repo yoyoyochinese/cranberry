@@ -9,7 +9,8 @@ Public interface (PLAN §4.2):
 
 Helpers: ``read_input`` (the input document recorded as ``config.input.yaml``), ``validate`` (D34
 checks of a single-run spec by instantiating every block), ``spec_hash``, ``sweep_markers``,
-``ConfigError``; tags in ``config.yaml_io``; evaluator in ``config.expr``; merge, ``extends:`` and
+``ConfigError``; ``resolve_input`` / ``input_tree`` (the unresolved tree a spec carries, so sweeps
+and f_sim rescaling re-evaluate dependent expressions, WP-F2c / D63-9); tags in ``config.yaml_io``; evaluator in ``config.expr``; merge, ``extends:`` and
 the ``!delete`` / ``!replace`` directives in ``config.overlay``; references in ``config.resolve``;
 dB → linear on load in ``config.db``.
 
@@ -21,6 +22,7 @@ inputs give equal specs, and ``load(dump_yaml(spec)) == spec`` (VT-F1).
 from __future__ import annotations
 
 import copy
+import dataclasses
 import hashlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -60,7 +62,15 @@ __all__ = [
     "validate",
     "spec_hash",
     "sweep_markers",
+    "resolve_input",
+    "input_tree",
+    "FrozenExpressionsWarning",
 ]
+
+
+class FrozenExpressionsWarning(UserWarning):
+    """A sweep / f_sim rescaling ran on resolved values only: ``!expr`` / ``!fn`` values that depend on
+    a swept quantity keep the value they had when the spec was resolved (``config.input_tree``)."""
 
 
 def _read(path_or_dict: str | Path | Mapping[str, Any]) -> tuple[dict[str, Any], Path | None]:
@@ -124,7 +134,7 @@ def load(path_or_dict: str | Path | Mapping[str, Any], overlays: Sequence[str | 
     if not isinstance(previous, list):
         raise ConfigError("applied_overlays: must be a list of strings")
     merged["applied_overlays"] = [*previous, *applied]
-    return spec_from_tree(resolve(normalize(merged)))
+    return resolve_input(normalize(merged))
 
 
 def dump_yaml(spec: RunSpec) -> str:
@@ -168,7 +178,43 @@ def to_spec(
         "toggles": dict(toggles or {}),
         "measure": dict(measure or {}),
     }
-    return spec_from_tree(resolve(normalize(tree)))
+    return resolve_input(normalize(tree))
+
+
+def resolve_input(tree: Mapping[str, Any]) -> RunSpec:
+    """Resolve an unresolved config tree (``extends`` / overlays merged, expressions symbolic) into a
+    ``RunSpec`` that carries the tree as ``RunSpec.unresolved`` (WP-F2c)."""
+    tree = copy.deepcopy(dict(tree))
+    return dataclasses.replace(spec_from_tree(resolve(tree)), unresolved=tree)
+
+
+def input_tree(spec: RunSpec) -> dict[str, Any] | None:
+    """The tree to re-resolve ``spec`` from after changing values in it (WP-F2c, D63-9), or None.
+
+    Returns a deep copy of ``spec.unresolved`` with its ``run:`` section replaced by ``spec.run``, so
+    edits of the run settings (``dataclasses.replace(spec, run=...)``: CLI ``--seed``, a seed mode,
+    f_sim) are kept and expressions using ``run.*`` see them. Every expression / ``!fn`` / dB value of
+    the tree is evaluated again when the tree is resolved.
+
+    None (expressions are frozen at their resolved values; callers warn with
+    :class:`FrozenExpressionsWarning`) when
+
+    * the spec carries no tree (built directly with ``RunSpec(...)`` / ``spec_from_tree``), or
+    * the tree no longer matches the spec outside ``run:`` (a section was edited with
+      ``dataclasses.replace``; the edit would otherwise be lost).
+
+    A spec loaded from an already *resolved* document (``dump_yaml`` output, a record's
+    ``config.resolved.yaml``) carries that document: it holds values, not expressions, so dependent
+    values stay frozen without a warning. Sweep from the input document (``config.read_input`` /
+    a record's ``config.input.yaml``) to re-evaluate them.
+    """
+    if spec.unresolved is None:
+        return None
+    if dataclasses.replace(spec_from_tree(resolve(spec.unresolved)), run=spec.run) != spec:
+        return None
+    tree = copy.deepcopy(dict(spec.unresolved))
+    tree["run"] = spec_to_tree(spec)["run"]
+    return tree
 
 
 def spec_hash(spec: RunSpec) -> str:

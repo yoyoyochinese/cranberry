@@ -1,6 +1,8 @@
 """``runner.sweep``: axis expansion (cartesian) and deterministic per-point seeds (PLAN §2.8, D54)."""
 
+import dataclasses
 import math
+import warnings
 
 import pytest
 
@@ -174,7 +176,11 @@ pipeline: []
     q = expand(single, {"offline.tap.il_db": [20.0]})
     assert q[0].values == {"offline.tap.il_db": 20.0}
     assert q[0].spec.offline["tap"]["il_lin"] == pytest.approx(100.0)
-    assert q[0].spec.offline["tap"]["k"] == 6.0  # resolved at load, before the sweep
+    assert q[0].spec.offline["tap"]["k"] == 40.0  # re-evaluated at the point (WP-F2c, D63-9)
+    # the linear name addresses the same parameter (values linear; the dB value as written is dropped)
+    r = expand(single, {"offline.tap.il_lin": [2.0]})
+    assert r[0].spec.offline["tap"]["il_lin"] == pytest.approx(2.0, rel=1e-15)
+    assert r[0].spec.offline["tap"]["k"] == pytest.approx(2 * 10 * math.log10(2.0))  # the expr sees dB
 
 
 def test_recorded_sweep_writes_one_record_per_point(tmp_path):
@@ -193,3 +199,105 @@ def test_recorded_sweep_writes_one_record_per_point(tmp_path):
         assert inv["sweep_point"]["pipeline.n1.params.sigma"] == r.spec.pipeline.children[0].params["sigma"]
         assert record.load_record(r.run_dir) == r.spec
         assert config.load(r.run_dir / "config.input.yaml") == spec  # the sweep's input document
+
+
+# ----------------------------------------------------- WP-F2c: re-evaluation of dependent expressions
+
+DEP = """
+preset: deptest
+run: {duration_s: 1.0e-3, f_sim_hz: 2.0e7, chunk_samples: 64, seed: 3, seed_mode: per_point}
+offline:
+  params: {latency_s: 1.0e-6, dL_m: 0.5}
+  dl: {tau_s: !expr "params.latency_s - 1 / run.f_sim_hz"}
+topology:
+  segments:
+    - {id: arm1, L_m: 2.0}
+    - {id: arm2, L_m: !expr "arm1.L_m + offline.params.dL_m"}
+pipeline: []
+"""
+
+
+def _tau(spec):
+    return spec.offline["dl"]["tau_s"]
+
+
+def test_f_sim_axis_re_evaluates_dependent_expressions():
+    spec = config.load(loads_yaml(DEP))
+    assert _tau(spec) == pytest.approx(1e-6 - 1 / 2e7)
+    pts = expand(spec, {"run.f_sim_hz": [2e7 * k for k in (1, 2, 4)]})
+    for k, p in zip((1, 2, 4), pts):
+        assert p.spec.run.f_sim_hz == 2e7 * k
+        assert _tau(p.spec) == pytest.approx(1e-6 - 1 / (2e7 * k), abs=1e-18)
+    assert pts[0].spec == dataclasses.replace(spec, run=pts[0].spec.run)  # ×1 reproduces the spec
+
+
+def test_axis_feeding_an_expression_changes_the_dependent_value_at_every_point():
+    spec = config.load(loads_yaml(DEP))
+    pts = expand(spec, {"offline.params.dL_m": [0.0, 0.25, 1.0], "offline.params.latency_s": [2e-6, 3e-6]})
+    assert len(pts) == 6
+    for p in pts:
+        v = p.values
+        assert p.spec.topology["segments"][1]["L_m"] == 2.0 + v["offline.params.dL_m"]
+        assert _tau(p.spec) == pytest.approx(v["offline.params.latency_s"] - 1 / 2e7)
+        assert p.spec.run.seed == point_seed(3, v)  # per_point seeds unchanged
+        config.validate(p.spec)
+    # an axis on a computed value replaces the expression; others still follow their inputs
+    (q,) = expand(spec, {"topology.segments.arm2.L_m": [7.0]})
+    assert q.spec.topology["segments"][1]["L_m"] == 7.0
+
+
+def test_markers_and_common_seed_mode_with_dependent_expressions():
+    text = DEP.replace("dL_m: 0.5", "dL_m: !sweep [0.0, 1.0, 3]").replace("per_point", "common")
+    pts = expand(config.load(loads_yaml(text)), {"run.f_sim_hz": [1e7, 4e7]})
+    assert [list(p.values) for p in pts][0] == ["offline.params.dL_m", "run.f_sim_hz"]
+    for p in pts:
+        assert p.spec.run.seed == 3
+        assert p.spec.topology["segments"][1]["L_m"] == 2.0 + p.values["offline.params.dL_m"]
+        assert _tau(p.spec) == pytest.approx(1e-6 - 1 / p.values["run.f_sim_hz"])
+
+
+def test_unresolved_tree_is_not_part_of_the_spec_identity():
+    spec = config.load(loads_yaml(DEP))
+    assert spec.unresolved is not None and "unresolved" not in repr(spec)
+    text = config.dump_yaml(spec)
+    assert "!expr" not in text
+    again = config.load(loads_yaml(text))
+    assert again == spec and config.spec_hash(again) == config.spec_hash(spec)
+    bare = config.spec_from_tree(config.spec_to_tree(spec))
+    assert bare.unresolved is None and bare == spec
+
+
+def test_run_edits_are_kept_and_points_can_be_expanded_again():
+    spec = config.load(loads_yaml(DEP))
+    edited = dataclasses.replace(spec, run=dataclasses.replace(spec.run, seed=9, f_sim_hz=1e7, seed_mode="common"))
+    (p,) = expand(edited, {"offline.params.dL_m": [1.0]})
+    assert p.spec.run.seed == 9 and p.spec.run.seed_mode == "common"
+    assert _tau(p.spec) == pytest.approx(1e-6 - 1 / 1e7)  # the edited run: is what expressions see
+    (pp,) = expand(p.spec, {"run.f_sim_hz": [4e7]})  # a point carries its own unresolved tree
+    assert _tau(pp.spec) == pytest.approx(1e-6 - 1 / 4e7)
+    assert pp.spec.topology["segments"][1]["L_m"] == 3.0
+
+
+def test_without_an_unresolved_tree_expressions_are_frozen_with_a_warning():
+    from cranberry.config import FrozenExpressionsWarning
+
+    spec = config.load(loads_yaml(DEP))
+    bare = config.spec_from_tree(config.spec_to_tree(spec))  # e.g. RunSpec(...) built in Python
+    with pytest.warns(FrozenExpressionsWarning, match="no unresolved tree"):
+        (p,) = expand(bare, {"run.f_sim_hz": [4e7]})
+    assert _tau(p.spec) == _tau(spec)  # frozen at the 20 MHz value
+    # edited outside run: -> the stale tree is not used (the edit wins), with a warning
+    topo = {**spec.topology, "extra": 1}
+    with pytest.warns(FrozenExpressionsWarning, match="edited outside run"):
+        (q,) = expand(dataclasses.replace(spec, topology=topo), {"run.f_sim_hz": [4e7]})
+    assert q.spec.topology["extra"] == 1 and _tau(q.spec) == _tau(spec)
+    # loaded from an already resolved document: values only, frozen, no warning (documented)
+    resolved = config.load(loads_yaml(config.dump_yaml(spec)))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        (r,) = expand(resolved, {"run.f_sim_hz": [4e7]})
+        assert len(expand(bare)) == 1  # no axis: nothing to warn about
+    assert _tau(r.spec) == _tau(spec)
+    # the input document (config.read_input) re-evaluates
+    (s,) = expand(config.load(config.read_input(loads_yaml(DEP))), {"run.f_sim_hz": [4e7]})
+    assert _tau(s.spec) == pytest.approx(1e-6 - 1 / 4e7)

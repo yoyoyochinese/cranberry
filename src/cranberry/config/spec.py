@@ -95,7 +95,17 @@ class RunSettings:
 
 @dataclass(frozen=True)
 class RunSpec:
-    """Complete, resolved configuration of one run (after overlays and callables, WP-F2)."""
+    """Complete, resolved configuration of one run (after overlays and callables, WP-F2).
+
+    ``unresolved`` (WP-F2c, D63-9; additive) is the tree the spec was resolved from: the input
+    document with ``extends`` / overlays merged but ``!expr`` / ``!fn`` / ``!pi_frac`` still symbolic
+    and dB names as written. ``runner.sweep.expand`` and ``runner.convergence('f_sim')`` set axis
+    values (``run.f_sim_hz``, ...) in this tree and resolve again, so dependent expressions are
+    re-evaluated (``config.input_tree``). It is set by ``config.load`` / ``config.to_spec`` / ``expand``
+    and is None for a spec built directly (``RunSpec(...)``, ``spec_from_tree``). It is not part of
+    the spec's identity: it is excluded from ``==``, ``repr``, :func:`spec_to_tree`, ``dump_yaml``,
+    ``spec_hash`` and the run record (a reloaded resolved document carries values, not expressions).
+    """
 
     run: RunSettings
     pipeline: SeqSpec
@@ -105,6 +115,7 @@ class RunSpec:
     measure: Mapping[str, Any] = field(default_factory=dict)
     preset: str | None = None
     overlays: tuple[str, ...] = ()
+    unresolved: Mapping[str, Any] | None = field(default=None, compare=False, repr=False)
 
 
 #: Allowed top-level keys of a config tree. ``extends`` (base preset) and ``overlays`` are applied by

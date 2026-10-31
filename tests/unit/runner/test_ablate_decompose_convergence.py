@@ -80,7 +80,10 @@ def refa_metric_spec(n=4000, f_sim=1.0e6, topo=None):
 
 
 def test_convergence_checks():
-    rep = convergence(refa_metric_spec())
+    from cranberry.config import FrozenExpressionsWarning
+
+    with pytest.warns(FrozenExpressionsWarning):  # RunSpec(...) built in Python: no unresolved tree (WP-F2c)
+        rep = convergence(refa_metric_spec())
     assert rep.checks["chunk"]["passed"] is True and rep.checks["chunk"]["values"]["chunk_samples"] == [1000, 334]
     f = rep.checks["f_sim"]
     assert f["passed"] is True and set(f["values"]) == {"x2", "x4"}

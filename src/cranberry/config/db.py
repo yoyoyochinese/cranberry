@@ -42,9 +42,9 @@ from typing import Any
 
 from cranberry.config.spec import ConfigError
 from cranberry.config.yaml_io import Expr, Fn
-from cranberry.core.units import db_to_lin, dbc_per_hz_to_s_phi
+from cranberry.core.units import db_to_lin, dbc_per_hz_to_s_phi, lin_to_db, s_phi_to_dbc_per_hz
 
-__all__ = ["DB_RENAMES", "linear_name", "db_value_to_linear", "linearize", "LINEARIZED_SECTIONS"]
+__all__ = ["DB_RENAMES", "linear_name", "db_value_to_linear", "linear_value_to_db", "linearize", "LINEARIZED_SECTIONS"]
 
 #: dB suffix → (linear suffix, scalar conversion, expression template). Longest suffix first.
 DB_RENAMES: tuple[tuple[str, str, Any, str], ...] = (
@@ -89,6 +89,30 @@ def db_value_to_linear(name: str, value: Any, where: str = "") -> Any:
             f"{at}: a dB parameter needs a number, a list of numbers or a callable !expr (converted to linear "
             f"on load, G16-i), got {v!r}; give the linear value under {linear_name(name)!r} instead"
         )
+
+    return one(value, where or name)
+
+
+#: Inverse conversions (linear value → value as written under the dB name), by dB suffix.
+_TO_DB = {"_dbc_per_hz": lambda v: float(s_phi_to_dbc_per_hz(v)), "_db_per_hz": lambda v: float(lin_to_db(v)),
+          "_db": lambda v: float(lin_to_db(v))}
+
+
+def linear_value_to_db(name: str, value: Any, where: str = "") -> Any:
+    """Inverse of :func:`db_value_to_linear` for numbers and (nested) lists of numbers: the value to
+    write under dB name ``name`` so that it loads as the linear ``value`` (used by ``runner.sweep``
+    for an axis named by the linear name of a parameter written in dB, WP-F2c)."""
+    rule = _rule(name)
+    if rule is None:
+        raise ConfigError(f"{where or name}: {name!r} is not a dB parameter name")
+    inv = _TO_DB[rule[0]]
+
+    def one(v: Any, at: str) -> Any:
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return inv(v)
+        if isinstance(v, list):
+            return [one(x, f"{at}[{i}]") for i, x in enumerate(v)]
+        raise ConfigError(f"{at}: a linear value for the dB parameter {name!r} must be a number or a list, got {v!r}")
 
     return one(value, where or name)
 

@@ -7,13 +7,19 @@ Checks (WP-F4). Quantities are ``RunResult.summary()`` keys (metric moments, R�
 mean / std / rms), with their tolerances::
 
     measure:
-      convergence: {quantities: {<summary key>: <tolerance>, ...}, seeds: [<int>, ...]}
+      convergence: {quantities: {<summary key>: <tolerance>, ...}, seeds: [<int>, ...], keep_rate: [<block>, ...]}
 
 * ``chunk``: the spec and the same spec with another ``chunk_samples`` (``chunk_samples`` argument;
   None → ⌊chunk/3⌋ + 1) give bit-identical recorded series and final state (G11; a difference is a bug).
-* ``f_sim``: f_sim × each of ``f_sim_factors`` (2, 4) through ``runner.sweep.expand`` (so expressions
-  depending on ``run.f_sim_hz``, e.g. ``tau_s = τ_L − 1/f_sim`` of D55 rule 1, are re-evaluated), same
-  root seed; passed when |q(k·f_sim) − q(f_sim)| ≤ tolerance/3 for every quantity.
+* ``f_sim``: f_sim × each of ``f_sim_factors`` (2, 4) through ``runner.sweep.expand``, same root seed;
+  passed when |q(k·f_sim) − q(f_sim)| ≤ tolerance/3 for every quantity. ``run.f_sim_hz`` is set in
+  the spec's unresolved tree and the tree is resolved again (WP-F2c, D63-9), so expressions depending
+  on it, e.g. ``tau_s = τ_L − 1/f_sim`` of D55 rule 1, are re-evaluated (a spec without an unresolved
+  tree warns, ``config.FrozenExpressionsWarning``). Blocks named in ``keep_rate`` (argument or
+  ``measure.convergence.keep_rate``) keep their physical update rate: their ``rate_div`` is multiplied
+  by the factor (``core.rates.scale_rate_divs``, as ``with_f_sim``; the factors must then be
+  integers). A ``rate_div`` written as an ``!expr`` of ``run.f_sim_hz`` follows by itself and must not
+  be listed.
 * ``seed``: one run per seed of ``seeds``; mean and standard deviation of every quantity (a conclusion
   must exceed the spread, prompt §8); passed when 10 ≤ len(seeds) ≤ 30.
 * ``n_sub``: every topology segment's ``n_sub`` doubled (subsegment indices remapped: point k → 2k,
@@ -155,11 +161,14 @@ def convergence(
     f_sim_factors: Sequence[float] = (2, 4),
     chunk_samples: int | None = None,
     mode: str = "auto",
+    keep_rate: Sequence[str] | None = None,
 ) -> ConvergenceReport:
     """Run the requested convergence checks and return the report (module docstring).
 
-    ``quantities`` ({summary key: tolerance}) and ``seeds`` default to ``spec.measure["convergence"]``.
+    ``quantities`` ({summary key: tolerance}), ``seeds`` and ``keep_rate`` (block names) default to
+    ``spec.measure["convergence"]``.
     """
+    from cranberry.core.rates import scale_rate_divs
     from cranberry.runner.run import _as_runspec, run
     from cranberry.runner.sweep import expand
 
@@ -170,6 +179,7 @@ def convergence(
     cfg = (rs.measure or {}).get("convergence") or {}
     quantities = dict(cfg.get("quantities") or {}) if quantities is None else dict(quantities)
     seeds = cfg.get("seeds") if seeds is None else seeds
+    keep_rate = list(cfg.get("keep_rate") or ()) if keep_rate is None else list(keep_rate)
     if any(w in ("f_sim", "n_sub") for w in what) and not quantities:
         raise KeyError("convergence f_sim / n_sub need quantities {summary key: tolerance} "
                        "(argument or measure.convergence.quantities)")
@@ -193,7 +203,12 @@ def convergence(
         pts = expand(common, {"run.f_sim_hz": [f0 * float(k) for k in f_sim_factors]})
         vals, ok = {}, True
         for k, p in zip(f_sim_factors, pts):
-            cmp = _compare(ref, run(p.spec, mode=mode).summary(), quantities)
+            ps = p.spec
+            if keep_rate:
+                if isinstance(k, bool) or int(k) != k:
+                    raise ValueError(f"convergence f_sim with keep_rate needs integer factors, got {k!r}")
+                ps = dataclasses.replace(ps, pipeline=scale_rate_divs(ps.pipeline, int(k), keep_rate))
+            cmp = _compare(ref, run(ps, mode=mode).summary(), quantities)
             ok &= all(abs(c["change"]) <= c["tolerance"] / 3 for c in cmp.values())
             vals[f"x{k:g}"] = cmp
         report.checks["f_sim"] = {"passed": bool(ok), "values": vals,

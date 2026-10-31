@@ -11,12 +11,26 @@ Axes:
 * ``axes = {dotted path: values}`` adds axes or replaces a marker's values; paths are those printed
   by ``config.resolve.path_str`` (``topology.segments.arm2.where.dL``, ``pipeline.lock1.pid.params.kp``,
   ``run.f_sim_hz``; ``[i]`` for unnamed list elements). A dB parameter is addressed by its name as
-  written (``pipeline.x.params.il_db``) even when the spec already holds the linear ``il_lin``; the
-  values are then dB and each point is converted (``config.db``).
+  written (``pipeline.x.params.il_db``, values in dB) or by its linear name (``...il_lin``, linear
+  values; written back in dB so that expressions reading the dB name follow, equal to the axis value
+  up to float rounding); each point is converted (``config.db``).
 
 The points are the cartesian product of the axes in tree order (explicit axes not on a marker
-follow, in the given order). Each point is resolved again (expressions depending on an axis are
-evaluated).
+follow, in the given order).
+
+Re-evaluation (WP-F2c, D63-9): each point starts from the spec's *unresolved* tree
+(``config.input_tree``: the input document with ``extends`` / overlays merged, expressions still
+symbolic, ``run:`` from ``spec.run``), gets the axis values, and is then resolved, so every ``!expr`` /
+``!fn`` depending on an axis (e.g. ``tau_s: !expr "1e-6 - 1/run.f_sim_hz"``, arm lengths from a
+swept ΔL) is evaluated at that point, and dB → linear (D56-1) happens after. An axis may name a value
+that an expression computes (the axis value replaces the expression). A spec without a usable tree
+(built with ``RunSpec(...)`` / ``spec_from_tree``, or edited outside ``run:`` with
+``dataclasses.replace``) is expanded from its resolved values: expressions already evaluated stay
+frozen, with a :class:`~cranberry.config.FrozenExpressionsWarning` when there is an axis. A spec
+loaded from a resolved document (``dump_yaml`` output, a record's ``config.resolved.yaml``) holds
+values only, so its former expressions are frozen too (no warning: nothing in it is symbolic); sweep
+the input document (``config.read_input``, ``config.input.yaml``) instead. Each point carries its own
+unresolved tree, so it can be expanded / rescaled again.
 
 Seeds (``run.seed_mode``, D34 option; required when there is an axis, no default):
 
@@ -33,7 +47,9 @@ needed). A spec without any axis gives one point with the ``per_point`` derivati
 
 from __future__ import annotations
 
+import copy
 import itertools
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,8 +57,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from cranberry.config import ConfigError, sweep_markers
-from cranberry.config.db import linear_name
+from cranberry.config import ConfigError, FrozenExpressionsWarning, input_tree, resolve_input, sweep_markers
+from cranberry.config.db import linear_name, linear_value_to_db
 from cranberry.config.resolve import (
     _convert_pi_frac,
     find_markers,
@@ -50,10 +66,9 @@ from cranberry.config.resolve import (
     normalize,
     parse_path,
     path_str,
-    resolve,
     set_path,
 )
-from cranberry.config.spec import SEED_MODES, spec_from_tree, spec_to_tree
+from cranberry.config.spec import SEED_MODES, spec_to_tree
 from cranberry.config.yaml_io import Choice, Sweep, SweepLog, canonical_json
 from cranberry.core.rng import child_seed_sequence
 
@@ -99,25 +114,30 @@ def point_seed(root_seed: int, values: Mapping[str, Any]) -> int:
 
 
 def _db_axis(tree: Any, name: str) -> tuple[tuple[Any, ...], str, str] | None:
-    """(parent path, dB key, linear key) for an explicit axis naming a dB parameter that the
-    (already linearised) spec holds under its linear name; None if ``name`` is not such a path."""
+    """(parent path, axis key, key to drop) for an explicit axis naming a dB parameter by the other
+    name than the tree holds: the dB name while a resolved spec holds the linear one, or the linear
+    name while an unresolved tree holds the dB one; None if ``name`` is not such a path."""
     parent, _, key = name.rpartition(".")
-    lin = linear_name(key) if parent else None
-    if lin is None:
+    if not parent:
         return None
     try:
         p = parse_path(tree, parent)
     except ConfigError:
         return None
     node = get_path(tree, p)
-    if isinstance(node, Mapping) and lin in node and key not in node:
+    if not isinstance(node, Mapping) or key in node:
+        return None
+    lin = linear_name(key)
+    if lin is not None and lin in node:
         return p, key, lin
-    return None
+    db = [k for k in node if isinstance(k, str) and linear_name(k) == key]
+    return (p, key, db[0]) if db else None
 
 
 def expand(spec: RunSpec, axes: Mapping[str, Sequence[Any]] | None = None) -> list[SweepPoint]:
     """Expand the axes of ``spec`` (+ explicit ``axes``) into single-run specs (module docstring)."""
-    tree = spec_to_tree(spec)
+    source = input_tree(spec)
+    tree = source if source is not None else spec_to_tree(spec)
     grid: dict[str, list[Any]] = {}
     paths: dict[str, tuple[Any, ...]] = {}
     db_axes: dict[str, tuple[tuple[Any, ...], str, str]] = {}
@@ -149,21 +169,32 @@ def expand(spec: RunSpec, axes: Mapping[str, Sequence[Any]] | None = None) -> li
             "per_point = a seed derived from the root seed and the point's coordinates, "
             "common = the root seed for every point (common random numbers)"
         )
+    if names and source is None:
+        why = ("carries no unresolved tree (built with RunSpec(...) / spec_from_tree)" if spec.unresolved is None
+               else "was edited outside run: after loading (its unresolved tree no longer matches)")
+        warnings.warn(
+            f"sweep over {names}: the spec {why}, so expressions are frozen at their resolved values; "
+            "load it with config.load / config.to_spec to re-evaluate them (D63-9)",
+            FrozenExpressionsWarning, stacklevel=2,
+        )
     points: list[SweepPoint] = []
     for combo in itertools.product(*(grid[n] for n in names)):
         values = dict(zip(names, combo))
-        point_tree = spec_to_tree(spec)
+        point_tree = copy.deepcopy(tree)
         for name, value in values.items():
             if name in db_axes:
-                parent, key, lin = db_axes[name]
+                parent, key, other = db_axes[name]
                 node = get_path(point_tree, parent)
-                node.pop(lin)
-                node[key] = value  # converted to linear by resolve() below
+                if linear_name(key) == other:  # dB axis, resolved tree holds the linear name
+                    node.pop(other)
+                    node[key] = value  # converted to linear by resolve() below
+                else:  # linear axis, unresolved tree holds the dB name: expressions read the dB value
+                    node[other] = linear_value_to_db(other, value, name)
             else:
                 set_path(point_tree, paths[name], value)
         if not seed_axis:
             point_tree["run"]["seed"] = spec.run.seed if mode == "common" else point_seed(spec.run.seed, values)
-        point = spec_from_tree(resolve(point_tree))
+        point = resolve_input(point_tree)
         left = sweep_markers(point)
         if left:
             raise ConfigError(f"sweep point {values}: unresolved {sorted(left)}")
