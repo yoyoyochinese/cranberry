@@ -1,0 +1,410 @@
+# Reference preset refD: the current DC side-fringe phase lock (D01, D02, D35, D53; PLAN §2.9, §5.2).
+#
+#   Cobrite DX1 (SC) → SMF → Opneti polarizer → PNH1550R5A2 #1 → arm 1: 915B (8669-1) / arm 2: short PM
+#   → PNH1550R5A2 #2 → PDB450C (10³ V/A) → DSC1 (1 MΩ in; out → tee: oscilloscope 1 MΩ ‖ 914) → 914 → 915B
+#
+# Blind reference (D04): built only from manufacturer documents, DECISIONS and physics. Nothing here is
+# fitted to the real setup; `blind/` is never read (PLAN §6.5). Every value carries its source; every
+# quantity the documents do not fix is a NAMED SWEEP AXIS in `offline.params` (D34: no hidden defaults).
+# A single run needs a point: `runner.sweep(spec, axes=...)`, or the overlay `refD_nominal.yaml`.
+#
+# Source tags: "DSC1 p.N" / "PDB p.N" printed pages (devices/dsc1.yaml, devices/pdb450c.yaml);
+# "EO p.N" = 914-915B-Specifications.pdf; T05/T08/T09/T13/T15/T16 = notes; [AE] = agent estimate;
+# [UNVERIFIED] = not from a primary document.
+#
+# Conventions (notes/conventions.md §5, §9): arm 2 (no 915B) = "lo", arm 1 (915B) = "pr",
+# φ_D = φ_lo − φ_pr, lock point +π/2 at S = 0 (D02); coupler sign s and the loop sign are sweep axes.
+# Loop delay (D55-1): total = tau_s + 1/f_sim. τ_L (T15 §2.7(b) fit of the DSC1 −180° point) already
+# contains the 2-point average and the 500 kHz ZOH that the adc / pid / dac blocks model explicitly, so
+# tau_s = τ_L − 1/f_sim − dsc1_explicit_delay_s (1.5 µs); with that the preset's DSC1 chain reaches −180°
+# at ≈ 60 kHz as DSC1 p.2 states (VT-24 test 10). dsc1_explicit_delay_s = 0 gives the literal reading.
+# Actuator placement (WP-I2 integration check, tests/integration/test_refD_actuator_placement.py):
+# a phase actuator writes its δψ to a 1-element driver (n_sub: 1, sub: [0, 1]) read with a SCALAR
+# placement (uniform / actuator); `per_sub` would divide δψ by the segment's n_sub.
+
+preset: refD
+
+run:
+  duration_s: 60.0           # PLAN §2.9 example; tests shorten it
+  f_sim_hz: 1.0e+6           # G10 / D52: refD 1 MHz, PID every 2 samples
+  chunk_samples: 65536
+  seed: 20261031
+  seed_mode: per_point       # D56-2 (required by sweeps)
+
+offline:
+  # Named parameters and sweep axes of Ref D. Paths are the sweep-axis names
+  # (e.g. runner.sweep(spec, axes={"offline.params.dL_m": [...]})).
+  params:
+    # --- optics / geometry -------------------------------------------------------------------------
+    lambda0_m: 1.5488e-6                 # D02 (DX1 set to 1548.8 nm)
+    p_in_w: 3.33e-3                      # D02 (into coupler 1, after attenuator + polarizer)
+    n_g: 1.468                           # PM15-U25D group index [UNVERIFIED], T09/T15 placeholder
+    dL_m: !sweep [0.0, 15.0, 4]          # ΔL = L_arm1 − L_arm2, D53 (0–15 m, centre 9 m)
+    L_arm2_m: 2.1                        # 0.8 m coupler lead + 0.5 m arm-2 fiber + 0.8 m lead (D51-8, D53)
+    L_smf_m: 2.0                         # DX1 → polarizer SMF (D35); length not documented, PLAN §2.9 example
+    kappa1: !sweep [0.485, 0.515, 3]     # PNH1550R5A2 50:50 ± 1.5 % (D51-8)
+    kappa2: !sweep [0.485, 0.515, 3]     # same part (D51-8)
+    coupler_excess_db: !sweep [0.0, 0.3, 2]  # PNH1550R5A2 excess loss < 0.3 dB typ, per coupler (D51-8)
+    il_915b_db: !sweep [0.0, 2.0, 3]     # 915B insertion / bend loss not documented (D36; coil_birefringence 0.01–2 dB [UNVERIFIED])
+    # --- laser (Cobrite DX1 SC, D35, T05 §2.2) ----------------------------------------------------
+    h0_hz2_per_hz: !sweep [8.0e+3, 3.2e+4, 3]   # white FM, D51-9 (SC 80 kHz typ → 2.5e4; D49 8e3 = 25 kHz/π)
+    h_m1_hz2: !sweep [0.0, 5.0e+8, 3]    # flicker FM, T05 §2.2 (0–5e8 Hz², from FWHM < 100 kHz) [AE]
+    # --- environment (D27: parametric models, swept) ---------------------------------------------
+    k_T_rad_per_m_K: !sweep [40.0, 48.0, 3]     # thermal phase coefficient, T08 §2.2 (nominal 44)
+    kappa_tau_s_per_m_K: 3.9e-14         # thermal group-delay coefficient 39 ps/(km·K), T08 §2.3 (Slavík 2015)
+    r_T_k_per_s: !sweep_log [1.0e-5, 1.0e-3, 3]  # ambient drift rate, D27 (T15 §2.11 example 1 mK/s)
+    tau_th_s: !sweep_log [1.0, 3000.0, 3]        # ambient → fiber lag, T08 §2.4 (nominal 300 s, 1–3000 s)
+    h_ref_rad2_hz: !sweep_log [1.0e-3, 4.0, 4]   # f⁻² mechanical phase noise at L_ref = 1 km, T08 §2.5 (Williams 2008)
+    mech_gamma: !choice [1.0, 2.0]       # length exponent, T08 §2.5
+    mech_f_c_hz: !sweep_log [100.0, 1.0e+4, 3]   # f⁻² corner, T08 §2.5 (nominal 1 kHz)
+    mech_rho_0: !sweep [0.0, 0.9, 3]     # arm-to-arm correlation of mechanical noise, T08 §2.8 (unknown)
+    k_eps_rad_per_m: 4.64e+6             # strain phase coefficient ξ_eo·2πn/λ0 = 0.7837·2π·1.468/1548.8 nm, T08 §2.1, T16 V2
+    # --- polarization (T09, D51-2, D51-8) -----------------------------------------------------------
+    D_pol_rad2_per_s: !sweep_log [1.0e-8, 1.0e-2, 4]  # SMF output-state diffusion before the polarizer, T09 §3.6
+    polarizer_er_db: !sweep [26.0, 30.0, 2]   # Opneti ER 30 dB typ, ≥ 28 dB, −2 dB with connectors (D51-8)
+    polarizer_il_db: 0.3                 # Opneti IL 0.3 dB typ (D51-8); bookkeeping only: P_in is measured after it (D02)
+    K_T_rad_per_m_K: !sweep [-3.4, -0.3, 3]   # PM birefringence temperature coefficient, negative (D51-2, D53)
+    dpsi_b0_rad: !sweep [0.0, 6.283185307179586, 4]   # static birefringent phase of arm 1 mod 2π; only the arm difference enters μ (T15 eq. 7)
+    theta_coupler_rad: !sweep [0.0, 0.05617, 3]  # coupler-port slow-axis misalignment: PER ≥ 25 dB ⇔ θ ≤ atan(10^(−25/20)) (D51-8, per_budget)
+    # --- PDB450C (devices/pdb450c.yaml) -------------------------------------------------------------
+    responsivity_a_per_w: !sweep [1.0, 1.03, 2]   # PDB p.19 typ 1.0; p.15 curve 1.03 [manual-fig]
+    eps_r: !sweep [-0.056, 0.056, 3]     # PD responsivity imbalance; CMRR > 25 dB ⇔ |ε_R| < 10^(−25/20) (PDB p.19)
+    i_n_a_rthz: !sweep_log [2.9e-11, 1.18e-10, 3]  # PDB p.19, p.21 (NEP-based 68.6 pA/√Hz in between)
+    v_off0_v: !sweep [-0.015, 0.015, 3]  # RF OUTPUT DC offset < ±15 mV (PDB p.19), plus DSC1 input offset (undocumented)
+    v_off_rate_v_per_s: 0.0              # offset drift rate: not documented (PDB p.8 warm-up only); overlay to explore
+    # --- DSC1 (devices/dsc1.yaml; D35, D53) --------------------------------------------------------
+    dsc1_p: 2.41e-4                      # entered P (D53)
+    dsc1_i: 1.406e-3                     # entered I (D53), per-sample units (DSC1 p.20, D53)
+    dsc1_d: 1.108e-2                     # entered D (D53), per-sample units (DSC1 p.20, D53)
+    dsc1_h_s: 2.0e-6                     # DSC1 p.20 (2·10⁻⁶), devices/dsc1.yaml pid.h_s
+    setpoint_v: 0.0                      # D35 (S = 0)
+    offset_v: 0.0                        # D35 (O = 0)
+    cv_min_v: -4.0                       # D35 (limits −4 … +4 V)
+    cv_max_v: 4.0                        # D35
+    adc_noise_vrms: !sweep [3.0e-4, 5.0e-4, 2]   # DSC1 p.2: 0.3 mV rms over 100 Hz–250 kHz = per-sample std at the 500 kHz PID rate; 5e-4 = −120 dB V²/Hz floor over 250 kHz
+    dsc1_explicit_delay_s: 1.5e-6        # delays modelled by blocks inside τ_L: 2-point average (avg−1)/(2·1 MHz) = 0.5 µs + ZOH of the 500 kHz update h/2 = 1 µs (T15 §2.7(b): both are included in the 5.67 µs fit)
+    latency_s: !choice [5.7e-6, 8.3e-6]  # τ_L: 5.7 µs with the 120 kHz / 100 kHz poles, 8.3 µs pure delay (T15 §2.7(b), D52, dsc1.yaml loop.latency_s)
+    in_out_poles: !choice [true, false]  # input 120 kHz / output 100 kHz first-order poles (on with 5.7 µs; off with 8.3 µs), T15 §2.7(b)
+    r_scope_ohm: 1.0e+6                  # oscilloscope on the DSC1 output tee (D53)
+    r_914_ohm: !sweep_log [1.0e+4, 1.0e+7, 4]   # 914 input impedance unknown (D53, T16 §8 Q4)
+    anti_windup: !choice [none, clamp]   # DSC1 integrator at the CV limit not documented (dsc1.yaml pid.anti_windup)
+    # --- 914 / 915B (EO p.1–2, T16 §3.1, D51-11) --------------------------------------------------
+    dopl_full_m: 1.6e-5                  # 8669-1: 16 µm optical path length, full driver range (EO p.1) → 6.49 rad/V
+    v_full_v: 10.0                       # 914 input ±5 V = full swing (EO p.1)
+    f_res_hz: !sweep_log [5.0e+3, 6.0e+4, 4]   # 915B mechanical resonance, D51-11 (5–60 kHz)
+    q_res: !sweep_log [3.0, 100.0, 4]          # D51-11 (Q 3–100)
+    amp914_slew_v_per_s: 6.7e+5          # input-referred 2π f V_p ≈ 7 V/µs at 52 V for 5 V in (T16 §3.1.4, EO p.2) [AE]
+    loop_sign: !choice [1.0, -1.0]       # σ_act of the 915B / PDB output assignment / DSC1 gain sign (T15 §2.2; unknown)
+    coupler_sign: !choice [1.0, -1.0]    # which coupler output feeds INPUT+ (conv §5)
+
+topology: &topo
+  segments:
+    - id: smf0                           # DX1 → polarizer, SMF (D35); seen by the monitor beam only
+      kind: smf
+      L_m: !expr "offline.params.L_smf_m"
+      n_g: !expr "offline.params.n_g"
+      beta2_s2_per_m: -2.17e-26          # SMF value used for PM too (D49, T06)
+      beta3_s3_per_m: 1.27e-40           # D49, T06
+      zone: lab
+      n_sub: 1
+      spatial: lumped
+      pol_model: jones
+      pol_params: {J_slot: J.smf0}
+      drivers: {}
+    - id: a1                             # arm 1: leads + 915B pigtails (0.5 m, D53) + coil (38 × 0.22 m = 8.4 m [UNVERIFIED], T15 §2.7(d)); L = L_arm2 + ΔL so that ΔL is the swept quantity (D53; nominal 8.4 + 0.5 = 8.9 ≈ 9 m)
+      kind: pm
+      L_m: !expr "offline.params.L_arm2_m + offline.params.dL_m"
+      n_g: !expr "offline.params.n_g"
+      beta2_s2_per_m: -2.17e-26
+      beta3_s3_per_m: 1.27e-40
+      zone: lab
+      n_sub: 1                           # 41–80 ns transit ≪ 1/f_sim: lumped
+      spatial: lumped
+      pol_model: jones
+      pol_params: {J_slot: J.a1}
+      drivers: {dT: uniform, strain: uniform, stretcher: uniform}
+    - id: a2                             # arm 2: 0.8 + 0.5 + 0.8 m (D51-8, D53)
+      kind: pm
+      L_m: !expr "offline.params.L_arm2_m"
+      n_g: !expr "offline.params.n_g"
+      beta2_s2_per_m: -2.17e-26
+      beta3_s3_per_m: 1.27e-40
+      zone: lab
+      n_sub: 1
+      spatial: lumped
+      pol_model: jones
+      pol_params: {J_slot: J.a2}
+      drivers: {dT: uniform, strain: uniform}
+  beams:
+    - {id: mon, source: dx1, path: [{segment: smf0, direction: 1}], freq_offset_hz: 0.0,
+       jones_in: [1, 0], jones_out: [1, 0], power_w: !expr "offline.params.p_in_w", observer: polarizer}
+    - {id: pr, source: dx1, path: [{segment: a1, direction: 1}], freq_offset_hz: 0.0,
+       jones_in: [1, 0], jones_out: [1, 0], power_w: !expr "offline.params.p_in_w / 2", observer: pdb}
+    - {id: lo, source: dx1, path: [{segment: a2, direction: 1}], freq_offset_hz: 0.0,
+       jones_in: [1, 0], jones_out: [1, 0], power_w: !expr "offline.params.p_in_w / 2", observer: pdb}
+  observers:
+    - {id: polarizer, kind: interaction}
+    - {id: pdb, kind: detector}
+  locks:
+    - {id: lockD, combo: {lo: 1, pr: -1}, setpoint: !pi_frac 0.5, observer: pdb}   # conv §5, D02
+  ports: []                              # no squeezing / port metric in Ref D (G13: "not applicable")
+  coef:
+    # phase per driver unit: dT → k_T·L (T08 eq. 2.1), strain → k_ε·L (T08 eq. 2.1), stretcher → 1 rad/rad
+    # group delay: dT → κ_τ·L (T08 eq. 2.4), strain → n_g·L/c [AE], stretcher → n_g/(n ξ_eo ω0) = 1.05e-15 s/rad (T08 §2.3)
+    - {segment: a1, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * (offline.params.L_arm2_m + offline.params.dL_m)"}
+    - {segment: a1, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * (offline.params.L_arm2_m + offline.params.dL_m)"}
+    - {segment: a1, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_rad_per_m * (offline.params.L_arm2_m + offline.params.dL_m)"}
+    - {segment: a1, driver: strain, beam: "*", effect: group_delay, value: !expr "offline.params.n_g * (offline.params.L_arm2_m + offline.params.dL_m) / 299792458.0"}
+    - {segment: a1, driver: stretcher, beam: "*", effect: phase, value: 1.0}
+    - {segment: a1, driver: stretcher, beam: "*", effect: group_delay, value: 1.05e-15}
+    - {segment: a2, driver: dT, beam: "*", effect: phase, value: !expr "offline.params.k_T_rad_per_m_K * offline.params.L_arm2_m"}
+    - {segment: a2, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * offline.params.L_arm2_m"}
+    - {segment: a2, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_rad_per_m * offline.params.L_arm2_m"}
+    - {segment: a2, driver: strain, beam: "*", effect: group_delay, value: !expr "offline.params.n_g * offline.params.L_arm2_m / 299792458.0"}
+
+pipeline:
+  # ---- actuator chain (reads the DSC1 output of the previous sample: the loop closes here, D55-1) ----
+  - block: delay_buffer
+    name: dsc1.latency
+    params: {in: v.dsc1.out, out: delay.dsc1.latency.out, unit: V, method: linear,
+             # D55-1: total loop delay = tau_s + 1/f_sim. τ_L (T15 §2.7(b)) already contains the 2-point
+             # average and the 500 kHz ZOH, which the adc / pid / dac blocks model explicitly
+             # (dsc1_explicit_delay_s), so they are taken out of the delay buffer (no double count).
+             tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz - offline.params.dsc1_explicit_delay_s"}
+  - block: hv_amp_914
+    name: amp914
+    params:
+      in: delay.dsc1.latency.out
+      out: v.amp914
+      poles_hz: [2.95e+4, 1.12e+5]       # T16 §3.1.4 two-pole fit of EO p.2 Fig. 1 (D51-11)
+      discretisation: zoh                # input held by the DAC (zoh exact)
+      prewarp_hz: null
+      input_min_v: -5.0                  # EO p.1 (±5 V full swing)
+      input_max_v: 5.0
+      noise_v_per_rthz: 0.0              # 914 output noise not documented (T16 §3.1.4); toggle off
+      slew_v_per_s: !expr "offline.params.amp914_slew_v_per_s"
+      toggles: {poles: true, slew: false, saturation: true, noise: false}   # T16: linear 2-pole model is the reference, slew optional
+  - block: pzt_fiber_stretcher
+    name: stretcher915b
+    params:
+      in: v.amp914
+      gain_mode: dopl                    # optical-path-length spec, no ξ_eo (conv §4, T16 §3.1.3)
+      dopl_full_m: !expr "offline.params.dopl_full_m"
+      v_full_v: !expr "offline.params.v_full_v"
+      lambda0_m: !expr "offline.params.lambda0_m"
+      polarity: !expr "offline.params.loop_sign"
+      modes: [{f_hz: !expr "offline.params.f_res_hz", q: !expr "offline.params.q_res", r: 1.0}]   # D51-11
+      discretisation: tustin
+      prewarp_hz: !expr "offline.params.f_res_hz"   # maps |H|, arg H at the resonance exactly
+      drive_min_v: -5.0                  # 914 full swing (EO p.1); the DSC1 ±4 V limit acts upstream
+      drive_max_v: 5.0
+      hysteresis_frac: 0.0               # PZT hysteresis not documented (T16 §3.1.2); toggle off
+      segment: a1
+      driver: stretcher
+      n_sub: 1                           # scalar driver (actuator placement convention, header)
+      sub: [0, 1]
+      ring_len: 0
+      insertion_loss_lin: null           # 915B IL is in dc_fringe.t_arm1 (il_915b_db); not registered twice
+      toggles: {resonance: true, hysteresis: false, saturation: true, insertion_loss: false}
+  # ---- laser and environment --------------------------------------------------------------------------
+  - block: laser_source
+    name: dx1
+    params:
+      source: dx1
+      power_w: !expr "offline.params.p_in_w"
+      h0_hz2_per_hz: !expr "offline.params.h0_hz2_per_hz"
+      h_m1_hz2: !expr "offline.params.h_m1_hz2"
+      flicker_f_min_hz: 0.01             # lowest flicker corner [AE]: below 1/duration it is a static offset (G05)
+      flicker_per_decade: 2              # OU sections per decade (_lgs.flicker)
+      rin_psd: [[2.0e+7, 1.0e-14], [1.0e+9, 1.0e-15]]   # D35 (−140 dB/Hz to 20 MHz, −150 dB/Hz to 1 GHz), D49 flat below 100 kHz
+      oob_pairs:
+        - {target: lockD, tau_s: !expr "offline.params.n_g * offline.params.dL_m / 299792458.0"}   # T05 §3.5
+      rin_targets: [pdb]
+      toggles: {fm_white: true, fm_flicker: true, peaks: false, drift: false, dither: false, sbs: false, rin: true}  # D35: dither off, SBS off
+  - block: segment_thermal
+    name: env.thermal
+    params:
+      topology: *topo
+      segments: [a1, a2]
+      tau_th_s: {a1: !expr "offline.params.tau_th_s", a2: !expr "offline.params.tau_th_s"}
+      r_T_k_per_s: !expr "offline.params.r_T_k_per_s"
+      toggles: {drift: true, random: false, periodic: false}
+  - block: segment_mech_noise
+    name: env.mech
+    params:
+      topology: *topo
+      segments: [a1, a2]
+      L_ref_m: 1000.0                    # T08 §2.5
+      gamma: !expr "offline.params.mech_gamma"
+      k_eps_rad_per_m: !expr "offline.params.k_eps_rad_per_m"
+      h_ref_rad2_hz: !expr "offline.params.h_ref_rad2_hz"
+      f_c_hz: !expr "offline.params.mech_f_c_hz"
+      f_lo_hz: 0.1                       # T08 §2.5 (thermal model below)
+      rho_0: !expr "offline.params.mech_rho_0"
+      f_rho_hz: 1.0e+3                   # correlation corner [AE]; T08 §2.8 gives no lab value
+      toggles: {mech: true, peaks: false, correlation: true}
+  # ---- polarization (WP-B7): SMF drift → polarizer → arm Jones → (x, Δχ) for dc_fringe -----------------
+  - block: segment_jones
+    name: pol.jones
+    params:
+      topology: *topo
+      segments:
+        smf0: {model: smf, axis_drivers: [], axis_stokes: [1, 0, 0],
+               D_pol_rad2_per_s: !expr "offline.params.D_pol_rad2_per_s", k_T_rad_per_m_K: 0.0}
+        a1: {model: pm, axis_drivers: [dT], dpsi_b0_rad: !expr "offline.params.dpsi_b0_rad",
+             K_T_rad_per_m_K: !expr "offline.params.K_T_rad_per_m_K",
+             theta_in_rad: !expr "offline.params.theta_coupler_rad", theta_out_rad: !expr "offline.params.theta_coupler_rad"}
+        a2: {model: pm, axis_drivers: [dT], dpsi_b0_rad: 0.0,
+             K_T_rad_per_m_K: !expr "offline.params.K_T_rad_per_m_K",
+             theta_in_rad: !expr "offline.params.theta_coupler_rad", theta_out_rad: !expr "offline.params.theta_coupler_rad"}
+      toggles: {pol_birefringence_drift: true, pol_crosstalk: true, pol_smf_drift: true}
+  # ---- path model (F6) ----------------------------------------------------------------------------------
+  - block: segment_phase
+    name: path.phase
+    params:
+      segments: all
+      toggles: {phase: true, group_delay: true, pm_axis_drift: false}   # jones arms: birefringence in segment_jones
+  - block: beam_assembler
+    name: path.beams
+    params:
+      beams: all
+      sources: {dx1: laser.dx1.phi}
+      toggles: {emission_time: true, polarization: true}
+  - block: lock_error
+    name: path.lock
+    params: {locks: all}                 # lock.lockD.err = φ_D − π/2 (true, out-of-loop phase error)
+  - block: polarizer_projection
+    name: pol.polarizer
+    params:
+      in: beam.mon.jones
+      out_jones: pol.polarizer.jones
+      out_dp: pol.polarizer.dp
+      er_lin: !expr "10 ** (offline.params.polarizer_er_db / 10)"
+      il_lin: !expr "10 ** (offline.params.polarizer_il_db / 10)"
+      segment: smf0
+      applies_to: [probe]
+      source: "Opneti in-line polarizer IL 0.3 dB typ, ER 30 dB typ / ≥ 28 dB (D51-8)"
+      toggles: {pol_drift_before_polarizer: true, pol_extinction: true}
+  - block: per_fringe
+    name: pol.per
+    params:
+      in_jones: pol.polarizer.jones
+      j_pr: [J.a1]
+      j_lo: [J.a2]
+      beam_jones_in: [1, 0]
+      beam_jones_out: [1, 0]
+      out_x: pol.per.x
+      out_dchi: pol.per.dchi
+      toggles: {per_crosscoupling: true}
+  - block: adder
+    name: power.dp                       # δp = RIN + polarizer power drift (polarizer_projection docstring)
+    params: {ins: [laser.dx1.dp, pol.polarizer.dp], gains: [1.0, 1.0], out: v.power.dp, unit: "1"}
+  - block: pd_offset_drift
+    name: pdb.offset
+    params:
+      out: v.pdb.voff
+      offset_v: !expr "offline.params.v_off0_v"
+      r_v_per_s: !expr "offline.params.v_off_rate_v_per_s"
+      toggles: {offset: true, drift: true, random: false}
+  # ---- detector: PDB450C at 10³ V/A into the DSC1 1 MΩ input (devices/pdb450c.yaml, T15 eq. 1–7) ----------
+  - block: dc_fringe
+    name: pdb450c
+    params:
+      in_lo: beam.lo.phi
+      in_pr: beam.pr.phi
+      in_dp: v.power.dp
+      in_voff: v.pdb.voff
+      in_per_x: pol.per.x
+      in_per_dchi: pol.per.dchi
+      out: v.pdb
+      out_err: null                      # the DSC1 reads v (its e = S − v is inside the pid mapping)
+      p_in_w: !expr "offline.params.p_in_w"
+      kappa1: !expr "offline.params.kappa1"
+      kappa2: !expr "offline.params.kappa2"
+      t_arm1: !expr "10 ** (-(2 * offline.params.coupler_excess_db + offline.params.il_915b_db) / 10)"
+      t_arm2: !expr "10 ** (-2 * offline.params.coupler_excess_db / 10)"
+      responsivity_a_per_w: !expr "offline.params.responsivity_a_per_w"
+      eps_r: !expr "offline.params.eps_r"
+      gain_v_per_a: 1.0e+3               # PDB p.19 (high-Z load: DSC1 1 MΩ, DSC1 p.2; 50 Ω out → 5e-5 divider neglected)
+      v_off_v: 0.0                       # offset carried by pdb.offset (in_voff)
+      mu_abs: 1.0                        # μ comes from per_fringe (x, Δχ) (B7 contract)
+      mu_phase_rad: 0.0
+      # γ_coh = exp(−σ²_HF/2), σ²_HF = ∫_{f_N}^∞ 4 sin²(πfτ) h0/f² df ≈ 2π²h0τ − 4π²h0τ²f_N (white FM, f_N τ ≪ 1) [AE, T15 §2.6]
+      gamma_coh: !expr "exp(-0.5 * (2 * pi**2 * offline.params.h0_hz2_per_hz * (offline.params.n_g * offline.params.dL_m / 299792458.0) - 4 * pi**2 * offline.params.h0_hz2_per_hz * (offline.params.n_g * offline.params.dL_m / 299792458.0)**2 * run.f_sim_hz / 2))"
+      per_x: 0.0                         # unused: read from in_per_x (per_crosscoupling on)
+      per_dchi_rad: 0.0                  # unused: read from in_per_dchi
+      coupler_sign: !expr "offline.params.coupler_sign"
+      i_n_a_rthz: !expr "offline.params.i_n_a_rthz"
+      v_sat_v: 4.6                       # PDB p.14 (±4.6 V into high-Z)
+      setpoint_v: !expr "offline.params.setpoint_v"
+      loop_sign: 1.0                     # only used for out_err (null here); the loop sign is the stretcher polarity
+      toggles: {shot_noise: true, electronic_noise: true, rin: true, offset_drift: true, optical_imbalance: true,
+                per_crosscoupling: true, visibility_hf_averaging: true, saturation: true}
+  # ---- DSC1 (devices/dsc1.yaml) -------------------------------------------------------------------------
+  - block: lpf
+    name: dsc1.in_bw
+    params: {in: v.pdb, out: v.dsc1.in, unit: V, order: 1, f_c_hz: 1.2e+5, method: bilinear,   # DSC1 p.1 (120 kHz typ; order not stated)
+             toggles: {enabled: !expr "offline.params.in_out_poles"}}
+  - block: adc
+    name: dsc1.adc
+    params:
+      in: v.dsc1.in
+      out: v.dsc1.adc
+      device: dsc1                       # 16 bit, ±4 V, 2-point average (DSC1 p.1–2)
+      noise_vrms: !expr "offline.params.adc_noise_vrms"
+      toggles: {quantization: true, noise: true, saturation: true}   # D49: quantization on
+  - block: pid
+    name: dsc1.pid
+    rate_div: 2                          # PID update 500 kHz (DSC1 p.2; G10)
+    params:
+      in: v.dsc1.adc
+      out: v.dsc1.cv
+      device: dsc1                       # discretisation dsc1 (DSC1 p.19)
+      anti_windup: !expr "offline.params.anti_windup"
+      # canonical (e = v − S) from the DSC1 entries via hardware.mapping.dsc1_to_canonical (D53, DSC1 p.18–20)
+      kp: !expr "-offline.params.dsc1_p"
+      ki_per_s: !expr "-offline.params.dsc1_i / offline.params.dsc1_h_s"
+      kd_s: !expr "-offline.params.dsc1_d * offline.params.dsc1_h_s"
+      omega_is_rad_per_s: 0.0            # DSC1 has no integrator saturation (p.19)
+      omega_ds_rad_per_s: 0.0            # no derivative filter (p.19)
+      ki2_per_s2: 0.0                    # no double integrator (p.19)
+      setpoint_v: !expr "offline.params.setpoint_v"
+      offset_v: !expr "offline.params.offset_v"
+      u_min_v: !expr "offline.params.cv_min_v"
+      u_max_v: !expr "offline.params.cv_max_v"
+      toggles: {feedback: true, p_term: true, i_term: true, d_term: true}   # D53: P, I, D set
+  - block: lock_supervisor
+    name: dsc1.sup
+    rate_div: 2
+    params:
+      u_in: v.dsc1.cv
+      e_in: v.dsc1.adc
+      true_in: lock.lockD.err
+      out: v.dsc1.sup
+      relock: none                       # DSC1 has no automatic re-acquisition (detection only)
+      # the PID clips at exactly ±4 V; a 1 nV margin makes "at the CV limit" count as saturated
+      u_min_v: !expr "offline.params.cv_min_v + 1.0e-9"
+      u_max_v: !expr "offline.params.cv_max_v - 1.0e-9"
+      t_sat_s: 0.0
+      e_th: 1.0e+9                       # error criterion off (range criterion only)
+      t_e_s: 0.0
+      toggles: {relock: false}
+  - block: dac
+    name: dsc1.dac
+    rate_div: 2                          # output update 500 kHz (DSC1 p.2)
+    params:
+      in: v.dsc1.sup
+      out: v.dsc1.dac
+      device: dsc1                       # 12 bit, ±4 V, 220 Ω (DSC1 p.2)
+      noise_vrms: 0.0                    # output noise not separately documented (T16 §5)
+      r_load_ohm: !expr "1.0 / (1.0 / offline.params.r_scope_ohm + 1.0 / offline.params.r_914_ohm)"   # scope ‖ 914 (D53)
+      toggles: {quantization: true, noise: false, saturation: true}
+  - block: lpf
+    name: dsc1.out_bw
+    params: {in: v.dsc1.dac, out: v.dsc1.out, unit: V, order: 1, f_c_hz: 1.0e+5, method: bilinear,   # DSC1 p.2 note d (100 kHz; order not stated)
+             toggles: {enabled: !expr "offline.params.in_out_poles"}}
+
+measure:
+  record:
+    slots: [lock.lockD.err, v.pdb, v.dsc1.cv, v.dsc1.out, act.stretcher915b.dpsi, pol.per.x, pol.per.dchi]
+    decim: 10
