@@ -1,0 +1,8 @@
+# Ref B with the intracavity loss MEASURED at 100 mW, L = 0.0038 [Ref B §3], instead of the fit
+# L(x) = 0.00249 + 0.00222x [Ref B Eq. (3)] (L(0.745) = 0.00414; T02 §3.3–§3.4, V-B5 / V-B8). Overlay on refB /
+# refB_nominal at pump_w = 0.100 (VT-18): the constant replaces the callable (T02 V-B8: same result either way).
+
+offline:
+  params:
+    loss_ic0: 0.0038             # [Ref B §3] with a 100 mW pump
+    loss_ic1: 0.0                # constant (no pump dependence in this reading)

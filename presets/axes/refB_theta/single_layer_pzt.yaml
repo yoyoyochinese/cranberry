@@ -1,0 +1,15 @@
+# Ref B Fig. 3 dotted curve: θ̃ = 3.9°, the phase fluctuation of the previous setup (ref. [1], Suzuki et al. 2006)
+# [Ref B §3, Fig. 3 caption]. Overlay on refB / refB_nominal (VT-17).
+#
+# The previous setup used single-layer PZTs whose mount resonances were ≈ 2 kHz (14 / 22 kHz with the stack
+# PZTs) [Ref B §3]. Both PZT resonances are set to 2 kHz with the same table acoustics as refB_nominal, so the
+# unity-gain frequencies f_u = loop_gain_frac · f_res/Q drop by 7 / 11. The loop-gain fraction is TUNED [AE] so
+# that the closed-loop rms of Δ is 3.9° at 100 mW (the old setup's own noise level and gains are not known; with
+# refB_nominal's 0.3 the result is ≈ 5.8°; 12-seed mean 3.93°, spread 0.09° at 1 s). Like the 1.5° tuning it
+# fixes only h_ref/f_u.
+
+offline:
+  params:
+    pzt1_f_res_hz: 2.0e+3        # single-layer PZT1 [Ref B §3]
+    pzt3_f_res_hz: 2.0e+3        # single-layer PZT3 [Ref B §3]
+    loop_gain_frac: 0.54         # TUNED [AE]: θ̃ = 3.9° (|L(f_res)| = 0.54, 5.4 dB gain margin)

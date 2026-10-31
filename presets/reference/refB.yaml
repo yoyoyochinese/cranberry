@@ -1,0 +1,626 @@
+# Reference preset refB: sub-threshold bow-tie PPKTP OPO at 860 nm with a co-propagating, dithered probe
+# (Y. Takeno, M. Yukawa, H. Yonezawa, A. Furusawa, Opt. Express 15, 4321 (2007), doi:10.1364/OE.15.004321;
+# D03, D48 §7-9, D51-4, D51-10, D56-9; PLAN §1.2 M3, lock topology `L-B`; 00_summary §2.1 `refB`). WP-I4.
+#
+#   Ti:Sa (MBR110, CW 860 nm) ─┬─ SHG (KNbO3) → pump 430 nm ─────────────────────────────┐   [Ref B §2, Fig. 1]
+#                              ├─ probe: PZT2 (295 kHz dither, FG) → PZT1 (lock 1) ───────┤→ OPO (bow tie, T = 0.123,
+#                              │                                                          │   l ≈ 500 mm, 10 mm PPKTP)
+#                              │      OPO output (squeezed vacuum + transmitted probe, co-propagating)
+#                              │        → 99 %R: 1 % → PD (lock 1: probe DC intensity, demodulated at 295 kHz,
+#                              │                            servo → PZT1: parametric gain at the most de-amplified phase)
+#                              │        → HD (BHD) ← LO
+#                              └─ MCC → LO: PZT3 (lock 2: HD output demodulated at 295 kHz, servo → PZT3)
+#   measurement: HD → spectrum analyser (Agilent E4402B), 1 MHz zero span, RBW 30 kHz, VBW 300 Hz   [Ref B §2, §4]
+#
+# Every value carries its source: [Ref B §x / Fig. y / Eq. (n)] the paper; Dnn decisions; Txx notes; [AE] agent
+# estimate; UNVERIFIED = no primary document. Quantities the paper leaves open are NAMED SWEEP AXES in
+# `offline.params` (D34, refC/refD pattern); a single run needs a point: `runner.sweep(spec, axes=...)` or the
+# overlay `refB_nominal.yaml`. G = 18.7 [Ref B §4] is NOT used (D51-10): x = √(P/P_th), P_th = 180 mW (D48).
+#
+# Conventions (conv §4, §5, §10; D55 rule 4; D56-4): beam phases carry no nominal β·L, static phases are absorbed
+# into set points / frames. The bookkeeping beam `sqz` carries θ_sq: emitted by the laser phase (θ_sq = φ_p/2 +
+# π/2, φ_p = 2φ_L + ψ_pump, the π/2 absorbed) with ½ of the pump-path coefficients, and the OPO segment's
+# detuning coefficient −1/(κ(1 + x²)) (T02 §2.4). The probe `pr_bhd` co-propagates with it from the OPO on (SQ:
+# equal coefficients, VT-22) but its OPO coefficient is −1/(2κ) (VT-23: the probe does not fully follow θ_sq).
+# Lock frames (T14 §4, §5):
+#   lock 1  Φ1 = 2φ_pr − φ_p at the OPO input (beams pr_pd, p_pd). Φ1 = 0 is the most DE-amplified probe phase in
+#           this frame, so `pd1.phi_opa_rad` = π (the block's cos argument is 0 at maximum gain); then
+#           I1 = −2K J1(2m) sin(Φ1 − π) = +K1·Φ1 near the lock point (demod phase −π/2 selects the dither-
+#           synchronous quadrature b, err._common).
+#   lock 2  `bhdbeat` reads φ_p := 2φ_prf at the HD (adder p_bhd) with phi_opa_rad = −π. `prf` is the bookkeeping
+#           beam of the OPO's GAIN FRAME for the transmitted probe: θ_sq's path, but with the probe's OPO detuning
+#           coefficient −1/(2κ). Reason: under detuning the transmitted probe's output singular directions (carrier
+#           along U_min, the dither sidebands' derivative along U_max ⟂ U_min) rotate by −Δ/(2κ), the squeezing
+#           ellipse by −Δ/(κ(1 + x²)) (T02 §2.4, VT-23 unit test); the block amplifies its input phase u about
+#           the frame `ref`, so the OPO rotation must sit in the frame, not in u (else it would be amplified by
+#           A+/A− and the lock-2 zero would follow the ellipse). Without detuning prf ≡ sqz. Then
+#           u = φ_pr − φ_prf + π/2 = π/2 + δu (δu = lock-1 error / 2) and v = φ_LO − φ_prf + π/2.
+#           I2 = −2K2 J1(m)[g_c sin(u − v) + g_s sin(u + v)] = +K2·(φ_LO − φ_prf) (K2 ∝ A+) at u = π/2; an offset
+#           δu moves the zero by tan ε = (A−/A+) tan δu (T14 §3.4; D56-9: 14.64 mrad at x = 0.745, δu = 0.1 rad).
+#   `lock2` = φ_LO − φ_pr (the LO–probe phase the loop actually holds), `cop` = φ_pr − θ_sq at the HD (co-
+#   propagation residual: 0 for shared segments, (c_pr − c_sq)·Δ_opo on the OPO segment), metric (i) Δ = φ_LO − θ_sq.
+# Loop delay (D55-1, D61-2): no block models a part of τ_L explicitly, tau_s = τ_L − 1/f_sim. Integral servos,
+# unity-gain frequency f_u = loop_gain_frac · f_res/Q of the PZT in the loop: |L(f_res)| = loop_gain_frac, i.e. the
+# resonance limits the usable gain ("higher resonant frequencies → larger feedback gain", [Ref B §3]). The gains
+# are normalised with the x-dependent error slopes (A±(x)), so f_u does not change along a pump-power sweep.
+#
+# How θ̃ ≈ 1.5° (and the 3.9° of the dotted curve) is reached (VT-17, prompt §7-9 per D48): Ref B states that the
+# phase fluctuation is set by the feedback (PZT resonance → loop gain) and the error-signal SNR [Ref B §3]. The
+# preset models the in-loop-uncorrected disturbance as table-top acoustic phase noise on the free-space paths
+# (segment_mech_noise, T08 §2.5 shape h/f² with corner f_c; amplitude NOT published: axis `h_ref_rad2_hz`). Its
+# nominal value in refB_nominal.yaml is TUNED [AE] so that the closed-loop rms of Δ is 1.5° with the stack-PZT
+# resonances 14 / 22 kHz [Ref B §3]. The dotted 3.9° curve is the overlay presets/axes/refB_theta/
+# single_layer_pzt.yaml: the single-layer PZTs of ref. [1] with their ≈ 2 kHz resonance [Ref B §3], the same
+# acoustic noise, and a loop-gain fraction TUNED [AE] to 3.9° (Suzuki 2006's own noise level is not known). Both
+# tunings fix only the ratio h_ref/f_u (residual ≈ √(h/f_u)); no physical requirement may be drawn from them.
+# The error-signal SNR (shot noise, sensor) and the OPO-detuning residual add ≪ 1.5° at the nominal point.
+# θ̃ is not constant along the pump axis (≈ 1.8° at 10 mW, 1.5° at 100 mW, 1.47° at 150 mW): lock 1's residual
+# on the probe reaches Δ scaled by A−/A+ = (1 − x)/(1 + x) (T14 §3.4), larger at low x. Fig. 3's curves assume a
+# constant θ̃; the difference stays inside the read accuracy because R′ hardly depends on θ̃ at low x (VT-17).
+#
+# Dither (PLAN §5.3 pattern "timeseries or analytic, not both"): this preset applies the 295 kHz probe dither
+# ANALYTICALLY (baseband error signals with dither_m_rad = m in u and 2m in Φ1, T14 §4–§5); the dither is on the
+# probe only, so it is not in Δ (metric dither_m_rad: []). The PZT2 chain (sine_injection → pzt_mirror on the
+# probe path, driver `dither`) is present but off; presets/axes/refB_dither/timeseries.yaml puts the dither into
+# the time series (RF-rate error signals and demodulators).
+
+preset: refB
+
+run:
+  duration_s: 0.12           # ESA zero span 0.1 s [Ref B Fig. 2: 100 ms] after the metric settle of 0.01 s
+  f_sim_hz: 2.0e+6           # G10 / D52: refB 2 MHz (f_N = 1 MHz > f_m = 295 kHz for the time-series dither)
+  chunk_samples: 262144      # results independent of it (VT-F2)
+  seed: 20261101
+  seed_mode: per_point       # D56-2 (required by sweeps)
+
+topology:
+  segments:
+    # Lengths of Ref B's table-top paths are not published: [AE] values (only the delay mismatch LO − sqz enters,
+    # through the laser frequency noise). Free space n_g 1.0003; β2/β3 = 0 (CW).
+    - {id: PUMP, kind: free_space, L_m: 1.0, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform}}   # SHG → OPO pump path [AE]
+    - {id: PROBE, kind: free_space, L_m: 1.0, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {},
+       drivers: {strain: uniform, mirror: uniform, dither: uniform}}   # split → PZT2 → PZT1 → OPO [Ref B Fig. 1; PZT1 on the probe path is the figure's reading, UNVERIFIED]
+    - {id: LO, kind: free_space, L_m: 1.5, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform, mirror: uniform}}  # MCC → PZT3 → HD [Ref B Fig. 1]
+    - {id: MCC, kind: component, L_m: 0.5, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}   # mode-cleaning cavity on the LO [Ref B Fig. 1]; ψ written by `mcc` (T05 §6)
+    - {id: OPO, kind: opo, L_m: 0.5, n_g: 1.0, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {detuning: uniform}}   # round trip ≈ 500 mm [Ref B §2]; per-beam detuning coefficients (D47, T02 §2.4)
+    - {id: SQ, kind: free_space, L_m: 1.0, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {strain: uniform}}   # OPO → 99 %R → HD: squeezed light + probe (shared) [AE length]
+  beams:
+    - {id: p_pd, source: shg, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.1, observer: opo,
+       path: [{segment: PUMP, direction: 1}]}                                         # pump at the OPO (100 mW [Ref B §4])
+    - {id: pr_pd, source: tisa, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.p_pd_w", observer: opo,
+       path: [{segment: PROBE, direction: 1}]}                                        # probe at the OPO input (lock-1 phase reference)
+    - {id: sqz, source: tisa, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: hd,
+       path: [{segment: PUMP, direction: 1}, {segment: OPO, direction: 1}, {segment: SQ, direction: 1}]}   # θ_sq bookkeeping beam (header)
+    - {id: pr_bhd, source: tisa, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: !expr "offline.params.p_pr_w", observer: hd,
+       path: [{segment: PROBE, direction: 1}, {segment: OPO, direction: 1}, {segment: SQ, direction: 1}]}  # transmitted probe, co-propagating
+    - {id: prf, source: tisa, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: hd,
+       path: [{segment: PUMP, direction: 1}, {segment: OPO, direction: 1}, {segment: SQ, direction: 1}]}   # probe gain frame (header)
+    - {id: lo, source: tisa, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 5.5e-3, observer: hd,
+       path: [{segment: LO, direction: 1}, {segment: MCC, direction: 1}]}             # LO 5.5 mW [Ref B §4]
+  observers:
+    - {id: opo, kind: interaction}
+    - {id: hd, kind: detector}
+  locks:   # L-B (00_summary §2.4): true lock combinations (lock_error `le`) + the co-propagation residual
+    - {id: lock1, combo: {pr_pd: 2.0, p_pd: -1.0}, setpoint_rad: 0.0, observer: opo}   # Φ1 (header frame: 0 = most de-amplified)
+    - {id: lock2, combo: {lo: 1.0, pr_bhd: -1.0}, setpoint_rad: 0.0, observer: hd}    # LO–probe
+    - {id: cop, combo: {pr_bhd: 1.0, sqz: -1.0}, setpoint_rad: 0.0, observer: hd}     # probe − θ_sq (VT-22 / VT-23)
+  ports: []  # port-less reference config: metric (i) under port 0, metric (ii) n/a (G13)
+  coef:
+    # free-space strain → phase k0·L (k0 = 2π/λ0, n ≈ 1, ξ_eo = 1), group delay L/c (conv §4). The pump (430 nm)
+    # gets 2k0·L, the θ_sq bookkeeping beam ½ of that (θ_sq = φ_p/2, conv §4).
+    - {segment: PUMP, driver: strain, beam: p_pd, effect: phase, value: !expr "2 * offline.params.k0_rad_per_m * topology.segments.PUMP.L_m"}
+    - {segment: PUMP, driver: strain, beam: sqz, effect: phase, value: !expr "offline.params.k0_rad_per_m * topology.segments.PUMP.L_m"}
+    - {segment: PUMP, driver: strain, beam: prf, effect: phase, value: !expr "offline.params.k0_rad_per_m * topology.segments.PUMP.L_m"}
+    - {segment: PUMP, driver: strain, beam: "*", effect: group_delay, value: !expr "topology.segments.PUMP.L_m / 299792458.0"}
+    - {segment: PROBE, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k0_rad_per_m * topology.segments.PROBE.L_m"}
+    - {segment: PROBE, driver: strain, beam: "*", effect: group_delay, value: !expr "topology.segments.PROBE.L_m / 299792458.0"}
+    - {segment: LO, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k0_rad_per_m * topology.segments.LO.L_m"}
+    - {segment: LO, driver: strain, beam: "*", effect: group_delay, value: !expr "topology.segments.LO.L_m / 299792458.0"}
+    - {segment: SQ, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k0_rad_per_m * topology.segments.SQ.L_m"}
+    - {segment: SQ, driver: strain, beam: "*", effect: group_delay, value: !expr "topology.segments.SQ.L_m / 299792458.0"}
+    # PZT mirrors write phase [rad] into their drivers: coefficient 1 (conv §9)
+    - {segment: PROBE, driver: mirror, beam: "*", effect: phase, value: 1.0}
+    - {segment: PROBE, driver: mirror, beam: "*", effect: group_delay, value: 0.0}
+    - {segment: PROBE, driver: dither, beam: "*", effect: phase, value: 1.0}
+    - {segment: PROBE, driver: dither, beam: "*", effect: group_delay, value: 0.0}
+    - {segment: LO, driver: mirror, beam: "*", effect: phase, value: 1.0}
+    - {segment: LO, driver: mirror, beam: "*", effect: group_delay, value: 0.0}
+    # OPO cavity detuning Δ [rad/s] (T02 §2.4, opo_cw_spectrum.coef_entries values written as constants, D58-3):
+    # squeezing angle −1/(κ(1 + x²)), transmitted probe −1/(2κ) at the lock-1 extremum
+    - {segment: OPO, driver: detuning, beam: sqz, effect: phase, value: !expr "-1 / (offline.params.kappa_rad_s * (1 + offline.params.x**2))"}
+    - {segment: OPO, driver: detuning, beam: pr_bhd, effect: phase, value: !expr "-0.5 / offline.params.kappa_rad_s"}
+    - {segment: OPO, driver: detuning, beam: prf, effect: phase, value: !expr "-0.5 / offline.params.kappa_rad_s"}
+    - {segment: OPO, driver: detuning, beam: "*", effect: group_delay, value: 0.0}
+
+offline:
+  params:
+    # --- source: bow-tie PPKTP OPO (T02 §3; D48) -------------------------------------------------------------
+    lambda0_m: 8.6e-7                     # Ti:Sa 860 nm [Ref B §2]
+    k0_rad_per_m: !expr "2 * pi / lambda0_m"
+    T_oc: 0.123                           # output-coupler transmittance [Ref B §2]
+    round_trip_m: 0.5                     # "round trip length is about 500 mm" [Ref B §2]
+    p_th_w: 0.180                         # P_th = 180 ± 2 mW [Ref B §4] (from Eq. (4)–(5)); G = 18.7 not used (D51-10)
+    loss_ic0: 0.00249                     # L(x) = 0.00249 + 0.00222x [Ref B Eq. (3)], x = √(P/P_th) (T02 §3.4, D48);
+    loss_ic1: 0.00222                     #   the measured 0.0038 at 100 mW is presets/axes/refB_loss/measured_100mw.yaml
+    pump_w: !choice [0.010, 0.020, 0.050, 0.065, 0.090, 0.100, 0.120, 0.130, 0.150]   # Fig. 3 pump powers [Ref B §4]; 100 mW = Fig. 2
+    x: !expr "sqrt(pump_w / p_th_w)"      # Eq. (5) [Ref B]
+    l_ic: !expr "loss_ic0 + loss_ic1 * x" # L at the operating point (pump_dependent_loss on)
+    kappa_rad_s: !expr "299792458.0 * (T_oc + l_ic) / (2 * round_trip_m)"   # HWHM = γ_B/2, γ_B = c(T + L)/l (T02 §1)
+    a_plus: !expr "1 / (1 - x)"           # quasi-static probe amplitude gains (T14 §1, D51-10)
+    a_minus: !expr "1 / (1 + x)"
+    # --- detection (Ref B §4): η_tot = ρ ζ ξ² η ----------------------------------------------------------------
+    qe: 0.998                             # photodiode quantum efficiency η [Ref B §4]
+    visibility: 0.988                     # homodyne visibility ξ [Ref B §4] (mode-matching efficiency ξ²)
+    propagation: 0.99                     # propagation efficiency ζ [Ref B §4] (incl. the 99 %R tap mirror, T14 §4 [AE])
+    clearance_db: 21.7                    # circuit noise −21.7 dB re shot noise at the LO power 5.5 mW [Ref B §4]
+    p_lo_w: 5.5e-3                        # [Ref B §4]
+    responsivity_a_per_w: !expr "qe * 1.602176634e-19 * lambda0_m / (6.62607015e-34 * 299792458.0)"   # η e λ/(hc), Si S3590-06 [Ref B §2]
+    eta_tot: !expr "T_oc / (T_oc + l_ic) * propagation * visibility**2 * qe"
+    # --- laser: Ti:Sa Coherent MBR110 [Ref B §2]; noise not published (T05 §2.4) --------------------------------------
+    h0_hz2_per_hz: !sweep_log [10.0, 1.0e+4, 4]   # white FM [AE]; enters through the LO–θ_sq delay mismatch (T05 §3.5)
+    peak_area_hz2: !sweep_log [1.0e+4, 1.0e+8, 3] # area of each excess-noise peak at 89 / 177 kHz [Ref B §3 frequencies;
+                                          # height, width and FM/RIN nature not published, T05 §2.4] [AE]
+    peak_quantity: !choice [freq, rin]    # T05 §2.4: FM or RIN (the ERR blocks do not read laser RIN: proposal P-B1)
+    peak_q: 10.0                          # [AE]
+    # --- table-top acoustic phase noise (T08 §2.5 shape; Ref B gives no numbers) --------------------------------------
+    h_ref_rad2_hz: !sweep_log [0.01, 10.0, 4]  # f⁻² level at L_ref = 1 m [AE]; the θ̃ tuning axis (header)
+    mech_f_c_hz: !sweep_log [300.0, 1.0e+4, 3] # f⁻² corner [AE] (T08 §2.5 form)
+    mech_f_lo_hz: 1.0                     # flattening below 1 Hz [AE] (no slow drift model on the table)
+    # --- OPO length (Ref B shows a "Lock Beam" but documents no OPO length lock, T02 §6.1) -------------------------
+    opo_h_m2_hz: !sweep_log [1.0e-20, 1.0e-16, 3]   # round-trip optical path noise h/f² [m²·Hz] [AE]
+    opo_f_c_hz: 2.0e+3                    # [AE]
+    opo_f_lo_hz: 1.0                      # [AE]
+    opo_f_ugf_hz: !sweep_log [1.0e+2, 1.0e+4, 3]    # effective OPO length-lock unity gain [AE]
+    opo_sensor_psd: 0.0                   # length-lock sensor noise [(rad/s)²/Hz] [AE]; toggle off
+    # --- MCC (LO mode cleaner [Ref B Fig. 1]; linewidth not published, T05 §6) --------------------------------------
+    dnu_mcc_hz: !sweep_log [1.0e+5, 1.0e+7, 3]      # used only with presets/axes/refB_mcc/lowpass.yaml [AE]
+    # --- probes and error signals (T14 §4, §5; values not published) ---------------------------------------------
+    f_dither_hz: 2.95e+5                  # 295 kHz, PZT2 resonance [Ref B §3]
+    m_dither_rad: !sweep_log [0.03, 0.3, 3]   # probe phase-modulation depth [AE] ("large enough", [Ref B §3])
+    p_pd_w: !sweep_log [1.0e-7, 1.0e-5, 3]    # probe power at the lock-1 PD without parametric gain (1 % tap) [AE]
+    p_pr_w: !sweep_log [1.0e-9, 1.0e-6, 4]    # probe power at the HD without parametric gain [AE]
+    pd_eta: 0.8                           # lock-1 PD efficiency (T14 §2.5 placeholder)
+    pd_gain_v_per_a: 1.0e+5               # lock-1 PD transimpedance [AE]
+    pd_i_n_a_rthz: 1.0e-12                # lock-1 PD input noise (T14 §2.5 placeholder, high-gain PD)
+    hd_gain_v_per_a: 1.0e+4               # HD transimpedance [AE]
+    hd_i_n_a_rthz: !expr "sqrt(2 * 1.602176634e-19 * responsivity_a_per_w * p_lo_w * 10 ** (-clearance_db / 10))"   # circuit noise at −21.7 dB
+    demod_phase_rad: !pi_frac -0.5        # I = b (the dither-synchronous quadrature, err._common)
+    demod_lpf_hz: 3.0e+4                  # demodulation low pass [AE] (≫ loop band, ≪ f_m)
+    # quantum noise of the HD output at f_m with the squeezing lock (lock-2 shot-noise factor, T14 §5): R−(f_m)
+    r_hd_fm: !expr "1 - eta_tot * 4 * x / ((1 + x)**2 + (2 * pi * f_dither_hz / kappa_rad_s)**2)"
+    # error slopes [V/rad] (header frames; J1 by its series, |z| ≤ 0.6: error < 1e−7)
+    j1_2m: !expr "m_dither_rad - m_dither_rad**3 / 2 + m_dither_rad**5 / 12 - m_dither_rad**7 / 144"   # J1(2m)
+    j1_m: !expr "m_dither_rad / 2 - m_dither_rad**3 / 16 + m_dither_rad**5 / 384 - m_dither_rad**7 / 18432"   # J1(m)
+    k1_v_per_rad: !expr "2 * pd_gain_v_per_a * responsivity_a_per_w * pd_eta * p_pd_w * 0.5 * (a_plus**2 - a_minus**2) * j1_2m"   # per rad of Φ1
+    k2_v_per_rad: !expr "2 * j1_m * hd_gain_v_per_a * 2 * responsivity_a_per_w * sqrt(p_lo_w * p_pr_w) * a_plus"            # per rad of Δ
+    # --- servo: generic FPGA stand-in for the home-made servo amplifiers (00_summary §2.1; devices/fpga_generic) -----
+    latency_s: !choice [2.5e-7, 1.0e-6, 2.0e-6]   # τ_L (fpga_generic 0.1–2 µs) [AE]; ≥ 1/f_sim (D55-1)
+    dac_bits: !choice [16, 12]            # fpga_generic
+    out_range_v: 0.5                      # fpga_generic ±0.5 V
+    loop_gain_frac: !sweep [0.1, 0.7, 4]  # |L(f_res)| of each loop [AE] (header)
+    # --- PZT mirrors (Thorlabs AE0203D04 stacks [Ref B §3]; T16 §3.3) -----------------------------------------------
+    pzt1_f_res_hz: !choice [1.4e+4, 2.0e+3]   # PZT1 (lock 1) resonance 14 kHz; ≈ 2 kHz with single-layer PZTs [Ref B §3]
+    pzt3_f_res_hz: !choice [2.2e+4, 2.0e+3]   # PZT3 (lock 2) resonance 22 kHz; ≈ 2 kHz single-layer [Ref B §3]
+    pzt_q: !sweep_log [3.0, 30.0, 3]      # mechanical Q, not published (T16 §3.3) UNVERIFIED
+    pzt_k_rad_per_v: !sweep_log [10.0, 100.0, 3]   # PZT + HV amp phase per controller volt [AE] (AE0203D04 d_x UNVERIFIED, T16 §3.3)
+    pzt2_q: 10.0                          # PZT2 resonance at 295 kHz [Ref B §3], Q [AE] (time-series dither only)
+    f_u1_hz: !expr "loop_gain_frac * pzt1_f_res_hz / pzt_q"
+    f_u2_hz: !expr "loop_gain_frac * pzt3_f_res_hz / pzt_q"
+
+  blocks:
+    - block: opo_cw_spectrum           # bow-tie OPO (T02 §2.1–§2.4; WP-B6)
+      name: opo
+      params:
+        cavity_model: mirror           # κ_T = cT/(2l), κ_L = cL/(2l) (good cavity: −ln(1 − T) is 7 % off, T02 §4)
+        T_oc: !expr "offline.params.T_oc"
+        round_trip_m: !expr "offline.params.round_trip_m"
+        loss_ic: !expr {source: "l0 + l1 * x", where: {l0: offline.params.loss_ic0, l1: offline.params.loss_ic1}, args: [x]}   # [Ref B Eq. (3)]
+        pump_mode: power
+        pump_w: !expr "offline.params.pump_w"
+        p_th_w: !expr "offline.params.p_th_w"
+        detuning_rad_s: 0.0            # the detuning is a time-loop driver (OPO segment); static rotation off (D60-1 pattern)
+        f_s_hz: [2.95e+5, 1.0e+6]      # dither frequency (lock-2 noise) and the ESA frequency 1 MHz [Ref B §4]
+        phi_opa0_rad: 0.0              # conv §4 (D55 rule 4 frame)
+        segment: OPO
+        gain_table_grid: null          # A± written as expressions (offline.params.a_plus/a_minus)
+        coef_table_x: null
+        toggles: {frequency_dependence: true, pump_dependent_loss: true, detuning: false}
+    - block: loss_budget
+      name: optics
+      params:
+        elements:
+          - {id: propagation, eta: !expr "offline.params.propagation", kind: component, applies_to: [bhd], segment: SQ,
+             observer: null, source: "[Ref B §4] propagation efficiency ζ = 0.99"}
+        toggles: {enabled: true}
+    - block: mode_overlap              # squeezed–LO mode matching ξ² (T12 §1.3)
+      name: mm
+      params:
+        overlap: spatial
+        model: eta
+        eta: !expr "offline.params.visibility ** 2"
+        segment: null
+        observer: hd
+        applies_to: [bhd]
+        source: "[Ref B §4] homodyne visibility ξ = 0.988, efficiency ξ²"
+        toggles: {enabled: true}
+    - block: detector_efficiency       # HD QE + circuit noise at 1 MHz (T13; D58-1)
+      name: hd_det
+      params:
+        device: null
+        observer: hd
+        applies_to: [bhd]
+        source: "[Ref B §2, §4] Si S3590-06 QE 0.998; circuit noise −21.7 dB at 5.5 mW LO"
+        f_s_hz: 1.0e+6
+        p_lo_w: !expr "offline.params.p_lo_w"
+        qe: !expr "offline.params.qe"
+        clearance_lin: !expr "10 ** (offline.params.clearance_db / 10)"
+        p_lo_ref_w: !expr "offline.params.p_lo_w"
+        toggles: {qe: true, circuit_noise: true, imbalance_leak: false, freq_response: false, dip: false,
+                  subtract_dark: true}   # Fig. 3 curves / R′± = −9.22/+15.15 dB are circuit-noise subtracted [Ref B §4]
+    - block: esa_zero_span             # Agilent E4402B: 1 MHz, RBW 30 kHz, VBW 300 Hz [Ref B §4, Fig. 2]
+      name: esa_zs
+      params:
+        f_s_hz: 1.0e+6
+        rbw_hz: 3.0e+4
+        vbw_hz: 300.0
+        enbw_factor: !expr "sqrt(pi / (4 * log(2)))"   # Gaussian RBW, −3 dB width = RBW (M1-A-05)
+        rbw_shape: gaussian            # swept-tuned analyser [AE]
+        average: power                 # averaging type not published (T04 §5.2, UNVERIFIED)
+        detector: sample               # [AE]
+        oversample: 4                  # T04 §5.1
+        sweep_time_s: 0.1              # Fig. 2 time axis 100 ms [Ref B]
+        n_points: 1001                 # [AE]
+        n_traces: 20                   # "averaged for 20 times" [Ref B Fig. 2 caption]
+        toggles: {radiometer_noise: true}
+
+pipeline:
+  # ---- laser and noise ------------------------------------------------------------------------------------
+  - block: laser_source               # Ti:Sa Coherent MBR110 [Ref B §2]
+    name: tisa
+    params:
+      source: tisa
+      power_w: !expr "offline.params.p_lo_w"    # not used by the phase model
+      h0_hz2_per_hz: !expr "offline.params.h0_hz2_per_hz"
+      peaks:                          # excess laser noise around 89 and 177 kHz [Ref B §3] (T05 §2.4)
+        - {f_hz: 8.9e+4, q: !expr "offline.params.peak_q", area: !expr "offline.params.peak_area_hz2", quantity: !expr "offline.params.peak_quantity"}
+        - {f_hz: 1.77e+5, q: !expr "offline.params.peak_q", area: !expr "offline.params.peak_area_hz2", quantity: !expr "offline.params.peak_quantity"}
+      oob_pairs:                      # LO vs θ_sq emission-time difference (T05 §3.5): τ_b(lo) − τ_b(sqz)
+        - target: LO
+          tau_s: !expr "abs(topology.segments.LO.L_m * topology.segments.LO.n_g + topology.segments.MCC.L_m * topology.segments.MCC.n_g - topology.segments.PUMP.L_m * topology.segments.PUMP.n_g - topology.segments.OPO.L_m * topology.segments.OPO.n_g - topology.segments.SQ.L_m * topology.segments.SQ.n_g) / 299792458.0"
+      rin_targets: []
+      toggles: {fm_white: true, fm_flicker: false, peaks: true, drift: false, dither: false, sbs: false, rin: false}
+  - block: adder                      # SH output: φ_p = 2 φ_L (conv §4)
+    name: shg
+    params: {ins: [laser.tisa.phi], gains: [2.0], out: pump.shg.phi, unit: rad}
+  - block: segment_mech_noise         # table-top acoustics on the non-common paths (T08 §2.5 shape) [AE level]
+    name: env.mech
+    params:
+      segments: [PUMP, PROBE, LO]
+      L_ref_m: 1.0                    # table-top reference length [AE]
+      gamma: 1.0                      # T08 §2.5
+      k_eps_rad_per_m: !expr "offline.params.k0_rad_per_m"
+      h_ref_rad2_hz: !expr "offline.params.h_ref_rad2_hz"
+      f_c_hz: !expr "offline.params.mech_f_c_hz"
+      f_lo_hz: !expr "offline.params.mech_f_lo_hz"
+      toggles: {mech: true, peaks: false, correlation: false}
+  - block: segment_mech_noise         # acoustics on the shared OPO → HD path (cancels in the co-propagation, VT-22)
+    name: env.shared
+    params:
+      segments: [SQ]
+      L_ref_m: 1.0
+      gamma: 1.0
+      k_eps_rad_per_m: !expr "offline.params.k0_rad_per_m"
+      h_ref_rad2_hz: !expr "offline.params.h_ref_rad2_hz"
+      f_c_hz: !expr "offline.params.mech_f_c_hz"
+      f_lo_hz: !expr "offline.params.mech_f_lo_hz"
+      toggles: {mech: true, peaks: false, correlation: false}
+  - block: opo_detuning_noise         # OPO round-trip length noise → Δ_free (T02 §2.4) [AE level]
+    name: opo_dn
+    params:
+      out: opo.opo_dn.delta_free
+      segment: OPO
+      nu0_hz: !expr "299792458.0 / offline.params.lambda0_m"
+      round_trip_m: !expr "offline.params.round_trip_m"
+      h_m2_hz: !expr "offline.params.opo_h_m2_hz"
+      f_lo_hz: !expr "offline.params.opo_f_lo_hz"
+      f_c_hz: !expr "offline.params.opo_f_c_hz"
+      toggles: {length_noise: true, peaks: false, thermal: false}
+  - block: opo_length_lock            # effective OPO length lock with the "Lock Beam" [Ref B Fig. 1] (T02 §6.1)
+    name: opo_ll
+    params:
+      in: opo.opo_dn.delta_free
+      out: drv.OPO.detuning
+      f_ugf_hz: !expr "offline.params.opo_f_ugf_hz"
+      lock_light_ratio: 1.0           # lock beam in the same cavity mode [AE]
+      offset_rad_s: 0.0
+      sensor_psd: !expr "offline.params.opo_sensor_psd"
+      toggles: {lock: true, sensor_noise: false}
+  - block: sine_injection             # FG → PZT2 at 295 kHz [Ref B §2–§3]; on only in the time-series variant
+    name: dither
+    params: {in: null, out: v.dither, unit: V, freq_hz: !expr "offline.params.f_dither_hz",
+             amplitude: !expr "offline.params.m_dither_rad / offline.params.pzt_k_rad_per_v", toggles: {enabled: false}}
+  - block: pzt_mirror                 # PZT2 (probe phase modulation) [Ref B §2]
+    name: pzt2
+    params:
+      in: v.dither
+      gain_mode: direct
+      k_rad_per_v: !expr "offline.params.pzt_k_rad_per_v"
+      polarity: 1.0
+      modes: [{f_hz: !expr "offline.params.f_dither_hz", q: !expr "offline.params.pzt2_q", r: 1.0}]   # resonance at 295 kHz [Ref B §3]
+      discretisation: tustin
+      prewarp_hz: !expr "offline.params.f_dither_hz"
+      drive_min_v: -1.0e+3
+      drive_max_v: 1.0e+3
+      hysteresis_frac: 0.0
+      segment: PROBE
+      driver: dither
+      n_sub: 1
+      sub: [0, 1]
+      ring_len: 0
+      insertion_loss_lin: null        # probe path
+      toggles: {resonance: false, hysteresis: false, saturation: false, insertion_loss: false}
+  # ---- path model (F6) ---------------------------------------------------------------------------------------
+  - block: segment_phase
+    name: path.phase
+    params:
+      segments: [PUMP, PROBE, LO, OPO, SQ]   # MCC is written by `mcc`
+      toggles: {phase: true, group_delay: true, pm_axis_drift: false}
+  - block: filter_cavity              # MCC on the LO (T05 §6); off here (linewidth unpublished), overlay refB_mcc
+    name: mcc
+    params:
+      segment: MCC
+      beam: lo
+      dnu_fc_hz: !expr "offline.params.dnu_mcc_hz"
+      t0: 1.0                         # LO power is quoted at the HD [Ref B §4]
+      source: "[AE] transmission inside the quoted LO power"
+      in_phase: laser.tisa.phi
+      in_delay_s: !expr "(topology.segments.LO.L_m * topology.segments.LO.n_g + topology.segments.MCC.L_m * topology.segments.MCC.n_g) / 299792458.0"
+      toggles: {lock_residual: false, laser_lowpass: false}
+  - block: beam_assembler
+    name: path.beams
+    params:
+      beams: all
+      sources: {tisa: laser.tisa.phi, shg: pump.shg.phi}
+      toggles: {emission_time: true, polarization: false}
+  - block: lock_error                 # true lock combinations (diagnostics, VT-22/23)
+    name: le
+    params: {locks: all}
+  - block: adder                      # lock-2 gain frame in the HD frame: φ_p := 2 φ_prf (header)
+    name: p_bhd
+    params: {ins: [beam.prf.phi], gains: [2.0], out: pump.bhd.phi, unit: rad}
+  # ---- lock 1: transmitted-probe DC intensity, dither extremum (#2, T14 §4) -----------------------------------
+  - block: parametric_beat_detector
+    name: pd1
+    params:
+      mode: dither
+      in_pr: beam.pr_pd.phi
+      in_p: beam.p_pd.phi
+      out: v.pd1
+      a_plus: !expr "offline.params.a_plus"
+      a_minus: !expr "offline.params.a_minus"
+      phi_opa_rad: !pi_frac 1.0       # frame: Φ1 = 0 is the most de-amplified phase (header)
+      p_in_w: !expr "offline.params.p_pd_w"
+      eta: !expr "offline.params.pd_eta"
+      responsivity_a_per_w: !expr "offline.params.responsivity_a_per_w"
+      gain_v_per_a: !expr "offline.params.pd_gain_v_per_a"
+      i_n_a_rthz: !expr "offline.params.pd_i_n_a_rthz"
+      f_shift_hz: 0.0
+      f_sh_leak_v: 0.0
+      dither_m_rad: !expr "2 * offline.params.m_dither_rad"   # amplitude in Φ1 = 2φ_pr − φ_p (T14 §4)
+      f_dither_hz: !expr "offline.params.f_dither_hz"
+      ram_a: 0.0                      # PZT2 tilt RAM (T14 §4) not published; toggle off
+      ram_phase_rad: 0.0
+      toggles: {shot_noise: true, electronic_noise: true, rf_rate_mode: false, ram_offset: false}
+  - block: demodulator
+    name: dem1
+    params:
+      in: v.pd1
+      in_phase: null
+      out_i: dem.dem1.i
+      out_q: dem.dem1.q
+      lpf_order: 2
+      f_ref_hz: !expr "offline.params.f_dither_hz"
+      phi_d_rad: !expr "offline.params.demod_phase_rad"
+      v_off_v: 0.0
+      lpf_hz: !expr "offline.params.demod_lpf_hz"
+      toggles: {rf_rate_mode: false, demod_offset: false, rf_reference_phase_noise: false}
+  - block: adc
+    name: adc1
+    params:
+      in: dem.dem1.i
+      out: v.adc1
+      device: fpga_generic
+      bits: 16
+      range_v: [-0.5, 0.5]
+      noise_vrms: 0.0
+      avg_samples: 1
+      toggles: {quantization: true, noise: false, saturation: true}   # D49: quantisation on
+  - block: pid
+    name: pid1
+    params:
+      in: v.adc1
+      out: ctrl.pid1.u
+      device: fpga_generic             # Tustin (D56-6)
+      anti_windup: clamp               # [AE]
+      kp: 0.0
+      # Φ1 grows with u (2 rad per rad of probe phase, σ_act = +1) and I1 = +K1 Φ1: negative feedback needs K_i < 0
+      ki_per_s: !expr "-2 * pi * offline.params.f_u1_hz / (offline.params.k1_v_per_rad * 2 * offline.params.pzt_k_rad_per_v)"
+      kd_s: 0.0
+      omega_is_rad_per_s: 0.0
+      omega_ds_rad_per_s: 0.0
+      ki2_per_s2: 0.0
+      setpoint_v: 0.0
+      offset_v: 0.0
+      u_min_v: !expr "-offline.params.out_range_v"
+      u_max_v: !expr "offline.params.out_range_v"
+      toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
+  - block: dac
+    name: dac1
+    params:
+      in: ctrl.pid1.u
+      out: v.dac1
+      device: fpga_generic
+      bits: !expr "offline.params.dac_bits"
+      range_v: [-0.5, 0.5]
+      noise_vrms: 0.0
+      r_out_ohm: 50.0
+      r_load_ohm: .inf                 # high-impedance HV amplifier input [AE]
+      toggles: {quantization: true, noise: false, saturation: true}
+  - block: delay_buffer
+    name: dl1
+    params: {in: v.dac1, out: delay.dl1.out, method: linear, tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz"}   # D55-1
+  - block: pzt_mirror                 # PZT1 (lock-1 actuator, probe path) [Ref B §2–§3]
+    name: pzt1
+    params:
+      in: delay.dl1.out
+      gain_mode: direct
+      k_rad_per_v: !expr "offline.params.pzt_k_rad_per_v"
+      polarity: 1.0
+      modes: [{f_hz: !expr "offline.params.pzt1_f_res_hz", q: !expr "offline.params.pzt_q", r: 1.0}]   # 14 kHz [Ref B §3]
+      discretisation: tustin
+      prewarp_hz: !expr "offline.params.pzt1_f_res_hz"
+      drive_min_v: !expr "-offline.params.out_range_v"
+      drive_max_v: !expr "offline.params.out_range_v"
+      hysteresis_frac: 0.0             # not documented; toggle off
+      segment: PROBE
+      driver: mirror
+      n_sub: 1
+      sub: [0, 1]
+      ring_len: 0
+      insertion_loss_lin: null         # probe path
+      toggles: {resonance: true, hysteresis: false, saturation: true, insertion_loss: false}
+  # ---- lock 2: HD output, probe dither demodulated (#3, T14 §5) ------------------------------------------------
+  - block: bhd_probe_beat
+    name: bhdbeat
+    params:
+      mode: dither
+      in_pr: beam.pr_bhd.phi
+      in_p: pump.bhd.phi
+      in_lo: beam.lo.phi
+      out: v.bhdbeat
+      a_plus: !expr "offline.params.a_plus"
+      a_minus: !expr "offline.params.a_minus"
+      phi_opa_rad: !pi_frac -1.0       # frame offset (header)
+      p_lo_w: !expr "offline.params.p_lo_w"
+      p_pr_w: !expr "offline.params.p_pr_w"
+      noise_rel_shot: !expr "offline.params.r_hd_fm"   # squeezed noise at f_m (T14 §5)
+      responsivity_a_per_w: !expr "offline.params.responsivity_a_per_w"
+      gain_v_per_a: !expr "offline.params.hd_gain_v_per_a"
+      i_n_a_rthz: !expr "offline.params.hd_i_n_a_rthz"
+      f_shift_hz: 0.0
+      dither_m_rad: !expr "offline.params.m_dither_rad"
+      f_dither_hz: !expr "offline.params.f_dither_hz"
+      ram_a: 0.0
+      ram_phase_rad: 0.0
+      toggles: {shot_noise: true, electronic_noise: true, rf_rate_mode: false, ram_offset: false}
+  - block: demodulator
+    name: dem2
+    params:
+      in: v.bhdbeat
+      in_phase: null
+      out_i: dem.dem2.i
+      out_q: dem.dem2.q
+      lpf_order: 2
+      f_ref_hz: !expr "offline.params.f_dither_hz"
+      phi_d_rad: !expr "offline.params.demod_phase_rad"
+      v_off_v: 0.0
+      lpf_hz: !expr "offline.params.demod_lpf_hz"
+      toggles: {rf_rate_mode: false, demod_offset: false, rf_reference_phase_noise: false}
+  - block: adc
+    name: adc2
+    params:
+      in: dem.dem2.i
+      out: v.adc2
+      device: fpga_generic
+      bits: 16
+      range_v: [-0.5, 0.5]
+      noise_vrms: 0.0
+      avg_samples: 1
+      toggles: {quantization: true, noise: false, saturation: true}
+  - block: pid
+    name: pid2
+    params:
+      in: v.adc2
+      out: ctrl.pid2.u
+      device: fpga_generic
+      anti_windup: clamp
+      kp: 0.0
+      # Δ grows with u (σ_act = +1 on the LO) and I2 = +K2 Δ: K_i < 0
+      ki_per_s: !expr "-2 * pi * offline.params.f_u2_hz / (offline.params.k2_v_per_rad * offline.params.pzt_k_rad_per_v)"
+      kd_s: 0.0
+      omega_is_rad_per_s: 0.0
+      omega_ds_rad_per_s: 0.0
+      ki2_per_s2: 0.0
+      setpoint_v: 0.0
+      offset_v: 0.0
+      u_min_v: !expr "-offline.params.out_range_v"
+      u_max_v: !expr "offline.params.out_range_v"
+      toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
+  - block: dac
+    name: dac2
+    params:
+      in: ctrl.pid2.u
+      out: v.dac2
+      device: fpga_generic
+      bits: !expr "offline.params.dac_bits"
+      range_v: [-0.5, 0.5]
+      noise_vrms: 0.0
+      r_out_ohm: 50.0
+      r_load_ohm: .inf
+      toggles: {quantization: true, noise: false, saturation: true}
+  - block: delay_buffer
+    name: dl2
+    params: {in: v.dac2, out: delay.dl2.out, method: linear, tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz"}
+  - block: pzt_mirror                 # PZT3 (lock-2 actuator, LO path) [Ref B §2–§3]
+    name: pzt3
+    params:
+      in: delay.dl2.out
+      gain_mode: direct
+      k_rad_per_v: !expr "offline.params.pzt_k_rad_per_v"
+      polarity: 1.0
+      modes: [{f_hz: !expr "offline.params.pzt3_f_res_hz", q: !expr "offline.params.pzt_q", r: 1.0}]   # 22 kHz [Ref B §3]
+      discretisation: tustin
+      prewarp_hz: !expr "offline.params.pzt3_f_res_hz"
+      drive_min_v: !expr "-offline.params.out_range_v"
+      drive_max_v: !expr "offline.params.out_range_v"
+      hysteresis_frac: 0.0
+      segment: LO
+      driver: mirror
+      n_sub: 1
+      sub: [0, 1]
+      ring_len: 0
+      insertion_loss_lin: null         # LO path
+      toggles: {resonance: true, hysteresis: false, saturation: true, insertion_loss: false}
+  # ---- metric ----------------------------------------------------------------------------------------------------
+  - block: metric_i
+    name: mi
+    params:
+      ports: {"0": {squeezed: sqz, lo: lo}}
+      setpoint_rad: 0.0
+      t_settle_s: 0.01                 # noise generators settle (the loops start at their lock points) [AE]
+
+measure:
+  convergence:
+    keep_rate: [adc1, pid1, dac1, adc2, pid2, dac2]   # instrument-rate blocks (D64-3)
+  record:
+    slots: [lock.lock1.err, lock.lock2.err, lock.cop.err, v.adc1, v.adc2, act.pzt1.dpsi, act.pzt3.dpsi, drv.OPO.detuning]
+    decim: 20                          # 100 kHz ≫ VBW 300 Hz
+    antialias: boxcar                  # D68-5
+  metrics:
+    i:
+      f_max_hz: !expr "offline.params.kappa_rad_s / (2 * pi)"   # OPO HWHM ≈ 6 MHz: flat-source range (conv §6)
+      weight: null
+      source: opo
+      lo_mode: null
+      average: small_angle             # Ref B Eq. (1): R′± = R± cos²θ̃ + R∓ sin²θ̃
+      include_hf_phase_noise: true
+      dither_m_rad: []                 # the dither is on the probe only: not in Δ (header)
+  esa:                                 # measurement-stage hooks (D58-6): Fig. 2 traces (ii) and (iii)
+    squeezed:      {block: esa_zs, metric: i.port0, quadrature_rad: 0.0}
+    anti_squeezed: {block: esa_zs, metric: i.port0, quadrature_rad: !pi_frac 0.5}

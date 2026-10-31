@@ -1,0 +1,16 @@
+# Ref B probe dither in the TIME SERIES instead of analytically (PLAN §5.3 pattern "timeseries or analytic, not
+# both"; T14 §2.1 RF-rate mode). Overlay on refB / refB_nominal (cross-check of the analytic default).
+#
+# The function generator drives PZT2 at 295 kHz [Ref B §2–§3] (sine_injection `dither` → pzt_mirror `pzt2`,
+# driver `dither` on the probe path), so both probe beams carry m sin(2π f_m t) and the lock-1 PD / the HD
+# signals and both demodulators run at the RF rate (f_sim = 2 MHz > 2 f_m). PZT2 is written before
+# `segment_phase` in the same sample and its resonance is off (pure gain), so the dither reaches the detectors
+# without a loop-sample lag (the 3 ns probe-path delay is 0.006 rad at f_m): the demodulation phase stays −π/2.
+# The dither is on the probe only, so the metric is unchanged (dither_m_rad: [] already).
+
+toggles:
+  dither.enabled: true
+  pd1.rf_rate_mode: true
+  bhdbeat.rf_rate_mode: true
+  dem1.rf_rate_mode: true
+  dem2.rf_rate_mode: true
