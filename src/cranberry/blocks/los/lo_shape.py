@@ -17,17 +17,29 @@ reference. Shapes (``shape``, no default, D34):
 Shapes are bin-averaged (32 sub-samples per bin) so that edges move continuously; η_t uses the
 exact ∫|LO|² (the out-of-bin-space part of a sharp edge sees vacuum, also added to ``projection``). ``fit: true`` maximises
 η_t over the shape parameters (gauss: centre and width; rect: start and width; one_sided_exp: delay
-with γ fixed), starting from the moments of u_opt — the setting of the T17 §6.3 numbers (0.951
-Gaussian, 0.864 rectangular, 0.84 one-sided exponential); ``fit: false`` uses the given values.
+with γ fixed), starting from the moments of u_opt — the setting of the T17 §6.3 numbers, as corrected
+by D60-5 / D70-2 (0.955 Gaussian, 0.866 rectangular, 0.84 one-sided exponential; T17 printed 0.951 /
+0.864 from a coarser search); ``fit: false`` uses the given values.
 
-Products: ``lo_mode``, ``eta_t`` = |∫u_LO* u_opt dT|², ``projection`` = source.project(u_LO) →
-(V_−, V_+, θ_off). Losses (G06): η_t as one ``lo_shape`` element (BHD only) at ``observer``; for a
-single-mode source projection and registry agree (V7), for a multimode source the projection is the
-exact value and η_t the single-mode reading (K ≈ 1.1 for the OPO presets, T17 §5.2).
+Products: ``lo_mode``, ``eta_t`` = |∫u_LO* u_opt dT|², ``projection`` → (V_−, V_+, θ_off), ``losses()``.
+
+η_t bookkeeping is single-source (M5-09): ``eta_t_carrier`` (D34, no default) says which product
+carries η_t, and the other one is built without it, so a consumer cannot count it twice:
+
+* ``projection``: ``projection`` = source.project(u_LO) (η_t, the mode-shape θ_off and the out-of-span
+  vacuum included — exact also for a multimode source); the ``lo_shape`` element is registered
+  **disabled** (η = 1).
+* ``registry``: the ``lo_shape`` element (η_t, BHD only, at ``observer``) is enabled and ``projection``
+  is source.project(u_opt) (η_t-free, θ_off = 0); the LossRegistry applies η_t once. Single-mode reading:
+  for a single-mode source both carriers give the same V (V7), for a multimode source the ``projection``
+  carrier is exact (K ≈ 1.1 for the OPO presets, T17 §5.2) and the mode-shape θ_off is lost here.
+
+``mode_overlap_table`` follows the ``projection`` convention (its V_± include η_t; its η_t column is
+informational and must not be registered as a loss as well).
 
 Params (D34): ``source``, ``shape``, ``fit``, shape params as above (``decay_rate_rad_s`` always for
-one_sided_exp), ``observer``, ``source_tag``, ``toggles`` {shape_mismatch}: off ⇒ u_LO = u_opt and the
-element is registered disabled (η = 1).
+one_sided_exp), ``observer``, ``source_tag``, ``eta_t_carrier`` (projection | registry), ``toggles``
+{shape_mismatch}: off ⇒ u_LO = u_opt and the element is registered disabled (η = 1).
 """
 
 from __future__ import annotations
@@ -46,10 +58,11 @@ from cranberry.core.registry import register_block
 from cranberry.offline.loss_registry import LossElement
 from cranberry.offline.source_output import SourceOutput
 
-__all__ = ["LoTemporalShape", "make_lo_temporal_shape", "SHAPES"]
+__all__ = ["LoTemporalShape", "make_lo_temporal_shape", "SHAPES", "ETA_T_CARRIERS"]
 
 KIND = "lo_temporal_shape"
 SHAPES = ("optimal", "gauss", "rect", "one_sided_exp", "cw_digital")
+ETA_T_CARRIERS = ("projection", "registry")
 _SHAPE_PARAMS = {"optimal": (), "gauss": ("center_s", "t0_s"), "rect": ("start_s", "width_s"),
                  "one_sided_exp": ("delay_s",), "cw_digital": ("bhd_bandwidth_hz",)}
 _SUB = 32
@@ -62,9 +75,12 @@ class LoTemporalShape(BaseBlock):
 
     def __init__(self, params: Mapping[str, Any], name: str | None):
         name = name or KIND
-        require(params, "source", "shape", "fit", "observer", "source_tag", block=name)
+        require(params, "source", "shape", "fit", "observer", "source_tag", "eta_t_carrier", block=name)
         if params["shape"] not in SHAPES:
             raise ValueError(f"block {name!r}: shape must be one of {SHAPES}, got {params['shape']!r}")
+        if params["eta_t_carrier"] not in ETA_T_CARRIERS:
+            raise ValueError(f"block {name!r}: eta_t_carrier must be one of {ETA_T_CARRIERS}, "
+                             f"got {params['eta_t_carrier']!r}")
         super().__init__(KIND, name, params)
         shape = params["shape"]
         if shape == "one_sided_exp":
@@ -164,15 +180,19 @@ class LoTemporalShape(BaseBlock):
 
     @property
     def projection(self) -> tuple[float, float, float]:
-        """(V_−, V_+, θ_off) seen by the LO, including the out-of-span vacuum (pure loss ``span_fraction``)."""
+        """(V_−, V_+, θ_off). ``eta_t_carrier: projection``: seen by the LO, including the out-of-span
+        vacuum (pure loss ``span_fraction``); ``registry``: seen by u_opt (η_t-free, module docstring)."""
+        if self.params["eta_t_carrier"] == "registry":
+            vm, vp, th = self.source.project(self.u_opt)
+            return float(vm), float(vp), float(th)
         vm, vp, th = self.source.project(self.lo_mode)
         f = self.span_fraction
         return float(f * vm + 0.5 * (1 - f)), float(f * vp + 0.5 * (1 - f)), float(th)
 
     def losses(self) -> list[LossElement]:
+        on = self._toggles["shape_mismatch"] and self.params["eta_t_carrier"] == "registry"
         return [LossElement(id=f"{self.name}.lo_shape", eta=min(self.eta_t, 1.0), kind="lo_shape", applies_to={"bhd"},
-                            source=str(self.params["source_tag"]), enabled=self._toggles["shape_mismatch"],
-                            observer=str(self.params["observer"]))]
+                            source=str(self.params["source_tag"]), enabled=on, observer=str(self.params["observer"]))]
 
 
 @register_block(KIND)

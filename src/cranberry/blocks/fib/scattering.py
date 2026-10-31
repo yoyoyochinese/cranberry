@@ -50,11 +50,14 @@ import numpy as np
 from scipy.optimize import brentq
 from scipy.special import jv
 
+from cranberry.blocks.fib.mode_overlap import source_from_param
 from cranberry.blocks.fib.gnlse import C_LIGHT, RAMAN_MODELS, l_eff, raman_first_moment_s, raman_response
 from cranberry.blocks.fib.tables import _ascending, _cached
+from cranberry.blocks.source import temporal_modes as tm
 from cranberry.core.block import BaseBlock, Block, require
 from cranberry.core.checks import ChkLog
 from cranberry.core.registry import register_block
+from cranberry.offline.source_output import SourceOutput
 from cranberry.offline.tables import Table, TableCache
 
 __all__ = [
@@ -62,7 +65,7 @@ __all__ = [
     "n_thermal", "raman_gain", "raman_scatter_density", "raman_phase_psd",
     "gawbs_peak_frequencies", "gawbs_field_psd", "gawbs_phase_psd", "gawbs_variances", "gawbs_correlation", "gawbs_mode_photons",
     "sbs_threshold_w", "brillouin_gain_exponent", "brillouin_backscatter_coeff", "backscatter_length",
-    "eps_pol", "mode_weight", "mode_tau_eff", "mode_average", "backscatter_sources", "stray_photons",
+    "eps_pol", "mode_weight", "mode_tau_eff", "mode_average", "resolve_mode", "mode_time", "backscatter_sources", "stray_photons",
     "make_raman_noise_table", "make_gawbs_table", "make_brillouin_table", "make_stray_light_table", "make_sbs_check",
 ]
 
@@ -189,7 +192,8 @@ def gawbs_mode_photons(power_w, g, mode, *, temperature_k, lambda0_m, length_m) 
     """Photons per mode scattered from a co-propagating bright field: Σ_m P σ_m² (|ũ(f_m)|² + |ũ(−f_m)|²)/(2hν0)."""
     fm = _gawbs_modes(g)[0]
     var = gawbs_variances(g, temperature_k=temperature_k, lambda0_m=lambda0_m, length_m=length_m)
-    return float(np.sum(power_w * var * 2 * mode_weight(fm, mode) / (2 * _hnu(lambda0_m))))
+    w = mode_weight(fm, mode) + mode_weight(-fm, mode)  # |ũ(f)|² need not be even for a complex source mode
+    return float(np.sum(power_w * var * w / (2 * _hnu(lambda0_m))))
 
 
 # --- Brillouin, Rayleigh, polarization ---------------------------------------------------------------
@@ -230,39 +234,94 @@ def eps_pol(polarization: str, eps_xt: float, t_perp: float) -> float:
 
 # --- temporal mode -----------------------------------------------------------------------------------
 
-def _check_mode(mode: Mapping[str, Any], name: str) -> None:
+def _check_mode(mode: Any, name: str) -> None:
+    if isinstance(mode, SourceOutput) or (isinstance(mode, Mapping) and "source" in mode):
+        return  # resolved (and checked for a temporal basis) by :func:`resolve_mode`
     require(mode, "shape", block=f"{name}.mode")
     if mode["shape"] == "gaussian":
         require(mode, "t_fwhm_s", block=f"{name}.mode")
     elif mode["shape"] == "exponential":
         require(mode, "tau_eff_s", block=f"{name}.mode")
+    elif mode["shape"] != "numeric":
+        raise ValueError(f"{name}: mode.shape must be one of {MODE_SHAPES} (or mode = {{source: ...}}), "
+                         f"got {mode['shape']!r}")
+
+
+def resolve_mode(mode: Any) -> Mapping[str, Any]:
+    """The ``mode`` param in a form the mode functions take (M5-03, D60-2).
+
+    * ``{shape: gaussian, t_fwhm_s}`` / ``{shape: exponential, tau_eff_s}``: returned as is (parametric).
+    * a temporal :class:`SourceOutput` or ``{source: <block spec | {gaussian: ...} | SourceOutput>}`` (e.g. a
+      nested ``pulsed_opo_source``): its optimal LO mode u(t) (``temporal_modes.optimal_lo_mode``) as
+      ``{shape: numeric, t_s, u}`` — the squeezed mode the LO measures, with its own |ũ(f)|² (not the
+      Lorentz form of ``exponential``; T17 §6). Idempotent.
+    """
+    if isinstance(mode, Mapping) and "source" not in mode:
+        return mode
+    src = mode if isinstance(mode, SourceOutput) else mode["source"]
+    so = src if isinstance(src, SourceOutput) else source_from_param(src)
+    if so.basis != "temporal":
+        raise ValueError("stray-light mode source must be a temporal SourceOutput")
+    return {"shape": "numeric", "t_s": np.asarray(so.grid, dtype=float), "u": tm.optimal_lo_mode(so)[0]}
+
+
+def mode_time(mode: Any, n_pts: int = 4001) -> tuple[np.ndarray, np.ndarray]:
+    """(t, u(t)) of the mode on a uniform grid, intensity centroid ∫t|u|²dt at t = 0, ∫|u|² = 1:
+    ``gaussian`` |u|² ∝ e^{−4 ln2 t²/τ²} (±4τ), ``exponential`` u ∝ e^{−κt} (t ≥ 0, κ = 2/τ_eff, 30/κ
+    long), ``numeric`` / source as given (time origin = the squeezed slot, used for gating, M5-02)."""
+    m = resolve_mode(mode)
+    if m["shape"] == "numeric":
+        t, u = np.asarray(m["t_s"], dtype=float), np.asarray(m["u"], dtype=complex)
+    elif m["shape"] == "gaussian":
+        tau = float(m["t_fwhm_s"])
+        t = np.linspace(-4 * tau, 4 * tau, n_pts)
+        u = np.exp(-2 * np.log(2.0) * (t / tau) ** 2).astype(complex)
     else:
-        raise ValueError(f"{name}: mode.shape must be one of {MODE_SHAPES}, got {mode['shape']!r}")
+        k = 2.0 / float(m["tau_eff_s"])
+        t = (np.arange(2 * n_pts) + 0.5) * (30.0 / k) / (2 * n_pts)
+        u = np.exp(-k * t).astype(complex)
+    dt = t[1] - t[0]
+    u = u / np.sqrt(np.sum(np.abs(u) ** 2) * dt)
+    return t - float(np.sum(t * np.abs(u) ** 2) * dt), u
 
 
-def mode_tau_eff(mode: Mapping[str, Any]) -> float:
-    """τ_eff = |ũ(0)|² = (∫u dt)²: Gaussian 2.129·τ_FWHM (intensity), exponential = given."""
-    if mode["shape"] == "gaussian":
-        return float(mode["t_fwhm_s"]) * np.sqrt(np.pi / np.log(2.0))
-    return float(mode["tau_eff_s"])
+def mode_tau_eff(mode: Any) -> float:
+    """τ_eff = |ũ(0)|² = |∫u dt|²: Gaussian 2.129·τ_FWHM (intensity), exponential = given, source: numeric."""
+    m = resolve_mode(mode)
+    if m["shape"] == "gaussian":
+        return float(m["t_fwhm_s"]) * np.sqrt(np.pi / np.log(2.0))
+    if m["shape"] == "numeric":
+        return tm.tau_eff_s(np.asarray(m["u"]), np.asarray(m["t_s"]))
+    return float(m["tau_eff_s"])
 
 
-def mode_weight(f_hz, mode: Mapping[str, Any]) -> np.ndarray:
+def mode_weight(f_hz, mode: Any) -> np.ndarray:
     """|ũ(f)|² [s]: ``gaussian`` (intensity FWHM τ) τ_eff e^{−4 ln2 (f τ/0.441)²}-type, ``exponential``
-    (u = √(2κ) e^{−κt}, τ_eff = 2/κ) τ_eff/(1 + (π τ_eff f)²). Both integrate to 1."""
+    (u = √(2κ) e^{−κt}, τ_eff = 2/κ) τ_eff/(1 + (π τ_eff f)²), source: ũ(f) = Σ u_n e^{+i2πf t_n} Δt
+    (conv §8 sign). All integrate to 1."""
     f = np.asarray(f_hz, dtype=float)
-    te = mode_tau_eff(mode)
-    if mode["shape"] == "gaussian":
+    m = resolve_mode(mode)
+    if m["shape"] == "numeric":
+        t, u = np.asarray(m["t_s"]), np.asarray(m["u"])
+        ut = np.exp(2j * np.pi * f[..., None] * t) @ u * (t[1] - t[0])
+        return np.abs(ut) ** 2
+    te = mode_tau_eff(m)
+    if m["shape"] == "gaussian":
         return te * np.exp(-np.pi * (te * f) ** 2)
     return te / (1.0 + (np.pi * te * f) ** 2)
 
 
-def mode_average(n_of_f: Callable[[np.ndarray], np.ndarray], mode: Mapping[str, Any], n_pts: int = 4001) -> float:
-    """∫ n(f)|ũ(f)|² df for a smooth density n (Gaussian: ±6σ trapezoid; exponential: f = tan θ/(πτ))."""
-    te = mode_tau_eff(mode)
-    if mode["shape"] == "gaussian":
+def mode_average(n_of_f: Callable[[np.ndarray], np.ndarray], mode: Any, n_pts: int = 4001) -> float:
+    """∫ n(f)|ũ(f)|² df for a smooth density n (Gaussian: ±6σ trapezoid; exponential: f = tan θ/(πτ);
+    source: the 8× zero-padded DFT spectrum of u, ``temporal_modes.mode_spectrum``)."""
+    m = resolve_mode(mode)
+    if m["shape"] == "numeric":
+        f, w = tm.mode_spectrum(np.asarray(m["u"]), np.asarray(m["t_s"]), 8)
+        return float(np.sum(n_of_f(f) * w) * (f[1] - f[0]))
+    te = mode_tau_eff(m)
+    if m["shape"] == "gaussian":
         f = np.linspace(-6, 6, n_pts) / (np.sqrt(2 * np.pi) * te)
-        return float(np.trapezoid(n_of_f(f) * mode_weight(f, mode), f))
+        return float(np.trapezoid(n_of_f(f) * mode_weight(f, m), f))
     th = (np.arange(n_pts) + 0.5) * np.pi / n_pts - np.pi / 2  # midpoint rule in θ
     return float(np.mean(n_of_f(np.tan(th) / (np.pi * te))))
 
@@ -320,7 +379,7 @@ def stray_photons(p: Mapping[str, Any], toggles: Mapping[str, bool], p_avg_w: fl
           "raman": toggles["stray_raman"], "sbs_amplification": False}
     lines, n_raman = backscatter_sources(p, tg, p_avg_w)
     d0, iso, gate, filt, mode = (float(p["probe"]["freq_offset_hz"]), float(p["wdm_isolation_lin"]),
-                                 float(p["t_gate_s"]), p["gbs_filter"], p["mode"])
+                                 float(p["t_gate_s"]), p["gbs_filter"], resolve_mode(p["mode"]))
     if toggles["stray_reflections"]:
         refl = sum(float(r) * float(e) for r, e in p["reflections"])
         lines.append(("reflections", d0, p_avg_w * refl / _hnu(p["lambda0_m"]), float(p["probe"]["linewidth_hz"])))
@@ -472,7 +531,10 @@ class StrayLightTable(_TableBlock):
     t_perp}, ``brillouin`` {g_b_m_per_w, a_eff_m2, nu_b_hz, dnu_b_hz}, ``rayleigh`` {b_r_per_m};
     ``L_m``, ``alpha_per_m``, ``gamma_per_w_m``, ``f_R``, ``raman_model``, ``lambda0_m``, ``temperature_k``;
     ``t_gate_s``, ``reflections`` ([[R_i, ε_i], ...], may be empty), ``gbs_filter`` {shape: flat|gaussian,
-    fwhm_hz}, ``wdm_isolation_lin`` (1 = none), ``mode`` {shape: gaussian, t_fwhm_s | exponential, tau_eff_s}.
+    fwhm_hz}, ``wdm_isolation_lin`` (1 = none), ``mode`` {shape: gaussian, t_fwhm_s | exponential, tau_eff_s}
+    or the source's optimal mode: {source: <nested temporal source spec, e.g. a ``pulsed_opo_source``,
+    or {gaussian: ...}>} or a temporal ``SourceOutput`` (:func:`resolve_mode`; M5-03 — a 1 ps placeholder
+    mode with an ns OPO mode underestimates the Rayleigh photons per mode by 3.5–6.8×10³, T17 §6).
     """
 
     kind_name, table_names = "stray_light_table", ("stray_light",)
@@ -489,8 +551,15 @@ class StrayLightTable(_TableBlock):
         _ascending(name, "p_peak_w", params["p_peak_w"])
         super().__init__(self.kind_name, name, params)
 
-    def _build(self):
+    def tables(self, cache: TableCache | None = None) -> dict[str, Table]:
         p = self.params
+        if isinstance(p["mode"], SourceOutput) or isinstance(p["mode"].get("source"), SourceOutput):
+            p = {**p, "mode": dict(resolve_mode(p["mode"]))}  # arrays hash (the cache key), objects do not
+        return _cached(self.kind_name, self.name, p, cache, self.table_names, lambda: self._build(p))
+
+    def _build(self, p=None):
+        p = dict(p or self.params)
+        p["mode"] = resolve_mode(p["mode"])  # build a nested source once, not per power
         rows = [[stray_photons(p, self._toggles, pk * float(p["duty"]))[c] for c in STRAY_COLUMNS]
                 for pk in np.asarray(p["p_peak_w"], dtype=float)]
         return {"stray_light": Table("stray_light", {"p_peak_w": p["p_peak_w"]}, np.array(rows), "photons",

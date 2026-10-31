@@ -5,6 +5,9 @@
   photon-number quadratures; tangent columns vs central finite
   differences of the B9 map < 1e−6; step halving reduces the error of M by ~16 (12–22).
 * V3 physicality with loss and every noise source: V + iΩ/2 ≥ −1e−12.
+* V3b (M5-01, D70) T = 0 with Raman on, 1 ps soliton over 10 L_D: physical within 1e−9 with the per-step
+  noise injection (6400 steps, any ``n_save``); 400 steps (O(h⁴) tangent error) → CHK
+  ``fiber_quantum_unphysical`` carrying the deficit.
 * V4 linearized Kerr (no dispersion): V_min = ½(√(1+φ²) − φ)² → −4.18/−7.66/−12.54 dB at φ = 0.5/1/2,
   anti-squeezing the sign flip, 0.01 dB (CW sideband path exact; CW on the grid with RK4IP).
 * V5 pure loss: −10 dB input, V_out = ηV_in + (1−η)/2 to 1e−12 (also with dispersion: η × lossless + vacuum).
@@ -17,6 +20,9 @@
   gains N, ΔV/V_SN = 2N), N = ∫ n|ũ|² df = the stray-table photons per mode (1e−5).
 * Stray light: CW 1 mW, b_R = 6.18e−8 /m, 63 m, same polarization: 302.8 photons per 10 ns (0.5 %, T10
   test 6); Borealis-type mode (τ_eff = 14.5 ns): 435 photons per mode (2 %, T17 §6).
+* Stray light in the source's own mode (M5-03): ``mode: {source: <pulsed_opo_source>}`` (or a temporal
+  SourceOutput) gives the T17 per-mode scaling vs a 1 ps Gaussian, 6.8e3 (Borealis) / 3.5e3 (Liu), 2 %,
+  and 435 photons per mode for the Borealis mode; ``stray_light_table`` takes both forms.
 * All toggles off ⇒ identity (bright pulse, squeezed input).
 """
 
@@ -27,6 +33,7 @@ from cranberry.blocks.fib import scattering as sc
 from cranberry.blocks.fib.gnlse import model_from_params, pulse_field, solve_pulsed
 from cranberry.blocks.fib.quantum import TW_TOGGLES, fiber_quantum_linear, fiber_quantum_tw, project_cov
 from cranberry.blocks.fib.quantum_testing import BRILLOUIN, LAMBDA0, PROBE, linear_params, toggles
+from cranberry.blocks.source.pulsed_testing import BOREALIS, LIU, TOGGLES_ON
 from cranberry.core.block import BlockSpec
 from cranberry.core.checks import ChkWarning
 from cranberry.core.registry import make_block
@@ -79,6 +86,27 @@ def test_v3_physical_with_loss_and_all_noise():
     r = fiber_quantum_linear(linear_params(alpha_per_m=0.02, xpm_b=2.0, xpm_power_w=0.01), tg)
     assert gaussian.is_physical(r.cov, tol=1e-12)
     assert all(np.max(np.abs(v)) > 0 for v in r.noise_cov.values())
+
+
+def test_v3b_raman_t0_physical_10_ld():
+    tg = toggles(beta2=True, kerr=True, raman=True, kerr_fluct=True, raman_noise=True)
+    ld = linear_params()["L_m"]
+
+    def blk(n_steps, n_save):
+        p = linear_params(temperature_k=0.0, L_m=10 * ld, steps=dict(n_steps=n_steps, n_save=n_save, control="fixed"))
+        return make_block(BlockSpec("fiber_quantum_linearized", "fq", dict(p, toggles=tg)))
+
+    fine = blk(6400, 16)
+    assert fine.result.lambda_min >= -1e-9
+    assert fine.chk_log.events == []
+    assert gaussian.is_physical(fine.result.cov, tol=1e-9)
+    coarse = blk(400, 16)
+    with pytest.warns(ChkWarning, match="fiber_quantum_unphysical"):
+        lam = coarse.result.lambda_min
+    assert lam < -1e-6
+    assert coarse.chk_log.events[0].context["lambda_min"] == lam
+    # per-step injection: the segment count no longer changes the result (the review's n_save = 1 … 16)
+    np.testing.assert_allclose(blk(400, 1).result.cov, coarse.result.cov, atol=1e-10)
 
 
 @pytest.mark.parametrize("phi, db", [(0.5, -4.18), (1.0, -7.66), (2.0, -12.54)])
@@ -202,6 +230,25 @@ def test_stray_light_references():
     assert st["clicks_per_gate"] == pytest.approx(302.8, rel=0.005)
     st2 = sc.stray_photons(dict(q, rayleigh=dict(b_r_per_m=6.2e-8)), tg, 1e-3)
     assert st2["photons_per_mode"] == pytest.approx(435, rel=0.02)
+
+
+def test_stray_light_in_the_source_mode():
+    tg = dict(stray_rayleigh=True, stray_brillouin=False, stray_raman=False, stray_reflections=False)
+    q = linear_params(L_m=63.0, rayleigh=dict(b_r_per_m=6.2e-8), gbs_filter=dict(shape="flat", fwhm_hz=1e12),
+                      t_gate_s=10e-9, reflections=[], wdm_isolation_lin=1.0, mode=dict(shape="gaussian", t_fwhm_s=1e-12))
+    ps = sc.stray_photons(q, tg, 1e-3)["photons_per_mode"]
+    for base, ratio in ((BOREALIS, 6.8e3), (LIU, 3.5e3)):
+        src = {"block": "pulsed_opo_source", "name": "opo", "params": dict(base, x_ss=2.4, toggles=TOGGLES_ON)}
+        ns = sc.stray_photons(dict(q, mode={"source": src}), tg, 1e-3)["photons_per_mode"]
+        assert ns / ps == pytest.approx(ratio, rel=0.02)
+        if base is BOREALIS:
+            assert ns == pytest.approx(435, rel=0.02)
+            so = make_block(BlockSpec.from_obj(src)).source_output
+            assert sc.stray_photons(dict(q, mode=so), tg, 1e-3)["photons_per_mode"] == pytest.approx(ns, rel=1e-12)
+            for mode in ({"source": src}, so):
+                spec = dict(q, p_peak_w=[1e-3], duty=1.0, toggles=tg, mode=mode)
+                tab = make_block(BlockSpec("stray_light_table", "st", spec)).tables()["stray_light"]
+                assert tab.values[0, 1] == pytest.approx(ns, rel=1e-12)
 
 
 def test_all_toggles_off_identity_bright_pulse():

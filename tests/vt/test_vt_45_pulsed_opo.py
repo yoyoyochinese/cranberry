@@ -9,7 +9,8 @@ vacuum term, V-P2 / V-P3). Tolerances from T17 §7 unless noted:
 * V-P2 vacuum: x_ss = 0 → every eigenvalue 1 within 2(κ_c δt)². V-P3: without the initial-vacuum
   columns the minimum eigenvalue at ρ = 1 is ≈ 0 (regression); with them it is 1.
 * V-P4 purity: ρ = 1 with detuning and a resonant detuned pump: λ_i λ_{2N+1−i} = 1 within 1.3e−3
-  at δt = 1/(40κ_c), decreasing ≈ δt².
+  at δt = 1/(40κ_c), decreasing ≈ δt². V-P4b (M5-07): ``discretization: van_loan`` → min symplectic
+  eigenvalue ≥ 1/2 − 1e−12 (``box``: 1e−4 below), R_− within 0.01 dB of ``box``.
 * V-P5 Borealis K = 1.10 ± 0.01; V-P6 Liu 1/K = 0.975 ± 0.005.
 * V-P7 long pump → CW (non-resonant, x = 0.5): r_0 increases with T_pκ_c = 10, 30 towards 2 artanh x;
   at 30: r_0 within 3 %, detuning rotation within 1 % of −1/(1 + x²) = −0.8 (slow).
@@ -19,7 +20,9 @@ vacuum term, V-P2 / V-P3). Tolerances from T17 §7 unless noted:
 * V-P10 timing: overlap 0.99 / 0.999 at |Δt| = 0.090/κ_c / 0.028/κ_c (±3 %), both presets.
 * V-P11 tail (Borealis, x_ss = 2.4): ε_tail(10 ns) = 0.138, ε_tail(20 ns) = 2.3e−3, ≈ 8.8e^{−2κ_c T} (±10 %).
 * V-P12 short pump T_pκ_c = 0.1, r_0 ≈ 0.5: non-resonant K = 1.001, doubly resonant 1.086 (±0.005).
-* V-P13 pure loss: optimal-mode R_− ≈ ρe^{−2r_0} + 1 − ρ (±0.05 dB); T17 §2.6 x_ss ↔ r_0 table (1 %).
+* V-P13 pure loss: optimal-mode R_− ≈ ρe^{−2r_0} + 1 − ρ (±0.05 dB); T17 §2.6 x_ss ↔ r_0 table (1 %);
+  converged targets (D70-2, M5-04; x_ss = 2.5): Borealis ρ = 0.95 −7.72 / +8.82 dB, Liu ρ = 0.99
+  −8.95 / +9.22 dB (0.01 dB).
 * V-P14 noise in the mode: N = Φ|ũ(f₀)|² (narrow band), N = n₀ (flat): |ũ(0)|² = τ_eff, ∫|ũ|²df = 1
   (1e−6), for the optimal mode and a 1 ps Gaussian (τ_eff = 2√π T0 = 2.13 τ_FWHM).
 * V-P15 FSR comb: T_f = 0 → n_FSR = 0, T_f = 1 → Σ 2 sinh² r_m (exact).
@@ -102,6 +105,20 @@ def test_v_p4_purity():
     e40, e80 = _purity_err(1 / 40), _purity_err(1 / 80)
     assert e40 <= 1.3e-3
     assert 3.0 < e40 / e80 < 5.0
+
+
+@pytest.mark.parametrize("base", [BOREALIS, LIU], ids=["borealis", "liu"])
+def test_v_p4b_van_loan_physical(base):
+    """M5-07: ``discretization: van_loan`` integrates the in-bin noise exactly, so the bin-averaged covariance
+    is physical to rounding (min symplectic eigenvalue ≥ 1/2 − 1e−12); ``box`` violates it by 1e−4 at
+    δt = 1/(40κ_c) (vacuum 1/2). The squeezing level moves by < 0.01 dB."""
+    kc = np.pi * (base.get("fwhm_hz") or base["fsr_hz"] / base["finesse"])
+    for rho in (1.0, 0.95):
+        kw = dict(x_ss=2.5, escape_efficiency=rho, delta_s_rad_s=0.05 * kc, toggles={"detuning": True})
+        vl, box = pulsed_opo(base, discretization="van_loan", **kw), pulsed_opo(base, discretization="box", **kw)
+        assert gaussian.symplectic_eigenvalues(vl.source_output.cov).min() >= 0.5 - 1e-12
+        assert gaussian.symplectic_eigenvalues(box.source_output.cov).min() < 0.5 - 5e-5
+        assert 10 * np.log10(vl.optimal_mode[1] / box.optimal_mode[1]) == pytest.approx(0.0, abs=0.01)
 
 
 # ---------------------------------------------------------------------------------------- V-P5, V-P6
@@ -225,8 +242,16 @@ def test_v_p13_pure_loss(rho):
     r0 = b.supermode_r[0]
     single = 10 * np.log10(rho * np.exp(-2 * r0) + 1 - rho)
     assert 10 * np.log10(b.optimal_mode[1]) == pytest.approx(single, abs=0.05)
-    if rho == 0.95:  # T17 §5.2 quotes −7.66 dB with r_0 = 1.029; its own §2.6 table gives r_0 ≈ 1.04 at 2.5
-        assert 10 * np.log10(b.optimal_mode[1]) == pytest.approx(-7.66, abs=0.1)
+    if rho == 0.95:  # D70-2 / M5-04: converged −7.72 / +8.82 dB (T17 §5.2's −7.66 / +8.75 used r_0 = 1.029)
+        assert 10 * np.log10(b.optimal_mode[1]) == pytest.approx(-7.717, abs=0.01)
+        assert 10 * np.log10(b.r_plus) == pytest.approx(8.821, abs=0.01)
+
+
+def test_v_p13_liu_targets():
+    """D70-2 / M5-04: Liu-type x_ss = 2.5, ρ = 0.99: −8.95 / +9.22 dB (T17 §5.2's −8.99 / +9.26 is off)."""
+    b = pulsed_opo(LIU, x_ss=2.5, escape_efficiency=0.99)
+    assert 10 * np.log10(b.optimal_mode[1]) == pytest.approx(-8.948, abs=0.01)
+    assert 10 * np.log10(b.r_plus) == pytest.approx(9.221, abs=0.01)
 
 
 @pytest.mark.parametrize("base, table", [

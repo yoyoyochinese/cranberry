@@ -54,7 +54,8 @@ def test_pulsed_opo_off_is_cw_opo_bit_identical(detuning):
 def test_matched_pulsed_lo_is_identity():
     src = {"block": "pulsed_opo_source", "name": "opo", "params": dict(BOREALIS, toggles=TOGGLES_ON)}
     lo = make_block(BlockSpec("lo_temporal_shape", "lo", dict(source=src, shape="optimal", fit=False, observer="bhd0",
-                                                              source_tag="[T17 §6.3]", toggles={"shape_mismatch": True})))
+                                                              source_tag="[T17 §6.3]", eta_t_carrier="projection",
+                                                              toggles={"shape_mismatch": True})))
     assert lo.eta_t == pytest.approx(1.0, abs=1e-12)
     assert lo.projection[2] == pytest.approx(0.0, abs=1e-12)
     ov = make_block(BlockSpec("mode_overlap_table", "ov", dict(source=src, dt_grid_s=[0.0], dL_grid_m=[0.0],

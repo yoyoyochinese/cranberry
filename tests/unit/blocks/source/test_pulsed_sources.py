@@ -68,6 +68,12 @@ def test_missing_and_bad_params():
         pulsed_opo(BOREALIS, dt_kappa=0.1)
     with pytest.raises(ValueError):
         pulsed_opo(BOREALIS, toggles={"bogus": True})  # unknown toggle (D34 strict)
+    q = dict(BOREALIS)
+    del q["discretization"]  # M5-07: required, no default (D34)
+    with pytest.raises(MissingParameterError):
+        make_block(BlockSpec("pulsed_opo_source", "o", q))
+    with pytest.raises(ValueError):
+        pulsed_opo(BOREALIS, discretization="exact")
 
 
 def test_opa_supermodes_toggles():
@@ -149,6 +155,22 @@ def test_angle_map_from_pulsed_source_locked_residual():
     d = float(s["opo.o.Delta_s"]) / KC
     assert float(s["psi.opo.sqz"]) / d == pytest.approx(-1.063, abs=0.005)
     assert (float(s["psi.opo.sqz"]) - 0.5 * float(s["psi.opo.pump"])) / d == pytest.approx(-0.543, abs=0.005)
+
+
+def test_angle_map_params_pulsed_off_cw_limit():
+    """M5-08: pulsed off used to KeyError (CW tables are ``.probe`` on axis ``x``). Now the CW Δ_s
+    coefficient −1/(κ(1 + x²)) (T02 §2.4) with c_p = 0; role ``pump`` has no CW table → ValueError."""
+    x = 0.6
+    src = pulsed_opo(BOREALIS, x_ss=x, f_s_hz=[1e6], toggles={"pulsed": False})
+    mp = src.angle_map_params({"sqz": "squeezed", "pr": "probe"})
+    assert mp["x_grid"] == [x] and mp["segment"] == BOREALIS["segment"]
+    assert mp["coef"]["sqz"] == [[pytest.approx(-1 / (KC * (1 + x**2)), rel=1e-12), 0.0]]
+    assert mp["coef"]["pr"] == [[pytest.approx(-1 / (2 * KC), rel=1e-12), 0.0]]
+    spec = _map_spec()
+    spec[-1]["params"].update({**mp, "beams": ["sqz", "pr"]}, x_ss=x)
+    build(spec_from_obj(spec), SlotLayout(1e6), 0)  # a valid opo_angle_map
+    with pytest.raises(ValueError, match="pump"):
+        src.angle_map_params({"sqz": "squeezed", "pump": "pump"})
 
 
 def test_angle_map_bad_coef_shape():

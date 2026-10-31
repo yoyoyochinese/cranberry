@@ -17,6 +17,12 @@ symplectic to round-off for any ``n_z`` (V2). CW check (T03 §2.1): Ã_p → 2π
 b(L) = b cosh r + b† e^{iφ_OPA,0} sinh r, r = √(αP): θ_sq,0 = φ_OPA,0/2 + π/2 (the D55-4 frame).
 Grid resolution is the user's job: ΔΩ must resolve the pump spectrum (~1/T0p) and the GVM sinc
 (~2π/τ_GVM) and NΔΩ must cover the phase-matching bandwidth (T03 §5.2: ps pumps need N ≈ 2400–3200).
+Grid check (M5-05, CHK ``opa_grid_pm_coverage``, at construction): the difference-frequency phase
+matching (Ω_j = −Ω_k = Ω: Δk = −β2,s Ω²) has its first sinc zero at Ω_PM = √(2π/(|β2,s| L)); the
+coverage ratio (NΔΩ/2)/Ω_PM < :data:`PM_COVER_MIN` warns (ratio 0 when β2,s = 0 or ``gvd`` off: the
+band is unbounded). r_0 and the leading supermode converge on a narrow grid, but **K and the total photon
+number Σ sinh² r_n grow with the spectral span NΔΩ** until the band is covered (VT-32 fixture: N =
+128/256/512 at W = 8 ps → K = 24/48/88), so quote K only with a covered grid (``pm_coverage``).
 
 Output basis: the DFT modes f_j(T_n) = e^{−iΩ_j T_n}/√W on T_n = (n − N/2)·W/N (orthonormal; â_j =
 ∫f_j* â dT = b̃(Ω_j)·√(ΔΩ/2π), conv §8 sign). ``cov`` = R Rᵀ/2 with the real symplectic matrix
@@ -53,13 +59,16 @@ from scipy.linalg import expm
 from cranberry.blocks.source import temporal_modes as tm
 from cranberry.blocks.source.pulsed_opo import schmidt_number
 from cranberry.core.block import BaseBlock, Block, require
+from cranberry.core.checks import ChkLog
 from cranberry.core.registry import register_block
 from cranberry.offline.source_output import SourceOutput
 
-__all__ = ["OpaSupermodes", "make_opa_supermodes", "jsa_low_gain", "schmidt_number_jsa"]
+__all__ = ["OpaSupermodes", "make_opa_supermodes", "jsa_low_gain", "schmidt_number_jsa", "PM_COVER_MIN"]
 
 KIND = "opa_supermodes"
 TOGGLES = ("multimode", "gvm", "gvd")
+#: minimum (NΔΩ/2)/Ω_PM before ``opa_grid_pm_coverage`` warns (the sinc tail ∝ 1/Ω² still adds to K)
+PM_COVER_MIN = 3.0
 
 
 def schmidt_number_jsa(f: np.ndarray) -> float:
@@ -98,6 +107,24 @@ class OpaSupermodes(BaseBlock):
                 raise ValueError(f"block {name!r}: n_points must be an even int >= 2 and n_z >= 1")
             if not float(params["pump_fwhm_s"]) > 0 or not float(params["time_window_s"]) > 0:
                 raise ValueError(f"block {name!r}: need pump_fwhm_s > 0 and time_window_s > 0")
+        self.chk_log = ChkLog()
+        if self._toggles["multimode"] and self.pm_coverage < PM_COVER_MIN:
+            self.chk_log.warn("opa_grid_pm_coverage", name,
+                              f"spectral grid half-span NΔΩ/2 covers {self.pm_coverage:.3g}× the phase-matching "
+                              f"bandwidth Ω_PM = {self.omega_pm:.3g} rad/s (< {PM_COVER_MIN:g}): the Schmidt number "
+                              "K and the photon number depend on the grid span (r_0 does not)",
+                              coverage=self.pm_coverage, omega_pm_rad_s=self.omega_pm)
+
+    @property
+    def omega_pm(self) -> float:
+        """Ω_PM = √(2π/(|β2,s| L)) [rad/s] (module docstring; inf if β2,s = 0 or ``gvd`` off)."""
+        b2s = abs(self._coeffs()[1])
+        return float(np.sqrt(2 * np.pi / (b2s * float(self.params["length_m"])))) if b2s > 0 else float("inf")
+
+    @property
+    def pm_coverage(self) -> float:
+        """(NΔΩ/2)/Ω_PM: how far the grid covers the phase-matching band (0 if unbounded)."""
+        return float(int(self.params["n_points"]) * self.d_omega / 2 / self.omega_pm)
 
     def __call__(self, state, params):
         return state  # offline block: not a time-loop stage

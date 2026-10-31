@@ -29,7 +29,15 @@ squeezed slot there, gate [−T_gate/2, T_gate/2) modulo the period):
 * a discrete reflection at distance z_i returns the envelope delayed by 2 n_g z_i/c:
   N_i = N_i,CW(P_pk)·[ε + (1 − ε)·|gate ∩ pulse|/T_gate] — timing removes it whenever the delayed pulse
   misses the gate;
-* photons per squeezed mode scale with the same factor (flux averaged over the gate).
+* photons per squeezed **mode** are weighted by the mode, not by the gate (conv §2, N = ∫n|ũ|²df; M5-02,
+  :func:`mode_factors`). The mode u(t) is ``p['mode']`` (parametric or the source's optimal mode,
+  ``scattering.mode_time``) with its intensity centroid on the squeezed slot (t = 0, the gate centre).
+  With the probe amplitude train a(t) (rect pulses, peak 1): a line at offset f0 (Rayleigh, Brillouin,
+  reflections; coherent over the mode) gives N = Φ_pk·|∫u(t) a(t − τ) e^{+i2πf0t} dt|², averaged over the
+  scatterer delays τ ∈ [0, W] (distributed: independent scatterers add in power) or at τ = 2n_g z_i/c
+  (reflection i); a ≡ 1 recovers the CW Φ|ũ(f0)|². Broadband Raman: N = N_CW(P_pk)·∫|u|²⟨a(t − τ)⟩_τ dt;
+  a line beyond the mode grid's Nyquist frequency uses Φ|ũ(f0)|²·∫|u|²⟨a⟩ (intensity envelope).
+  The AOM leak adds ε·N_CW(P_pk) to both columns (incoherent floor, ε ≪ 1).
 N_CW(P) is linear in P (``stray_photons`` has no SBS gain), so the scaling is exact. Not included:
 scattering in the probe distribution path (pdist_k) — a separate stray table of that segment.
 """
@@ -44,12 +52,20 @@ import numba
 import numpy as np
 
 from cranberry.blocks.ctrl._kit import KitBlock
-from cranberry.blocks.fib.scattering import STRAY_COLUMNS, stray_photons
+from cranberry.blocks.fib.scattering import (
+    STRAY_COLUMNS,
+    _hnu,
+    backscatter_sources,
+    mode_time,
+    mode_weight,
+    resolve_mode,
+    stray_photons,
+)
 from cranberry.core.block import require
 from cranberry.core.registry import register_block
 from cranberry.path.topology import C_M_PER_S
 
-__all__ = ["ProbePulser", "make_probe_pulser", "gate_factors", "gated_stray_photons"]
+__all__ = ["ProbePulser", "make_probe_pulser", "gate_factors", "mode_factors", "gated_stray_photons"]
 
 _LEAK = ("p_avg_w", "p_peak_w", "duty", "t_offset_s", "eps_aom")
 
@@ -83,6 +99,48 @@ def gate_factors(*, period_s: float, tau_pr_s: float, t_offset_s: float, t_gate_
     return dist / (W * t_gate_s), [r / t_gate_s for r in refl]
 
 
+def mode_factors(t: np.ndarray, u: np.ndarray, *, period_s: float, tau_pr_s: float, t_offset_s: float,
+                 roundtrip_s: float, delays_s: Sequence[float] = (), f0_hz: float | None = 0.0) -> tuple[float, list[float]]:
+    """(g_dist, [g_i]): the mode-weighted counterpart of :func:`gate_factors` (module docstring). Line
+    (``f0_hz`` given): g = |∫u a(t − τ) e^{i2πf0t} dt|² [s] (CW: |ũ(f0)|²); broadband (``f0_hz`` None):
+    g = ∫|u|² a(t − τ) dt [1] (CW: 1). ``g_dist`` averages over τ ∈ [0, W = ``roundtrip_s``], g_i is at
+    τ = ``delays_s[i]``. u on the uniform grid ``t`` (gate coordinates), treated as piecewise constant."""
+    dt = float(t[1] - t[0])
+    if f0_hz is None:
+        x = np.abs(u) ** 2 * dt
+    else:
+        x = u * np.exp(2j * np.pi * float(f0_hz) * t) * dt
+    edges = np.concatenate([[t[0] - 0.5 * dt], t + 0.5 * dt])
+    cum = np.concatenate([[0.0], np.cumsum(x)])
+    e0, e1, P, tp = edges[0], edges[-1], float(period_s), float(tau_pr_s)
+
+    def cu(y):  # ∫_{−∞}^{y} x (linear between the bin edges, constant outside)
+        if f0_hz is None:
+            return np.interp(y, edges, cum)
+        return np.interp(y, edges, cum.real) + 1j * np.interp(y, edges, cum.imag)
+
+    def h(s):  # g for the pulse train whose m = 0 pulse starts at s (P-periodic in s)
+        s = np.asarray(s, dtype=float)
+        m = np.arange(math.floor((e0 - tp - s.max()) / P), math.ceil((e1 - s.min()) / P) + 1)
+        st = s[..., None] + m * P
+        amp = np.sum(cu(st + tp) - cu(st), axis=-1)
+        return amp if f0_hz is None else np.abs(amp) ** 2
+
+    refl = [float(h(np.array([t_offset_s + d]))[0]) for d in delays_s]
+    w = float(roundtrip_s)
+    if w <= 0.0:
+        return float(h(np.array([t_offset_s]))[0]), refl
+    # ∫_0^W h(t_off + τ) dτ = ∫_window h(s) c(s) ds over one period, c(s) = #{m : s + mP − t_off ∈ [0, W]};
+    # knots: the bin edges seen by the leading and the trailing pulse edge, the jumps of c, the window ends
+    s0 = e0 - tp
+    wrap = lambda y: s0 + np.mod(np.asarray(y) - s0, P)  # noqa: E731
+    knots = np.unique(np.concatenate([wrap(edges), wrap(edges - tp), wrap([t_offset_s, t_offset_s + w]), [s0, s0 + P]]))
+    mid = 0.5 * (knots[1:] + knots[:-1])
+    c = np.floor((t_offset_s + w - mid) / P) - np.ceil((t_offset_s - mid) / P) + 1
+    hk = h(knots)
+    return float(np.sum(0.5 * (hk[1:] + hk[:-1]) * np.diff(knots) * c) / w), refl
+
+
 def gated_stray_photons(p: Mapping[str, Any], toggles: Mapping[str, bool], *, p_avg_w: float, duty: float,
                         period_s: float, t_offset_s: float, eps_aom: float, gating: bool, n_g: float,
                         reflection_z_m: Sequence[float]) -> dict[str, float]:
@@ -98,14 +156,33 @@ def gated_stray_photons(p: Mapping[str, Any], toggles: Mapping[str, bool], *, p_
     f_d, f_r = gate_factors(period_s=period_s, tau_pr_s=duty * period_s, t_offset_s=t_offset_s,
                             t_gate_s=float(p["t_gate_s"]), roundtrip_s=w,
                             delays_s=[2.0 * n_g * z / C_M_PER_S for z in reflection_z_m])
-    out = {k: v * (eps_aom + (1.0 - eps_aom) * f_d)
-           for k, v in stray_photons(p, {**toggles, "stray_reflections": False}, pk).items()}
+    p = {**p, "mode": resolve_mode(p["mode"])}
+    t, u = mode_time(p["mode"])
+    timing = dict(period_s=period_s, tau_pr_s=duty * period_s, t_offset_s=t_offset_s, roundtrip_s=w)
+    delays = [2.0 * n_g * z / C_M_PER_S for z in reflection_z_m]
+    cw = stray_photons(p, {**toggles, "stray_reflections": False}, pk)
+    out = {k: v * (eps_aom + (1.0 - eps_aom) * f_d) for k, v in cw.items() if k.endswith("_gate")}
+    out.update({k: eps_aom * v for k, v in cw.items() if k.endswith("_mode")})
+    lines, _ = backscatter_sources(p, {"rayleigh": toggles["stray_rayleigh"], "brillouin": toggles["stray_brillouin"],
+                                       "raman": False}, pk)
+    iso = float(p["wdm_isolation_lin"])
+    g_bb, _ = mode_factors(t, u, f0_hz=None, **timing)
+    nyq = 0.5 / float(t[1] - t[0])
+    for name, f0, phi, _ in lines:
+        # a line beyond the mode grid's Nyquist frequency (Brillouin ±10.8 GHz on an ns-mode grid) is far
+        # outside the mode band: gating acts there as an intensity envelope, |ũ(f0)|²·∫|u|²⟨a⟩
+        g = mode_factors(t, u, f0_hz=f0, **timing)[0] if abs(f0) < nyq else float(mode_weight(f0, p["mode"])) * g_bb
+        out[f"{name}_mode"] += (1.0 - eps_aom) * phi * (iso if name == "rayleigh" else 1.0) * g
+    if toggles["stray_raman"]:
+        out["raman_mode"] += (1.0 - eps_aom) * cw["raman_mode"] * g_bb
     if toggles["stray_reflections"]:
         only = dict.fromkeys(("stray_rayleigh", "stray_brillouin", "stray_raman"), False) | {"stray_reflections": True}
-        for refl, f in zip(p["reflections"], f_r):
+        _, g_r = mode_factors(t, u, f0_hz=float(p["probe"]["freq_offset_hz"]), delays_s=delays, **timing)
+        for refl, f, g in zip(p["reflections"], f_r, g_r):
             one = stray_photons({**p, "reflections": [list(refl)]}, only, pk)
-            for col in ("reflections_gate", "reflections_mode"):
-                out[col] += one[col] * (eps_aom + (1.0 - eps_aom) * f)
+            out["reflections_gate"] += one["reflections_gate"] * (eps_aom + (1.0 - eps_aom) * f)
+            phi = pk * float(refl[0]) * float(refl[1]) / _hnu(p["lambda0_m"])
+            out["reflections_mode"] += one["reflections_mode"] * eps_aom + (1.0 - eps_aom) * phi * iso * g
     out["clicks_per_gate"] = sum(out[k] for k in STRAY_COLUMNS if k.endswith("_gate") and k != "clicks_per_gate")
     out["photons_per_mode"] = sum(out[k] for k in STRAY_COLUMNS if k.endswith("_mode") and k != "photons_per_mode")
     return out
