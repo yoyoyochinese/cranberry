@@ -75,3 +75,7 @@
 | Phase | スキル | 呼び出した理由 | 結果 | 役に立ったか |
 |---|---|---|---|---|
 | 3 | grilling（grill-with-docs の代わり） | AGENTS.md「Phase 3: PLAN.md を notes/ と conventions に照らして確認」 | 2 ラウンドで frontier が空に。D52・D53 | はい。G02・G14 を G01 の後のラウンドに回したので、numba の採否を前提にした問いを先に出さずに済んだ |
+
+## Phase 4 — Implement（2026-10-31〜）
+- ユーザが PLAN.md を承認（2026-10-31）。PLAN §7.2 の順に進める。wave 0 として WP-F0（骨組みと契約）を単独で開始。
+- ponytail: F・I の WP では使わない（AGENTS.md）。プラグインのフックが毎ターン有効なので、担当への指示に「フックを無視して通常モード」と明記した。
