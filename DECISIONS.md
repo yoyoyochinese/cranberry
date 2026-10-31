@@ -335,6 +335,16 @@
 - PM15-U25D の K_T は今は測らず、0.3–3.4 rad/(m·K) で掃引する。Phase 6 で必要なら測る。
 - 日付: 2026-10-31 / Phase 3
 
+### D54 WP-F0 で決まった契約（Phase 4 wave 0）
+- 決定:
+  - D34 のフレームワークでの読み方: ブロックの工場関数は、モデルの選択（物理の選択肢）に既定値を持たない。トグルは必ず `params["toggles"]` に全部書き、欠けていれば `MissingParameterError`。例外は `rate_div = 1` だけ。
+  - 契約の名前と署名は `src/cranberry/` の WP-F0 のコード（`core/block.py`・`layout.py`・`state.py`・`pipeline.py`・`registry.py`、`config/spec.py`、`offline/*`、`path/*`、`hardware/*`、`blocks/meas/metrics.py`）を正とする。PLAN との違い: `init(layout, rng)` の後に `bind(layout)`、`f_sim_hz` は `SlotLayout` が持つ、`build(spec, layout, root_seed)`、`run_reference(block, state, params, n_steps)`、YAML の積み重ねは `{stack: {stages, actuators}}`、pytest のマーカーは `numba`。
+  - 2N×2N の共分散は xxpp の順（q₁…q_N, p₁…p_N）。スロットの名前は `<group>.<owner>[.<field>]`（group は `SLOT_GROUPS` で厳密に検査、`t`・`n` はランナーの予約）。conventions §9 に追記。
+  - 依存の版: numba 0.68.1、llvmlite 0.50.0、pyyaml 6.0.3、pytest 9.2.0（dev）、matplotlib 3.11.2（extra `plot`）。numpy は 2.5.3 のまま（D52 の 2.5.4 への上昇は起きなかった）。
+  - 担当: `runner.sweep` は WP-F2、`runner.ablate` は WP-F4（decompose・convergence と同じ）、`delay_buffer` は `core/delay.py`（WP-F1）。
+  - PLAN §2.9 の Ref D の例の `stack:` は直列なので `seq:` と読む。
+- 日付: 2026-10-31 / Phase 4
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）
