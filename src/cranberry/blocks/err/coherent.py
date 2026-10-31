@@ -50,7 +50,7 @@ scheme B detection OPA)
     and reference (D40) is a property of the beams (their phases carry the laser phase at their own
     emission times, F6); the block only takes the difference. Schemes A/B of the Liu ⊕ Ref-A
     integration (T14 §8.3, D42) are wirings of this block and ``parametric_beat_detector``.
-    Leak information for T10 (``leak.*``) is written by ``probe_pulser`` (WP-B4), not here.
+    Leak information for T10 (``leak.*``) is written by ``probe_pulser`` (WP-B8), not here.
 """
 
 from __future__ import annotations

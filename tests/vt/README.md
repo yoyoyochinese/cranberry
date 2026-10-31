@@ -49,9 +49,9 @@ Rules (PLAN §6.1, §6.3):
 | [x] | VT-35 | — | GNLSE extras | unit | B9 | M5 | `test_vt_35_gnlse_extra.py` |
 | [x] | VT-36 | — | fiber quantum extras | unit | B10 | M5 | `test_vt_36_fiber_quantum_extra.py` |
 | [~] | VT-37 | — | environmental noise (coefficients and signs, PSD, correlation, counter-propagation, axis coefficients) | unit | B2, F6 | M1, M2, M4 | `test_vt_37_environmental_noise.py` |
-| [~] | VT-38 | — | polarization | unit | B7 | M4 | `test_vt_38_polarization.py` |
+| [x] | VT-38 | — | polarization | unit | B7 | M4 | `test_vt_38_polarization.py` |
 | [~] | VT-39 | — | probe cancellation breakdown | integ | B8, F6, B7 | M4 | `test_vt_39_probe_cancellation.py` |
-| [ ] | VT-40 | — | demux | unit + integ | B8 | M4 | `test_vt_40_demux.py` |
+| [x] | VT-40 | — | demux | unit + integ | B8 | M4 | `test_vt_40_demux.py` |
 | [ ] | VT-41 | — | losses (Ref B / C budgets, 32-port budget, GBS vs BHD separation) | unit | F3, I3, I4, I5 | M2–M6 | `test_vt_41_loss_budgets.py` |
 | [x] | VT-42 | — | detection | unit | B5 | M1 | `test_vt_42_detection.py` |
 | [x] | VT-43 | — | error signals (incl. baseband ↔ RF-rate equivalence) | unit | B3 | M1–M4 | `test_vt_43_error_signals.py` |
