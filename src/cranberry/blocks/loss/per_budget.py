@@ -6,6 +6,7 @@ Every element is reduced to its fast-axis power fraction x_k:
     joint at misalignment θ (connector, splice, component port):  x = sin²θ,
         PER = −10 log10(tan²θ)       (3° → 25.61 dB, T09 test 3)
     element given by PER [dB] (coupler PER ≥ 25 dB, polarizer ER):  x = q/(1 + q), q = 10^(−PER/10)
+        or by ``per_lin`` = 10^(PER/10) (the name a YAML ``per_db`` gets on load, D56-1, D61-5): x = 1/(1 + per_lin)
     distributed fiber crosstalk (h-parameter):  x = tanh(h·L)   (h·L = 1e−3 → −30.00 dB, T09 test 4)
     element given directly as x (e.g. ``coil_birefringence.x_bend``)
 
@@ -21,7 +22,7 @@ Toggle ``pol_crosstalk``: off ⇒ x_tot = 0 and the loss element stays in the re
 Params (all required, D34)::
 
     elements: [{id, type: connector|splice|coupler|polarizer|coil|fiber,
-                one of theta_deg | per_db | x | {h_per_m, L_m}, source}]
+                one of theta_deg | per_db | per_lin | x | {h_per_m, L_m}, source}]
     loss:     null | {segment, applies_to, source}
     toggles:  {pol_crosstalk}
 """
@@ -43,7 +44,7 @@ __all__ = ["PerBudget", "make_per_budget", "per_db_from_angle", "angle_from_per_
 
 KIND = "per_budget"
 ELEMENT_TYPES: tuple[str, ...] = ("connector", "splice", "coupler", "polarizer", "coil", "fiber")
-_VALUE_KEYS = ("theta_deg", "per_db", "x", "h_per_m")
+_VALUE_KEYS = ("theta_deg", "per_db", "per_lin", "x", "h_per_m")
 
 
 def per_db_from_angle(theta_rad: float) -> float:
@@ -89,7 +90,7 @@ class PerBudget(BaseBlock):
                 raise ValueError(f"{where}: type must be one of {ELEMENT_TYPES}")
             given = [k for k in _VALUE_KEYS if k in e]
             if len(given) != 1:
-                raise ValueError(f"{where}: give exactly one of theta_deg, per_db, x, (h_per_m, L_m)")
+                raise ValueError(f"{where}: give exactly one of theta_deg, per_db, per_lin, x, (h_per_m, L_m)")
             if e["id"] in self.x:
                 raise ValueError(f"{where}: duplicate id {e['id']!r}")
             k = given[0]
@@ -97,6 +98,10 @@ class PerBudget(BaseBlock):
                 x = math.sin(math.radians(float(e["theta_deg"]))) ** 2
             elif k == "per_db":
                 x = x_from_per_db(float(e["per_db"]))
+            elif k == "per_lin":
+                if not float(e["per_lin"]) > 0.0:
+                    raise ValueError(f"{where}: per_lin = 10^(PER/10) must be > 0, got {e['per_lin']!r}")
+                x = 1.0 / (1.0 + float(e["per_lin"]))
             elif k == "x":
                 x = float(e["x"])
             else:

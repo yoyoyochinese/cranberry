@@ -4,7 +4,11 @@
 * f_sim × 2 (1 → 2 MHz, the DSC1 blocks keep their device rates: ADC 1 MHz, PID / DAC 500 kHz, and the
   loop delay τ_L − 1/f_sim − explicit delays is re-evaluated): the residual phase variance in the band
   100 Hz–100 kHz and the lock point change by ≤ 1/3 of a 10 % tolerance (the in-loop band above the
-  old Nyquist frequency is the BandLedger's business, D57-6: compared in a common band);
+  old Nyquist frequency is the BandLedger's business, D57-6: compared in a common band). That residual
+  is laser-dominated and says little about the loop dynamics, so a seed-free loop observable is added
+  (M1D-11): the closed-loop transfer function from a sine on the detector offset to the true phase at
+  20 kHz (near the phase crossover, where the discretisation and delay bookkeeping matter most) and at
+  2 kHz (near the unity-gain frequency), all noise and quantisers off;
 * seed ensemble (10 seeds): mean and spread of the residual (a conclusion must exceed the spread).
 """
 
@@ -83,3 +87,38 @@ def test_refD_f_sim_doubling():
     tol = 0.10
     assert abs(np.sqrt(v2 / v1) - 1) <= tol / 3, (v1, v2)
     assert abs(m2 - m1) <= tol / 3 * np.sqrt(v1)
+
+
+def _closed_loop_tf(f_sim, f_hz, blocks=None):
+    """φ_D / v_off at ``f_hz`` (complex, rad/V) with all noise off: a sine on the PDB offset slot (the
+    sensor side of the loop: φ_D = −T·v_off/K_d) demodulated over the last 10 ms (integer cycles)."""
+    import dataclasses
+
+    amp = 1.0e-3  # V: ≪ V_0, linear
+    spec = rs.load(run={"duration_s": 0.04, "f_sim_hz": f_sim}, blocks=blocks, toggles=rs.NOISE_OFF,
+                   measure={"record": {"slots": ["lock.lockD.err", "v.pdb.voff"], "decim": 1}})
+    inj = {"block": "sine_injection", "name": "pdb.offset",
+           "params": {"in": None, "out": "v.pdb.voff", "unit": "V", "freq_hz": f_hz, "amplitude": amp,
+                      "toggles": {"enabled": True}}}
+    spec = rs.replace_block(spec, "pdb.offset", [inj])
+    spec = dataclasses.replace(spec, toggles={**spec.toggles, "pdb450c.per_crosscoupling": False})
+    res = run(spec)
+    n_win = int(round(0.01 * f_sim))
+    n = np.arange(res.series["lock.lockD.err"].size)[-n_win:]
+    e = res.series["lock.lockD.err"][-n_win:]
+    v = res.series["v.pdb.voff"][-n_win:]
+    return rs.demod(e - e.mean(), n, f_hz, f_sim) / rs.demod(v, n, f_hz, f_sim)
+
+
+@pytest.mark.parametrize("f_hz", [2.0e3, 2.0e4])
+def test_refD_f_sim_doubling_closed_loop_tf(f_hz, record_property):
+    """Deterministic: |H| and arg H at f_hz change by ≤ 1/3 of 10 % (|H|) and ≤ 2° between 1 and 2 MHz."""
+    blocks2 = [{"name": "dsc1.adc", "rate_div": 2}, {"name": "dsc1.pid", "rate_div": 4},
+               {"name": "dsc1.sup", "rate_div": 4}, {"name": "dsc1.dac", "rate_div": 4}]
+    h1 = _closed_loop_tf(1.0e6, f_hz)
+    h2 = _closed_loop_tf(2.0e6, f_hz, blocks2)
+    record_property("H_1MHz", [abs(h1), float(np.angle(h1, deg=True))])
+    record_property("H_2MHz", [abs(h2), float(np.angle(h2, deg=True))])
+    assert abs(h1) > 1e-2  # the loop responds (|T|/|K_d| with |K_d| ≈ 2.9 V)
+    assert abs(abs(h2) / abs(h1) - 1) <= 0.10 / 3, (h1, h2)
+    assert abs(np.angle(h2 / h1, deg=True)) <= 2.0, (h1, h2)

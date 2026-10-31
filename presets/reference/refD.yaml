@@ -14,10 +14,16 @@
 #
 # Conventions (notes/conventions.md §5, §9): arm 2 (no 915B) = "lo", arm 1 (915B) = "pr",
 # φ_D = φ_lo − φ_pr, lock point +π/2 at S = 0 (D02); coupler sign s and the loop sign are sweep axes.
-# Loop delay (D55-1): total = tau_s + 1/f_sim. τ_L (T15 §2.7(b) fit of the DSC1 −180° point) already
-# contains the 2-point average and the 500 kHz ZOH that the adc / pid / dac blocks model explicitly, so
-# tau_s = τ_L − 1/f_sim − dsc1_explicit_delay_s (1.5 µs); with that the preset's DSC1 chain reaches −180°
-# at ≈ 60 kHz as DSC1 p.2 states (VT-24 test 10). dsc1_explicit_delay_s = 0 gives the literal reading.
+# Loop delay (D55-1, D61-2): total = tau_s + 1/f_sim. τ_L (T15 §2.7(b) fit of the DSC1 −180° point)
+# already contains the 2-point average (0.5 µs) and the 500 kHz ZOH (h/2 = 1 µs), which the discrete
+# chain models explicitly, so tau_s = τ_L − 1/f_sim − dsc1_explicit_delay_s (1.5 µs); with that the
+# preset's DSC1 chain reaches −180° at ≈ 60 kHz as DSC1 p.2 states (VT-24 test 10). Who carries the
+# 1.5 µs (M1 review M1D-05): adc 2-point average 0.5 µs + pid / dac hold of rate_div base samples
+# (rate_div − 1)/(2 f_sim) (0.5 µs at 1 MHz) + the ZOH-discretised 914's half-sample interface delay
+# 1/(2 f_sim) (0.5 µs at 1 MHz; y[n] = C x[n]). The 914 term exists only with amp914_poles on and
+# amp914_discretisation zoh (tustin: < 0.03 µs; poles off: 0), so dsc1_explicit_delay_s is an expression
+# of those two params and of f_sim (switch the 914 through them, not with a toggle override, or the loop
+# loses 0.5 µs). dsc1_explicit_delay_s = 0 gives the literal reading.
 # Actuator placement (WP-I2 integration check, tests/integration/test_refD_actuator_placement.py):
 # a phase actuator writes its δψ to a 1-element driver (n_sub: 1, sub: [0, 1]) read with a SCALAR
 # placement (uniform / actuator); `per_sub` would divide δψ by the segment's n_sub.
@@ -58,10 +64,10 @@ offline:
     mech_gamma: !choice [1.0, 2.0]       # length exponent, T08 §2.5
     mech_f_c_hz: !sweep_log [100.0, 1.0e+4, 3]   # f⁻² corner, T08 §2.5 (nominal 1 kHz)
     mech_rho_0: !sweep [0.0, 0.9, 3]     # arm-to-arm correlation of mechanical noise, T08 §2.8 (unknown)
-    k_eps_rad_per_m: 4.64e+6             # strain phase coefficient ξ_eo·2πn/λ0 = 0.7837·2π·1.468/1548.8 nm, T08 §2.1, T16 V2
+    k_eps_rad_per_m: 4.64e+6             # strain phase coefficient ξ_eo·2πn/λ0 = 0.7837·2π·1.46/1548.8 nm with n = 1.46 (phase index, not n_g), T08 §2.1, T16 V2
     # --- polarization (T09, D51-2, D51-8) -----------------------------------------------------------
     D_pol_rad2_per_s: !sweep_log [1.0e-8, 1.0e-2, 4]  # SMF output-state diffusion before the polarizer, T09 §3.6
-    polarizer_er_db: !sweep [26.0, 30.0, 2]   # Opneti ER 30 dB typ, ≥ 28 dB, −2 dB with connectors (D51-8)
+    polarizer_er_db: !sweep [26.0, 28.0, 2]   # Opneti ER with FC/APC connectors (Ref D): 28 dB typ, ≥ 26 dB (bare fiber 30 typ / ≥ 28, −2 dB with connectors; D51-8, M1D-06)
     polarizer_il_db: 0.3                 # Opneti IL 0.3 dB typ (D51-8); bookkeeping only: P_in is measured after it (D02)
     K_T_rad_per_m_K: !sweep [-3.4, -0.3, 3]   # PM birefringence temperature coefficient, negative (D51-2, D53)
     dpsi_b0_rad: !sweep [0.0, 6.283185307179586, 4]   # static birefringent phase of arm 1 mod 2π; only the arm difference enters μ (T15 eq. 7)
@@ -82,13 +88,20 @@ offline:
     cv_min_v: -4.0                       # D35 (limits −4 … +4 V)
     cv_max_v: 4.0                        # D35
     adc_noise_vrms: !sweep [3.0e-4, 5.0e-4, 2]   # DSC1 p.2: 0.3 mV rms over 100 Hz–250 kHz = per-sample std at the 500 kHz PID rate; 5e-4 = −120 dB V²/Hz floor over 250 kHz
-    dsc1_explicit_delay_s: 1.5e-6        # delays modelled by blocks inside τ_L: 2-point average (avg−1)/(2·1 MHz) = 0.5 µs + ZOH of the 500 kHz update h/2 = 1 µs (T15 §2.7(b): both are included in the 5.67 µs fit)
+    # delays modelled explicitly inside τ_L (header; T15 §2.7(b): both are in the 5.67 µs fit): 2-point average
+    # (avg−1)/(2·1 MHz) = 0.5 µs + ZOH of the 500 kHz update h/2 = 1 µs, of which 1/(2 f_sim) is the 914 ZOH half
+    # sample (only with amp914_poles and zoh; otherwise the hold carries h/2 − 1/(2 f_sim) alone). 1.5 µs at refD.
+    dsc1_explicit_delay_s: !expr "0.5e-6 + offline.params.dsc1_h_s / 2 - (0.0 if offline.params.amp914_poles and offline.params.amp914_discretisation == 'zoh' else 0.5 / run.f_sim_hz)"
     latency_s: !choice [5.7e-6, 8.3e-6]  # τ_L: 5.7 µs with the 120 kHz / 100 kHz poles, 8.3 µs pure delay (T15 §2.7(b), D52, dsc1.yaml loop.latency_s)
     in_out_poles: !choice [true, false]  # input 120 kHz / output 100 kHz first-order poles (on with 5.7 µs; off with 8.3 µs), T15 §2.7(b)
     r_scope_ohm: 1.0e+6                  # oscilloscope on the DSC1 output tee (D53)
     r_914_ohm: !sweep_log [1.0e+4, 1.0e+7, 4]   # 914 input impedance unknown (D53, T16 §8 Q4)
     anti_windup: !choice [none, clamp]   # DSC1 integrator at the CV limit not documented (dsc1.yaml pid.anti_windup)
     # --- 914 / 915B (EO p.1–2, T16 §3.1, D51-11) --------------------------------------------------
+    amp914_poles: true                   # 914 two-pole model on (T16: the linear 2-pole model is the reference); feeds dsc1_explicit_delay_s
+    amp914_discretisation: zoh           # zoh | tustin; zoh adds the 1/(2 f_sim) interface delay counted in dsc1_explicit_delay_s
+    amp914_pole1_hz: 2.95e+4             # T16 §3.1.4 two-pole fit of EO p.2 Fig. 1 (D51-11)
+    amp914_pole2_hz: 1.12e+5
     dopl_full_m: 1.6e-5                  # 8669-1: 16 µm optical path length, full driver range (EO p.1) → 6.49 rad/V
     v_full_v: 10.0                       # 914 input ±5 V = full swing (EO p.1)
     f_res_hz: !sweep_log [5.0e+3, 6.0e+4, 4]   # 915B mechanical resonance, D51-11 (5–60 kHz)
@@ -96,6 +109,33 @@ offline:
     amp914_slew_v_per_s: 6.7e+5          # input-referred 2π f V_p ≈ 7 V/µs at 52 V for 5 V in (T16 §3.1.4, EO p.2) [AE]
     loop_sign: !choice [1.0, -1.0]       # σ_act of the 915B / PDB output assignment / DSC1 gain sign (T15 §2.2; unknown)
     coupler_sign: !choice [1.0, -1.0]    # which coupler output feeds INPUT+ (conv §5)
+  blocks:
+    # M1D-02: per-sweep-point linear-stability pre-check of the lock at the D53 gains. With the 915B
+    # resonance swept over D51-11's range, part of the grid is linearly unstable (M1 review: f_res = 5 kHz
+    # at every Q, 11.45 kHz at high Q). Such a point gets a CHK warning `loop_unstable` (the time loop
+    # oscillates / slips there). It is NOT pruned: using "the real setup locks at these gains" to cut the
+    # grid is an open user decision under D04 (DECISIONS Open). Continuous model of the T15 §2.7 loop from
+    # the same offline.params as the pipeline: K_0 = |K_d|·k_act·g with |K_d| = G ℜ 4√(κ₂(1−κ₂)P₁P₂)
+    # (T15 eq. 5 at the lock point, offsets and γ_coh·|μ| ≈ 1 neglected), the DSC1 PID magnitudes (D53 →
+    # p.20; the loop settles on the fringe slope with negative feedback, VT-24 test 8, so the sign drops
+    # out), τ_L (which already holds the ADC average and the 500 kHz ZOH), the 120 / 100 kHz poles, the 914
+    # poles and the 915B mode. Only offline.params are read: toggle overrides of other blocks are not seen.
+    - block: loop_stability_check
+      name: chk.lockD_stability
+      params:
+        k0: !expr "1.0e3 * offline.params.responsivity_a_per_w * 4 * sqrt(offline.params.kappa2 * (1 - offline.params.kappa2) * offline.params.kappa1 * 10 ** (-(2 * offline.params.coupler_excess_db + offline.params.il_915b_db) / 10) * (1 - offline.params.kappa1) * 10 ** (-2 * offline.params.coupler_excess_db / 10)) * offline.params.p_in_w * 2 * pi * offline.params.dopl_full_m / (offline.params.lambda0_m * offline.params.v_full_v) / (1 + 220.0 * (1 / offline.params.r_scope_ohm + 1 / offline.params.r_914_ohm))"
+        kp: !expr "offline.params.dsc1_p"
+        ki_per_s: !expr "offline.params.dsc1_i / offline.params.dsc1_h_s"
+        kd_s: !expr "offline.params.dsc1_d * offline.params.dsc1_h_s"
+        delay_s: !expr "offline.params.latency_s"
+        poles_hz:
+          - !expr "1.2e+5 if offline.params.in_out_poles else inf"
+          - !expr "1.0e+5 if offline.params.in_out_poles else inf"
+          - !expr "offline.params.amp914_pole1_hz if offline.params.amp914_poles else inf"
+          - !expr "offline.params.amp914_pole2_hz if offline.params.amp914_poles else inf"
+        modes: [{f_hz: !expr "offline.params.f_res_hz", q: !expr "offline.params.q_res"}]
+        f_grid_hz: [1.0e-2, 1.0e+7, 400001]   # resolves f/Q ≥ 50 Hz (5 kHz, Q 100); |L| ≪ 1 at 10 MHz
+        toggles: {enabled: true}
 
 topology: &topo
   segments:
@@ -111,7 +151,7 @@ topology: &topo
       pol_model: jones
       pol_params: {J_slot: J.smf0}
       drivers: {}
-    - id: a1                             # arm 1: leads + 915B pigtails (0.5 m, D53) + coil (38 × 0.22 m = 8.4 m [UNVERIFIED], T15 §2.7(d)); L = L_arm2 + ΔL so that ΔL is the swept quantity (D53; nominal 8.4 + 0.5 = 8.9 ≈ 9 m)
+    - id: a1                             # arm 1: leads + 915B pigtails (0.5 m, D53) + coil (38 × 0.22 m = 8.4 m [UNVERIFIED], T15 §2.7(d)); L = L_arm2 + ΔL so that ΔL is the swept quantity (D53). Arm 2 has its own 0.5 m, so ΔL ≈ 8.4 m (the coil); the sweep centre is D53's 9 m
       kind: pm
       L_m: !expr "offline.params.L_arm2_m + offline.params.dL_m"
       n_g: !expr "offline.params.n_g"
@@ -168,22 +208,25 @@ pipeline:
     name: dsc1.latency
     params: {in: v.dsc1.out, out: delay.dsc1.latency.out, unit: V, method: linear,
              # D55-1: total loop delay = tau_s + 1/f_sim. τ_L (T15 §2.7(b)) already contains the 2-point
-             # average and the 500 kHz ZOH, which the adc / pid / dac blocks model explicitly
-             # (dsc1_explicit_delay_s), so they are taken out of the delay buffer (no double count).
+             # average and the 500 kHz ZOH, which the discrete chain models explicitly: adc average 0.5 µs,
+             # pid / dac hold 0.5 µs, 914 ZOH half sample 0.5 µs (dsc1_explicit_delay_s, header), so they
+             # are taken out of the delay buffer (no double count).
              tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz - offline.params.dsc1_explicit_delay_s"}
   - block: hv_amp_914
     name: amp914
     params:
       in: delay.dsc1.latency.out
       out: v.amp914
-      poles_hz: [2.95e+4, 1.12e+5]       # T16 §3.1.4 two-pole fit of EO p.2 Fig. 1 (D51-11)
-      discretisation: zoh                # input held by the DAC (zoh exact)
+      poles_hz: [!expr "offline.params.amp914_pole1_hz", !expr "offline.params.amp914_pole2_hz"]   # T16 §3.1.4 (D51-11)
+      # zoh: exact for a piecewise-constant input. The input is the 100 kHz-filtered, interpolated DAC output,
+      # so not exactly held; zoh's half-sample delay is counted in dsc1_explicit_delay_s (header)
+      discretisation: !expr "offline.params.amp914_discretisation"
       prewarp_hz: null
       input_min_v: -5.0                  # EO p.1 (±5 V full swing)
       input_max_v: 5.0
       noise_v_per_rthz: 0.0              # 914 output noise not documented (T16 §3.1.4); toggle off
       slew_v_per_s: !expr "offline.params.amp914_slew_v_per_s"
-      toggles: {poles: true, slew: false, saturation: true, noise: false}   # T16: linear 2-pole model is the reference, slew optional
+      toggles: {poles: !expr "offline.params.amp914_poles", slew: false, saturation: true, noise: false}   # T16: linear 2-pole model is the reference, slew optional
   - block: pzt_fiber_stretcher
     name: stretcher915b
     params:
@@ -283,7 +326,7 @@ pipeline:
       il_lin: !expr "10 ** (offline.params.polarizer_il_db / 10)"
       segment: smf0
       applies_to: [probe]
-      source: "Opneti in-line polarizer IL 0.3 dB typ, ER 30 dB typ / ≥ 28 dB (D51-8)"
+      source: "Opneti in-line polarizer IL 0.3 dB typ, ER 30 dB typ / >= 28 dB bare fiber, -2 dB with FC/APC connectors (D51-8)"
       toggles: {pol_drift_before_polarizer: true, pol_extinction: true}
   - block: per_fringe
     name: pol.per
@@ -330,6 +373,8 @@ pipeline:
       mu_abs: 1.0                        # μ comes from per_fringe (x, Δχ) (B7 contract)
       mu_phase_rad: 0.0
       # γ_coh = exp(−σ²_HF/2), σ²_HF = ∫_{f_N}^∞ 4 sin²(πfτ) h0/f² df ≈ 2π²h0τ − 4π²h0τ²f_N (white FM, f_N τ ≪ 1) [AE, T15 §2.6]
+      # White FM only: the out-of-band flicker FM (h_m1 up to 5e8 Hz²: ≈ 1.2e-4 rad², 0.5 % of the white 0.022 rad²) and any
+      # other high-frequency source are not included (M1D-10); build it from the BandLedger (gamma_coh_from_ledger) when one matters
       gamma_coh: !expr "exp(-0.5 * (2 * pi**2 * offline.params.h0_hz2_per_hz * (offline.params.n_g * offline.params.dL_m / 299792458.0) - 4 * pi**2 * offline.params.h0_hz2_per_hz * (offline.params.n_g * offline.params.dL_m / 299792458.0)**2 * run.f_sim_hz / 2))"
       per_x: 0.0                         # unused: read from in_per_x (per_crosscoupling on)
       per_dchi_rad: 0.0                  # unused: read from in_per_dchi

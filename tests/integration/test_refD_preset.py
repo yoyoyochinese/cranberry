@@ -186,3 +186,30 @@ def test_block_additions_lin_names_match_db_names():
 
     assert eta(insertion_loss_db=1.0) == pytest.approx(eta(insertion_loss_lin=10 ** 0.1), rel=1e-13)
     assert eta(insertion_loss_db=None) == eta(insertion_loss_lin=None) == []
+
+
+@pytest.mark.parametrize("variant", ["tustin", "poles_off"])
+def test_refD_explicit_delay_follows_the_914_discretisation(variant):
+    """M1D-05: 0.5 µs of dsc1_explicit_delay_s is the zoh 914's half-sample interface delay. Switching the
+    914 to tustin or its poles off (through offline.params) drops that term, so the actuator path keeps
+    the same total delay as refD (equivalent delay change < 0.05 µs at 20–60 kHz; 0.5 µs without it)."""
+    params = {"amp914_discretisation": "tustin"} if variant == "tustin" else {"amp914_poles": False}
+    ref, var = rs.load(), rs.load(params=params)
+    assert ref.offline["params"]["dsc1_explicit_delay_s"] == pytest.approx(1.5e-6, abs=1e-15)
+    assert var.offline["params"]["dsc1_explicit_delay_s"] == pytest.approx(1.0e-6, abs=1e-15)
+    assert rs.block_params(var, "dsc1.latency")["tau_s"] == pytest.approx(5.7e-6 - 1e-6 - 1.0e-6, abs=1e-15)
+    f = np.array([2.0e4, 4.0e4, 6.0e4])
+    a_ref = rs.loop_parts(ref, f, k_d=1.0)[0]
+    a_var = rs.loop_parts(var, f, k_d=1.0)[0]
+    if variant == "poles_off":
+        assert rs.block_params(var, "amp914")["toggles"]["poles"] is False
+        s = 2j * np.pi * f
+        a_var = a_var / ((1 + s / (2 * np.pi * 2.95e4)) * (1 + s / (2 * np.pi * 1.12e5)))  # continuous 914
+    else:
+        assert rs.block_params(var, "amp914")["discretisation"] == "tustin"
+    extra = np.angle(a_ref / a_var) / (2 * np.pi * f)  # > 0: refD lags more
+    assert np.max(np.abs(extra)) < 0.05e-6, extra
+    # at f_sim = 2 MHz the zoh half sample is 0.25 µs (the hold carries 0.75 µs): refD stays at 1.5 µs
+    assert rs.load(run={"f_sim_hz": 2.0e6}).offline["params"]["dsc1_explicit_delay_s"] == pytest.approx(1.5e-6, abs=1e-15)
+    assert rs.load(params=params, run={"f_sim_hz": 2.0e6}).offline["params"]["dsc1_explicit_delay_s"] == \
+        pytest.approx(1.25e-6, abs=1e-15)

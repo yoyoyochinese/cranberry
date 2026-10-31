@@ -168,7 +168,8 @@ LSB_RAD = K_S * 8.0 / 2**12
 def test_dac_lsb_bound_and_limit_cycle(offset):
     """No noise, constant disturbance (not on the code grid), I loop f_c ≈ 2 kHz with the 914 and the
     DSC1 delay: the true phase error stays within K_s·q = 12.7 mrad (V11a) and the limit cycle between
-    neighbouring codes has a half peak-to-peak amplitude ≤ K_s·q/2 = 6.3 mrad (T15 §7-10)."""
+    neighbouring codes stays inside a 1-LSB band at a fixed operating point (half peak-to-peak ≤ K_s·q/2;
+    D65-3, which replaces D56-7 / T15 §7-10: ±LSB/2 about the set point is not a bound, only the band)."""
     assert LSB_RAD == pytest.approx(12.7e-3, abs=0.05e-3)
     e = record(loop(dist(0.0, offset), 2 * math.pi * 2e3 / K_S), 60_000, "v.e")[20_000:]
     assert np.max(np.abs(e)) <= LSB_RAD
@@ -178,8 +179,8 @@ def test_dac_lsb_bound_and_limit_cycle(offset):
 @pytest.mark.numba
 def test_dac_lsb_bound_slow_ramp():
     """Slow phase ramp (1 rad/s ≈ 8 LSB in 0.1 s): |error| ≤ K_s·q throughout. (The limit-cycle centre
-    moves with the fractional code position, so over a ramp the error band is ≈ 0.74 LSB wide, not
-    ±LSB/2: T15 §7-10's ±6.3 mrad holds per operating point, checked above.)"""
+    moves with the fractional code position; D65-3: over a ramp the band may approach 2 LSB, while
+    |error| < 1 LSB still holds here.)"""
     e = record(loop(dist(1.0, 0.0031), 2 * math.pi * 2e3 / K_S), 100_000, "v.e")[5_000:]
     assert np.max(np.abs(e)) <= LSB_RAD
 

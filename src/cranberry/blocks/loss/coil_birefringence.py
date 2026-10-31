@@ -31,8 +31,9 @@ UNVERIFIED). The bend loss is registered with ``losses()`` on ``segment`` (G06).
 Toggles: ``pol_bend_coil`` (off ⇒ x_bend = 0), ``bend_loss`` (off ⇒ element kept, disabled).
 
 Params (all required, D34): ``n_turns``, ``turn_length_m``, ``bend_radius_m``, ``cladding_radius_m``,
-``bend_coeff``, ``beat_length_m``, ``wavelength_m``, ``K_T_rad_per_m_K``, ``bend_loss_db``,
-``orientation`` (random | aligned), ``bend_angle_rad`` (α, aligned only), ``segment``, ``applies_to``,
+``bend_coeff``, ``beat_length_m``, ``wavelength_m``, ``K_T_rad_per_m_K``, exactly one of
+``bend_loss_db`` / ``bend_loss_lin`` (loss factor 10^(IL/10) ≥ 1: the name a YAML ``bend_loss_db`` gets on
+load, D56-1, D61-5), ``orientation`` (random | aligned), ``bend_angle_rad`` (α, aligned only), ``segment``, ``applies_to``,
 ``source``, ``toggles``.
 """
 
@@ -44,7 +45,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from cranberry.blocks.loss.per_budget import _noop, per_db_from_x
-from cranberry.core.block import BaseBlock, Block, require
+from cranberry.core.block import BaseBlock, Block, MissingParameterError, require
 from cranberry.core.registry import register_block
 from cranberry.offline.loss_registry import LossElement
 
@@ -52,7 +53,8 @@ __all__ = ["CoilBirefringence", "make_coil_birefringence", "ORIENTATIONS"]
 
 KIND = "coil_birefringence"
 _KEYS = ("n_turns", "turn_length_m", "bend_radius_m", "cladding_radius_m", "bend_coeff", "beat_length_m",
-         "wavelength_m", "K_T_rad_per_m_K", "bend_loss_db", "segment", "applies_to", "source", "orientation")
+         "wavelength_m", "K_T_rad_per_m_K", "segment", "applies_to", "source", "orientation")
+_LOSS_KEYS = ("bend_loss_db", "bend_loss_lin")
 ORIENTATIONS: tuple[str, ...] = ("random", "aligned")
 
 
@@ -65,7 +67,13 @@ class CoilBirefringence(BaseBlock):
         name = name or KIND
         require(params, *_KEYS, block=name)
         super().__init__(KIND, name, params)
-        p = {k: float(params[k]) for k in _KEYS[:9]}
+        given = [k for k in _LOSS_KEYS if k in params]
+        if len(given) != 1:
+            raise MissingParameterError(f"block {name!r}: give exactly one of {_LOSS_KEYS} (D34), got {given}")
+        self._loss_key = given[0]
+        if self._loss_key == "bend_loss_lin" and not float(params["bend_loss_lin"]) >= 1.0:
+            raise ValueError(f"block {name!r}: bend_loss_lin is a loss factor >= 1, got {params['bend_loss_lin']!r}")
+        p = {k: float(params[k]) for k in _KEYS[:8]}
         if min(p["n_turns"], p["turn_length_m"], p["bend_radius_m"], p["beat_length_m"], p["wavelength_m"]) <= 0:
             raise ValueError(f"block {name!r}: lengths and n_turns must be > 0")
         self.length_m = p["n_turns"] * p["turn_length_m"]
@@ -120,9 +128,11 @@ class CoilBirefringence(BaseBlock):
 
     def losses(self) -> list[LossElement]:
         p = self.params
-        return [LossElement.from_il_db(f"{self.name}.bend", float(p["bend_loss_db"]), kind="fiber",
-                                       applies_to=set(p["applies_to"]), source=str(p["source"]),
-                                       enabled=self._toggles["bend_loss"], segment=str(p["segment"]))]
+        common = dict(kind="fiber", applies_to=set(p["applies_to"]), source=str(p["source"]),
+                      enabled=self._toggles["bend_loss"], segment=str(p["segment"]))
+        if self._loss_key == "bend_loss_db":
+            return [LossElement.from_il_db(f"{self.name}.bend", float(p["bend_loss_db"]), **common)]
+        return [LossElement(id=f"{self.name}.bend", eta=1.0 / float(p["bend_loss_lin"]), **common)]
 
 
 @register_block(KIND)

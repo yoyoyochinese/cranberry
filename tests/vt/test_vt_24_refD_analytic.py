@@ -14,10 +14,12 @@ Every check runs the preset (``refD_nominal`` + the overrides named in each test
     τ = 5.67 µs, K_0 = 21.6): K_p,u = 0.093 and 40.9 kHz, within 2 % (0.98 K_p,u decays, 1.02 K_p,u
     oscillates at 40.9 kHz);
 5.  integrator loop residual σ² = πS₀/(2 f_c) for S_env = S₀/f² within 5 % (T15 test 7);
-6.  DAC limit cycle (rigid 915B): at a fixed operating point a band ≤ 1 LSB = 12.7 mrad (max |e| ≤ 0.6 LSB;
-    D56-7's ±LSB/2 is for a static actuator); on a slow ramp the band is recorded (1.2–1.25 LSB here:
-    D56-7's "12.7 mrad always" does not hold with the refD latency, review pending) and bounded by 2 LSB;
-    with the nominal 915B resonance the limit cycle is amplified (recorded only, T15 test 10);
+6.  DAC limit cycle (rigid 915B; D65-3, which replaces D56-7): the quantiser is a relay on the code
+    threshold, so the limit cycle runs at the loop's phase crossover f₁₈₀ (≈ 17 kHz). Fixed operating
+    point: band ≤ 1 LSB = 12.7 mrad; rms ≤ 1.2·(√2/π)·k·q·|P(i2πf₁₈₀)| (≈ 5.7 mrad; P = DAC output →
+    optical phase, DC 1, from the preset's discrete chain); slow ramp: band ≤ 2 LSB, same rms bound.
+    ±LSB/2 bounds neither the instantaneous error nor (with actuator dynamics) the rms. With the nominal
+    915B resonance the limit cycle is amplified (recorded only, T15 test 10);
 7.  PER: x = 0.01, maximum lock-point shift arcsin(x/(1 − x)) = 10.10 mrad to 1e−6, |μ| ∈ [0.98, 1];
     the per_fringe → dc_fringe slot path gives the shift −arg μ(x, Δχ);
 8.  loop sign flipped ⇒ +π/2 unstable, lock at −π/2 (T15 test 11);
@@ -250,11 +252,24 @@ def test_5_integrator_residual_closed_form():
 # --------------------------------------------------------------------------------------------- 6
 
 
+def _limit_cycle_rms_bound(spec, f_lc):
+    """D65-3 at the limit-cycle frequency ``f_lc``: (|arg L + π| [deg], |P|, 1.2·(√2/π)·k·q·|P|), from the
+    preset's discrete loop (refD_support). P = DAC output → optical phase (DC 1)."""
+    v0 = rs.fringe(spec)["v0"]
+    a, b, c, g = rs.loop_parts(spec, np.array([f_lc]), k_d=-v0)  # K_d = −V_0 at +π/2 (T15 eq. 5, θ = 0)
+    lg = complex(-g * c[0] * b[0] * a[0])  # closed loop 1/(1 + L) (refD_support: 1/(1 − gCBA))
+    leaves, params = rs.built_leaves(spec)
+    k_act = leaves["stretcher915b"].gain_rad_per_v(params)
+    p_abs = float(abs(a[0]) / (k_act * leaves["dsc1.pid"].rate_div))  # A = hold (DC r)·LPF_out·delays·914·915B·k
+    lsb = k_act * g * 8.0 / 2**12  # k·q: 12-bit DAC on ±4 V (DSC1 p.2) as phase
+    off180 = abs(math.degrees(math.remainder(np.angle(lg) + math.pi, 2 * math.pi)))
+    return off180, p_abs, 1.2 * math.sqrt(2) / math.pi * lsb * p_abs
+
+
 @pytest.mark.parametrize("ramp", [False, True])
 def test_6_dac_limit_cycle_bound(ramp, record_property):
-    """Rigid 915B (the bound is a statement about the quantiser; T15 §2.11 assumes a non-resonant
-    actuator). The nominal 20 kHz / Q 10 resonance amplifies the 2-code limit cycle: that case is
-    recorded (no pass/fail, T15 test 10), see test_6_dac_limit_cycle_with_resonance_recorded."""
+    """Rigid 915B (D65-3). The nominal 20 kHz / Q 10 resonance amplifies the 2-code limit cycle: that
+    case is recorded (no pass/fail, T15 test 10), see test_6_dac_limit_cycle_with_resonance_recorded."""
     tog = {**LINEAR, "dsc1.adc.quantization": True, "dsc1.dac.quantization": True,
            "stretcher915b.resonance": False}
     params = dict(T_OPT1)
@@ -268,19 +283,28 @@ def test_6_dac_limit_cycle_bound(ramp, record_property):
     k, g = _k_act_g(spec)
     lsb = k * g * 8.0 / 2**12  # 12-bit DAC on ±4 V (DSC1 p.2): 12.7 mrad
     adc = 8.0 / 2**16 / rs.fringe(spec)["v0"]  # ADC LSB as phase (37 µrad scale)
+    f, psd = signal.welch(e - e.mean(), fs=FS, nperseg=e.size)
+    f_lc = float(f[np.argmax(psd)])  # limit-cycle frequency (measured 21 kHz fixed point, 18 kHz ramp)
+    off180, p_abs, rms_max = _limit_cycle_rms_bound(spec, f_lc)
+    rms = float(np.std(e))
     record_property("band_over_lsb", float(np.ptp(e) / lsb))
     record_property("max_abs_over_lsb", float(np.max(np.abs(e)) / lsb))
+    record_property("rms_rad", rms)
+    record_property("rms_bound_rad", rms_max)
+    record_property("f_limit_cycle_hz", f_lc)
     assert lsb == pytest.approx(12.67e-3, rel=0.002)
+    # relay describing function: the cycle sits where the loop phase is near −180°. The discrete loop
+    # comes closest to −180° (−171° at 22 kHz) below the PID's I/D notch at √(K_i/K_d)/2π = 28 kHz; the
+    # sampled relay adds up to ~h/2 of lag, so allow 20°
+    assert 15e3 < f_lc < 25e3 and off180 < 20.0, (f_lc, off180)
+    assert 5.0e-3 < rms_max < 6.0e-3, rms_max  # ≈ 5.7 mrad (review: |P| 0.83 at 17.5 kHz)
+    assert rms <= rms_max, (rms, rms_max)  # measured 3.1 mrad (fixed point), 2.8 mrad (ramp)
     if not ramp:
-        # fixed operating point: a 2-code limit cycle whose band stays inside 1 LSB = 12.7 mrad (D56-7);
-        # ±LSB/2 is exact only for a static actuator: the 914 poles and the 100 kHz output pole filter
-        # the code toggling asymmetrically (measured band 0.74 LSB, max |e| 0.53 LSB)
+        # fixed operating point: the error stays within one 1-LSB band (measured 0.74 LSB, max |e| 0.53 LSB;
+        # the max |e| itself lies anywhere between LSB/2 and 1 LSB depending on the operating point)
         assert np.ptp(e) <= lsb + 2 * adc
-        assert np.max(np.abs(e)) <= 0.6 * lsb
     else:
-        # FINDING (review pending, PROCESS_LOG): on a slow ramp the refD loop (5.7 µs latency, 500 kHz
-        # update) shows multi-code limit cycles of 1.2–1.25 LSB (15.8 mrad) — D56-7's "12.7 mrad always
-        # holds" assumed no loop delay / actuator dynamics. Guard: bounded within 2 LSB.
+        # the operating point crosses the code thresholds: band ≤ 2 LSB (measured 1.24 LSB)
         assert np.ptp(e) <= 2 * lsb
 
 

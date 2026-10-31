@@ -135,3 +135,79 @@ def test_coil_aligned_orientation():
         coil(orientation="twisted")
     with pytest.raises(ValueError, match="2πR"):
         coil(orientation="aligned", bend_angle_rad=alpha, turn_length_m=0.05)
+
+
+YAML_OFFLINE = """
+run: {duration_s: 1.0e-5, f_sim_hz: 1.0e+6, chunk_samples: 16, seed: 1, seed_mode: common}
+pipeline:
+  - {block: ramp, name: u, params: {out: v.u, waveform: triangle, amplitude_v: 0.0, period_s: 1.0,
+                                    offset_v: 0.0, toggles: {enabled: true}}}
+offline:
+  blocks:
+    - block: per_budget
+      name: pb
+      params:
+        elements:
+          - {id: polz, type: polarizer, per_db: 28.0, source: "[D51-8]"}
+          - {id: c1, type: coupler, per_db: 25.0, source: "[D51-8]"}
+          - {id: fc1, type: connector, theta_deg: 3.0, source: "[AE]"}
+        loss: {segment: pm_in, applies_to: [gbs], source: "[T09 §1.3]"}
+        toggles: {pol_crosstalk: true}
+    - block: coil_birefringence
+      name: c915b
+      params: {n_turns: 38, turn_length_m: 0.22, bend_radius_m: 0.015, cladding_radius_m: 6.25e-5,
+               bend_coeff: 0.136, beat_length_m: 4.2e-3, wavelength_m: 1.5488e-6, K_T_rad_per_m_K: -2.05,
+               bend_loss_db: 0.1, orientation: random, segment: a1_915b, applies_to: [probe],
+               source: "[T09 §3.4, UNVERIFIED]", toggles: {pol_bend_coil: true, bend_loss: true}}
+"""
+
+
+def test_yaml_db_names_build_like_python(tmp_path):
+    """M1D-03 / D61-5 (protected: YAML ↔ Python equivalence): config loading renames per_db → per_lin and
+    bend_loss_db → bend_loss_lin (D56-1); both blocks build from the loaded spec and equal the Python ones,
+    also after dump_yaml → reload."""
+    import yaml
+
+    from cranberry import config
+    from cranberry.core.registry import ensure_loaded, make_block
+    from cranberry.runner.run import offline_block_specs
+
+    path = tmp_path / "loss.yaml"
+    path.write_text(YAML_OFFLINE)
+    spec = config.load(path)
+    config.validate(spec)
+    specs = {b.name: b for b in offline_block_specs(spec)}
+    assert "bend_loss_lin" in specs["c915b"].params and "bend_loss_db" not in specs["c915b"].params
+    assert "per_lin" in specs["pb"].params["elements"][0] and "per_db" not in specs["pb"].params["elements"][0]
+    ensure_loaded()
+    pb_y, c_y = make_block(specs["pb"]), make_block(specs["c915b"])
+    els = [{"id": "polz", "type": "polarizer", "per_db": 28.0, "source": "s"},
+           {"id": "c1", "type": "coupler", "per_db": 25.0, "source": "s"},
+           {"id": "fc1", "type": "connector", "theta_deg": 3.0, "source": "s"}]
+    pb_p = pb(els, loss={"segment": "pm_in", "applies_to": ["gbs"], "source": "s"})
+    assert pb_y.x == pytest.approx(pb_p.x, rel=1e-13)
+    assert pb_y.losses()[0].eta == pytest.approx(pb_p.losses()[0].eta, rel=1e-13)
+    c_p = coil()
+    assert c_y.x_bend == pytest.approx(c_p.x_bend, rel=1e-13)
+    assert c_y.losses()[0].eta == pytest.approx(c_p.losses()[0].eta, rel=1e-13)
+    assert c_y.losses()[0].eta == pytest.approx(10 ** (-0.01), rel=1e-13)
+    # dump → reload: the linear names carry no dB suffix and reload unchanged
+    again = {b.name: b for b in offline_block_specs(config.load(yaml.safe_load(config.dump_yaml(spec))))}
+    assert make_block(again["pb"]).x == pb_y.x
+    assert make_block(again["c915b"]).losses()[0].eta == c_y.losses()[0].eta
+
+
+def test_lin_names_exactly_one_and_range():
+    """D34: exactly one of the dB / linear names; the linear values must be physical."""
+    tg = {"toggles": {"pol_bend_coil": True, "bend_loss": True}}
+    no_db = {k: v for k, v in COIL.items() if k != "bend_loss_db"}
+    with pytest.raises(MissingParameterError):
+        coil(bend_loss_lin=1.02)  # both names
+    with pytest.raises(MissingParameterError):
+        make_coil_birefringence({**no_db, **tg})  # neither
+    with pytest.raises(ValueError, match="loss factor"):
+        make_coil_birefringence({**no_db, "bend_loss_lin": 0.9, **tg})
+    with pytest.raises(ValueError, match="exactly one"):
+        pb([{"id": "a", "type": "coupler", "per_db": 25.0, "per_lin": 316.2, "source": "x"}])
+    with pytest.raises(ValueError, match="per_lin"):
+        pb([{"id": "a", "type": "coupler", "per_lin": 0.0, "source": "x"}])
