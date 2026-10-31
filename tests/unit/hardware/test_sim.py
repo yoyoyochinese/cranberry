@@ -1,5 +1,5 @@
 """SimController and the abstract interface (PLAN §2.10, T16 §4.6). The runner is replaced by a stand-in;
-the real-runner test is xfail until WP-F1's ``runner.run`` lands."""
+the real-runner test uses WP-F1's ``runner.run``."""
 
 import json
 import math
@@ -218,7 +218,6 @@ def test_status_and_log_record_are_json(ctl):
 
 
 @pytest.mark.integration
-@pytest.mark.xfail(raises=NotImplementedError, strict=True, reason="needs WP-F1 runner.run")
 def test_sim_controller_with_real_runner():
     c = SimController(make_spec())
     c.configure({"loops": {"lock1": {"pid_block": "lock1.pid", "device": "dsc1"}}})

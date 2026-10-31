@@ -21,7 +21,7 @@ Rules (PLAN §6.1, §6.3):
 | [ ] | VT-02 | 1 | `refA` full (loss budget, lock to 9 mrad; ±0.10 dB, D48) | integ | I1 | M1 | `test_vt_02_refA_full.py` |
 | [ ] | VT-03 | 1 | CW limit (pulsed blocks identity), GNLSE CW shortcut | unit + integ | B9, B11 | M5 | `test_vt_03_cw_limit.py` |
 | [ ] | VT-04 | 2 | Fig. 5 (4 curves × 8 points, P_opt) | unit + integ | B1, I1 | M1 | `test_vt_04_refA_fig5.py` |
-| [ ] | VT-05 | 3 | `offline.gaussian`, `LossRegistry`, `pure_loss`, circuit noise = loss, OPO / pulsed OPO parts | unit | F3 (M0), B5, B6, B11 | M0–M5 | `test_vt_05_pure_loss.py` |
+| [~] | VT-05 | 3 | `offline.gaussian`, `LossRegistry`, `pure_loss`, circuit noise = loss, OPO / pulsed OPO parts | unit | F3 (M0), B5, B6, B11 | M0–M5 | `test_vt_05_pure_loss.py` |
 | [ ] | VT-06 | 4 | linearized fiber, OPA g → 0, OPO x = 0, pulsed OPO (initial vacuum term) | unit | B10, B1, B6, B11 | M1–M5 | `test_vt_06_vacuum_limits.py` |
 | [ ] | VT-07 | 5 | `fiber_gnlse` soliton | unit | B9 | M5 | `test_vt_07_gnlse_soliton.py` |
 | [ ] | VT-08 | 5 | `fiber_gnlse` recurrence | unit | B9 | M5 | `test_vt_08_gnlse_recurrence.py` |
@@ -59,7 +59,7 @@ Rules (PLAN §6.1, §6.3):
 | [ ] | VT-45 | — | pulsed OPO | unit | B11 | M5 | `test_vt_45_pulsed_opo.py` |
 | [ ] | VT-F1 | — | YAML ↔ Python round trip (`spec == load(dump(spec))`, bit-identical results at equal seed) | integ | F2 | M0 | `test_vt_f1_yaml_round_trip.py` |
 | [ ] | VT-F2 | — | chunk-length invariance (bit-identical, G11), f_sim doubling (§6.4) | integ | F1, B2 | M0, each M | `test_vt_f2_chunk_invariance.py` |
-| [ ] | VT-F3 | — | double registration in BandLedger / LossRegistry overlap is an error | unit | F3 | M0 | `test_vt_f3_double_registration.py` |
+| [x] | VT-F3 | — | double registration in BandLedger / LossRegistry overlap is an error | unit | F3 | M0 | `test_vt_f3_double_registration.py` |
 | [ ] | VT-F4 | — | run record (config, seed, commit, env) complete and reproduces the result | integ | F2 | M0 | `test_vt_f4_run_record.py` |
 
 Already covered by WP-F0 unit tests (not VTs, framework properties of PLAN §6.1): conv §8 FFT
