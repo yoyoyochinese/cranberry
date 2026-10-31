@@ -40,7 +40,7 @@ PM = {"model": "pm", "axis_drivers": ["dT"], "dpsi_b0_rad": 0.3, "K_T_rad_per_m_
 
 
 def smf(D=10.0):
-    return {"model": "smf", "axis_drivers": ["dT"], "axis_stokes": [0.6, 0.0, 0.8], "D_pol_rad2_per_s": D,
+    return {"model": "smf", "axis_drivers": ["dT"], "axis_stokes": [0.6, 0.0, 0.8], "u0": "identity", "drift": "diffusion", "D_pol_rad2_per_s": D,
             "k_T_rad_per_m_K": 1e-2}
 
 

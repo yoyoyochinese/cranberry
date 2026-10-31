@@ -3,6 +3,7 @@
 
 import math
 
+import numpy as np
 import pytest
 
 from cranberry.blocks.loss.coil_birefringence import make_coil_birefringence
@@ -66,7 +67,7 @@ def test_per_budget_validation():
 
 COIL = {"n_turns": 38, "turn_length_m": 0.22, "bend_radius_m": 0.015, "cladding_radius_m": 62.5e-6,
         "bend_coeff": 0.136, "beat_length_m": 4.2e-3, "wavelength_m": 1548.8e-9, "K_T_rad_per_m_K": -2.05,
-        "bend_loss_db": 0.1, "segment": "a1_915b", "applies_to": ["probe"], "source": "[T09 §3.4, UNVERIFIED]"}
+        "bend_loss_db": 0.1, "orientation": "random", "segment": "a1_915b", "applies_to": ["probe"], "source": "[T09 §3.4, UNVERIFIED]"}
 
 
 def coil(on=(True, True), **kw):
@@ -111,3 +112,26 @@ def test_offline_blocks_run_in_a_compiled_pipeline():
     s, p = State(lay), Params(lay)
     run_compiled(blk, s, p, 10)
     assert s.n == 10 and [leaf.kind for leaf in iter_leaves(blk)] == ["per_budget", "coil_birefringence"]
+
+
+def test_coil_aligned_orientation():
+    """Coherent bends (T09 §3.4): mean over the birefringent phases 4·n·ε², peak 16·n²·ε² when all
+    phases match (L_b = 2πR, straight = πR), rotating with temperature; random orientation unchanged."""
+    alpha = 0.3
+    c = coil(orientation="aligned", bend_angle_rad=alpha)
+    eps2 = (c.delta0 * math.sin(2 * alpha)) ** 2
+    assert c.x_bend == pytest.approx(c.x_bend_at(0.0), rel=1e-15)
+    xs = [c.x_bend_at(dT) for dT in np.linspace(0.0, 400.0, 40001)]  # many cycles of every phase
+    assert np.mean(xs) == pytest.approx(4 * 38 * eps2, rel=0.03)
+    assert np.max(xs) <= 16 * 38 ** 2 * eps2 * (1 + 1e-12)
+    R = 0.015
+    peak = coil(orientation="aligned", bend_angle_rad=math.pi / 4, beat_length_m=2 * math.pi * R, turn_length_m=4 * math.pi * R)
+    assert peak.x_bend == pytest.approx(16 * 38 ** 2 * peak.delta0 ** 2, rel=1e-9)
+    assert coil(orientation="aligned", bend_angle_rad=alpha, on=(False, True)).x_bend_at(1.0) == 0.0
+    assert coil(bend_angle_rad=alpha).x_bend == pytest.approx(2 * 38 * coil().delta0 ** 2, rel=1e-15)
+    with pytest.raises(MissingParameterError):
+        coil(orientation="aligned")
+    with pytest.raises(ValueError, match="orientation"):
+        coil(orientation="twisted")
+    with pytest.raises(ValueError, match="2πR"):
+        coil(orientation="aligned", bend_angle_rad=alpha, turn_length_m=0.05)
