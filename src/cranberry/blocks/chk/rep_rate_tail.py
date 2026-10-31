@@ -9,7 +9,9 @@ events go to ``chk_log`` (code ``rep_rate_tail``) and :attr:`result`.
 
 ``tail_model`` (D34, no default): ``analytic`` (the formula; ``fwhm_hz`` gives κ_c = πΔν_c) or
 ``source`` (``source``: nested ``pulsed_opo_source`` spec; its exact ε_tail(T_rep), f_rep,max still
-from the formula with the source's κ_c).
+from the formula with the source's κ_c). If T_rep lies beyond the source window the source extrapolates
+with the formula (never 0, M5-06; ``result['extrapolated']`` True) and, if the window also cuts more
+than 1e−9 of the mode, a ``rep_rate_tail_window`` warning names the short window.
 
 Params: ``rep_rate_hz``, ``threshold`` ε, ``tail_model`` + its params, ``toggles`` {enabled}: off ⇒ no
 check (identity).
@@ -63,15 +65,24 @@ class RepRateTailCheck(BaseBlock):
         return state  # offline block: not a time-loop stage
 
     def _check(self) -> dict[str, Any]:
+        from cranberry.blocks.source.pulsed_opo import WINDOW_CUT_WARN  # noqa: PLC0415 (pulsed_opo imports this module)
+
         p = self.params
         trep, eps = 1.0 / float(p["rep_rate_hz"]), float(p["threshold"])
         if p["tail_model"] == "analytic":
             kc = np.pi * float(p["fwhm_hz"])
             tail = tail_analytic(kc, trep)
+            extra = False
         else:
             src = make_block(BlockSpec.from_obj(p["source"]))
-            kc, tail = src.kappa_c, src.tail(trep)
-        res = {"tail": tail, "f_rep_max_hz": max_rep_rate_hz(kc, eps), "threshold": eps, "ok": tail <= eps}
+            kc, tail, extra = src.kappa_c, src.tail(trep), trep >= src.window_s
+            if extra and src.window_cut > WINDOW_CUT_WARN:
+                self.chk_log.warn("rep_rate_tail_window", self.name,
+                                  f"1/f_rep = {trep:.3g} s is beyond the source window {src.window_s:.3g} s; "
+                                  f"tail {tail:.3g} from 8.8 e^(-2 κ_c T) (enlarge window_kappa)",
+                                  t_rep_s=trep, window_s=src.window_s)
+        res = {"tail": tail, "f_rep_max_hz": max_rep_rate_hz(kc, eps), "threshold": eps, "ok": tail <= eps,
+               "extrapolated": extra}
         if not res["ok"]:
             self.chk_log.warn("rep_rate_tail", self.name,
                               f"mode tail into the next slot {tail:.3g} > {eps:g} at f_rep = {p['rep_rate_hz']:g} Hz "

@@ -4,8 +4,9 @@ import numpy as np
 import pytest
 
 import cranberry.blocks.dmx.testing as dt
-from cranberry.blocks.fib.scattering import stray_photons
+from cranberry.blocks.fib.scattering import resolve_mode, stray_photons
 from cranberry.blocks.mod.probe_pulser import gate_factors, gated_stray_photons
+from cranberry.blocks.source.pulsed_testing import BOREALIS, TOGGLES_ON
 from cranberry.core.block import MissingParameterError
 from cranberry.core.compile import run_reference
 from cranberry.path.topology import C_M_PER_S
@@ -63,3 +64,30 @@ def test_gated_stray_cw_and_reflections():
     # AOM leak keeps a CW floor ε·P_pk
     leaky = gated_stray_photons(p, TG, gating=True, t_offset_s=5e-9, **{**kw, "eps_aom": 1e-3})
     assert leaky["reflections_gate"] == pytest.approx(1e-3 * cw["reflections_gate"] * 320 / 10, rel=1e-12)
+
+
+def test_photons_per_mode_weighted_by_the_mode_not_the_gate():
+    """M5-02 (conv §2): Borealis-type ns mode (x_ss = 2.4, τ_eff 14.5 ns), 25 ns gate on the mode centroid,
+    10 ns reflection pulse (no delay). The gate factor is 0.40 for every start; the mode factor
+    |∫u·1_pulse|²/τ_eff is 0.035–0.47 (reviews/scripts/m5_stray_gate_vs_mode.py)."""
+    src = {"block": "pulsed_opo_source", "name": "opo", "params": dict(BOREALIS, x_ss=2.4, toggles=TOGGLES_ON)}
+    tg = dict.fromkeys(TG, False) | {"stray_reflections": True}
+    p = dt.stray_params(30.0, reflections=[[1e-6, 1.0]], t_gate_s=25e-9, mode={"source": src})
+    p["mode"] = resolve_mode(p["mode"])  # build the nested source once
+    cw = stray_photons(p, tg, 1e-6)
+    tau_eff = cw["reflections_mode"] / (cw["reflections_gate"] / 25e-9)  # CW: N = Φ τ_eff, clicks = Φ T_gate
+    assert tau_eff == pytest.approx(14.5e-9, rel=0.02)
+    kw = dict(p_avg_w=1e-6 * 1e-2, duty=1e-2, period_s=1e-6, eps_aom=0.0, gating=True, n_g=dt.N_G, reflection_z_m=[0.0])
+    rows = {}
+    for start, mode_f in ((-12.5e-9, 0.035), (-7.5e-9, 0.431), (-2.5e-9, 0.471), (2.5e-9, 0.090)):
+        out = gated_stray_photons(p, tg, t_offset_s=start, **kw)
+        rows[start] = out["reflections_mode"] / cw["reflections_mode"]
+        assert out["reflections_gate"] / cw["reflections_gate"] == pytest.approx(0.400, abs=1e-12)
+        assert rows[start] == pytest.approx(mode_f, abs=0.005)  # review: bin-centre indicator, here exact edges
+    assert max(rows.values()) / min(rows.values()) > 10
+    # CW-like train (duty 1): mode factor 1 for lines (reflection) and distributed scattering
+    tg2 = dict(tg, stray_rayleigh=True)
+    full = gated_stray_photons(p, tg2, t_offset_s=0.0, **{**kw, "duty": 1.0, "p_avg_w": 1e-6})
+    cwr = stray_photons(p, tg2, 1e-6)
+    for col in ("reflections_mode", "rayleigh_mode", "photons_per_mode"):
+        assert full[col] == pytest.approx(cwr[col], rel=1e-6)

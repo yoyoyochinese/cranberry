@@ -41,3 +41,19 @@ def test_source_model_and_toggle_off():
     off = chk(100e6, on=False, fwhm_hz=66e6)
     assert off.result is None and not off.chk_log.events
     assert np.isfinite(chk(1e9, fwhm_hz=66e6).result["tail"])
+
+
+def test_tail_beyond_the_source_window_is_extrapolated_not_zero():
+    """M5-06: window_kappa = 3 at 60 MHz puts 1/f_rep beyond the window; the true tail is 8.8e−3."""
+    src = {"block": "pulsed_opo_source", "name": "opo",
+           "params": dict(BOREALIS, x_ss=2.4, window_kappa=3.0, rep_rate_hz=60e6, toggles=TOGGLES_ON)}
+    b = chk(60e6, model="source", source=src)
+    assert b.result["tail"] == pytest.approx(8.8e-3, rel=0.02) and not b.result["ok"] and b.result["extrapolated"]
+    assert {e.code for e in b.chk_log.events} == {"rep_rate_tail_window", "rep_rate_tail"}
+    wide = chk(60e6, model="source", source={**src, "params": {**src["params"], "window_kappa": 12.0}})
+    assert wide.result["tail"] == pytest.approx(8.8e-3, rel=0.10) and not wide.result["extrapolated"]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        so = make_block(BlockSpec.from_obj(src))
+        assert so.source_output.tail_into_next_slot == pytest.approx(8.8e-3, rel=0.02)
+    assert so.chk_log.events[0].code == "source_window_short"

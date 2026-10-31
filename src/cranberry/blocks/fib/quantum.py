@@ -3,7 +3,8 @@
 
 Linearized method (T07 §2.2). Â = A + √(hν0) â on the B9 time grid (N points, Δt), â_n = √Δt â(T_n),
 quadrature vector x = (q_1..q_N, p_1..p_N) (xxpp, conv §2/§9) on the *centred* grid t_s. Per segment
-[z_k, z_k+1] (``steps.n_save`` segments of ``n_steps/n_save`` RK4IP steps):
+[z_k, z_k+1] (``steps.n_save`` segments of ``n_steps/n_save`` RK4IP steps; the segments carry the loss
+noise, the phase noise is per step):
 
     V ← M_k V M_kᵀ + N_k,     M_k = exact tangent of the B9 discrete map (2N real directions δA = e_n, i e_n)
 
@@ -12,8 +13,16 @@ quadrature vector x = (q_1..q_N, p_1..p_N) (xxpp, conv §2/§9) on the *centred*
   (M Mᵀ = η𝟙 ⇒ (1 − η)/2 𝟙, §7-3/§7-4 exact) and a convex mix of physical channels otherwise.
 * phase noise of the bright field (``raman_noise``, ``gawbs_noise``): ∂_z â ⊃ i A φ/√(hν0) with
   ⟨φ(z,T)φ(z′,T′)⟩ = δ(z−z′) C(T−T′) ⇒ D(z) = 2(Δt/hν0)·(u uᵀ ∘ [[C, C], [C, C]]), u = (−Im A, Re A);
-  N = (h/2)(M D(z_k) Mᵀ + D(z_k+1)). Raman: C = ifft_agrawal(S_R(Ω)) on the grid (S_R = hν0 g_R (n_th + ½),
-  periodic like the GNLSE); GAWBS: analytic C(τ) on unwrapped lags (its MHz lines are below the grid resolution).
+  injected per RK4IP step h (not per segment, M5-01): Q ← m_s Q m_sᵀ + (h/2)(m_s D(z) m_sᵀ + D(z + h)) with
+  the step tangent m_s, so the trapezoid error is O((g_R P h)²) per step and the result does not depend on
+  ``n_save`` (a per-segment trapezoid with g_R·P·L_seg ≳ 1 left V + iΩ/2 non-PSD by up to 1.4 % of the
+  vacuum at T = 0; the Raman noise is the minimal fluctuation–dissipation partner of the gain in M, so
+  T = 0 has no margin). The remaining violation is the O(h⁴) symplectic error of the RK4IP tangent
+  itself: choose ``n_steps`` from it (1 ps soliton: 400 steps → 4e−9 over 1 L_D, 6400 → 1e−9 over
+  10 L_D). The output is checked: λ_min(V + iΩ/2) < −1e−9·max(1, max|V|) → CHK
+  ``fiber_quantum_unphysical`` with the deficit (:func:`physicality_check`).
+  Raman: C = ifft_agrawal(S_R(Ω)) on the grid (S_R = hν0 g_R (n_th + ½), periodic like the GNLSE);
+  GAWBS: analytic C(τ) on unwrapped lags (its MHz lines are below the grid resolution).
   The Raman gain/absorption (Im h̃_R) is inside M through the B9 tangent (D&C 2001).
 * ``kerr_fluct`` off: the tangent is taken with Kerr and Raman removed (fluctuations see dispersion,
   loss and external XPM only); the classical field and the noise D still use the full solution.
@@ -73,6 +82,7 @@ from cranberry.blocks.fib.gnlse import (
 )
 from cranberry.core import rng as crng
 from cranberry.core.block import BaseBlock, Block, require
+from cranberry.core.checks import ChkLog
 from cranberry.core.fft import fft_agrawal, freq_grid, ifft_agrawal
 from cranberry.core.registry import register_block
 from cranberry.offline import gaussian
@@ -80,12 +90,14 @@ from cranberry.offline.source_output import SourceOutput
 
 __all__ = ["QUANTUM_TOGGLES", "NOISE_SOURCES", "LinearResult", "FiberQuantumLinearized", "FiberQuantumTW",
            "fiber_quantum_linear", "fiber_quantum_tw", "lo_matrix", "project_cov", "stationary_noise_cov",
-           "make_fiber_quantum_linearized", "make_fiber_quantum_tw"]
+           "make_fiber_quantum_linearized", "make_fiber_quantum_tw", "physicality_check", "PHYS_RTOL"]
 
 QUANTUM_TOGGLES = ("loss_noise", "kerr_fluct", "raman_noise", "gawbs_noise", "brillouin_backscatter",
                    "rayleigh_backscatter", "raman_backscatter")
 NOISE_SOURCES = ("loss", "raman", "gawbs", "brillouin", "rayleigh", "raman_bs")
 TW_TOGGLES = (*GNLSE_TOGGLES, "loss_noise")
+#: relative tolerance of the output physicality CHK (λ_min(V + iΩ/2) ≥ −PHYS_RTOL·max(1, max|V|))
+PHYS_RTOL = 1e-9
 
 
 # --------------------------------------------------------------------------------------------------
@@ -201,6 +213,7 @@ class LinearResult:
     ``noise_cov``: {source: propagated added covariance} for :data:`NOISE_SOURCES` (zeros when off).
     ``transfer``: total M (temporal 2N×2N, cw (n_f, 2, 2), lab frame). ``a_out``: classical output
     (centred grid) or CW amplitude. ``t_s`` / ``f_s_hz``: grid; ``dt``: time step (temporal).
+    ``lambda_min``: min eigenvalue of V + iΩ/2 (:func:`physicality_check`; physical ⇔ ≥ 0).
     """
 
     cov: np.ndarray
@@ -210,6 +223,7 @@ class LinearResult:
     t_s: np.ndarray | None
     f_s_hz: np.ndarray | None
     dt: float | None
+    lambda_min: float = float("nan")
 
     def lo_variances(self, u: np.ndarray) -> np.ndarray:
         """2×2 covariance of the LO mode u (temporal)."""
@@ -233,12 +247,30 @@ def _loss_noise(m: np.ndarray, eta: float) -> np.ndarray:
     return 0.5 * (1.0 - eta) * (eye + m @ np.swapaxes(m, -1, -2)) / (1.0 + eta)
 
 
-def fiber_quantum_linear(params: Mapping[str, Any], toggles: Mapping[str, bool], v0=None) -> LinearResult:
+def physicality_check(cov: np.ndarray, log: ChkLog | None = None, source: str = "fiber_quantum_linearized",
+                      rtol: float = PHYS_RTOL) -> float:
+    """min eigenvalue of V + iΩ/2 (conv units, physical ⇔ ≥ 0; cw: over all sidebands). Below
+    −rtol·max(1, max|V|) a ``fiber_quantum_unphysical`` CHK warning with the deficit goes to ``log``
+    (D34: never stops). Typical cause: too few RK4IP steps (the tangent is symplectic to O(h⁴)) or a
+    Raman gain–length per step g_R P h that is not ≪ 1 (M5-01)."""
+    n = cov.shape[-1] // 2
+    lam = float(np.min(np.linalg.eigvalsh(cov + 0.5j * gaussian.symplectic_form(n))))
+    tol = rtol * max(1.0, float(np.max(np.abs(cov))))
+    if lam < -tol:
+        (log or ChkLog()).warn("fiber_quantum_unphysical", source,
+                               f"output covariance violates V + iΩ/2 ≥ 0: λ_min = {lam:.3e} (deficit "
+                               f"{-lam / 0.5:.2e} of the vacuum variance, tol {tol:.1e}); refine steps.n_steps",
+                               lambda_min=lam, tol=tol)
+    return lam
+
+
+def fiber_quantum_linear(params: Mapping[str, Any], toggles: Mapping[str, bool], v0=None,
+                         log: ChkLog | None = None, source: str = "fiber_quantum_linearized") -> LinearResult:
     """Linearized propagation (module docstring). ``params``: the ``fiber_quantum_linearized`` params;
     ``toggles``: B9 toggles + :data:`QUANTUM_TOGGLES`; ``v0``: optional input (2N×2N array or a
     ``temporal`` ``SourceOutput`` on the same centred grid; cw: (n_f, 2, 2)) overriding ``input_state``."""
     if params["laser_mode"] == "cw" and toggles["cw_shortcut"]:
-        return _linear_cw(params, toggles, v0)
+        return _linear_cw(params, toggles, v0, log, source)
     t, dt = _grid(params)
     n, shift = t.size, t.size // 2
     tg_c = {k: toggles[k] for k in GNLSE_TOGGLES}
@@ -290,23 +322,30 @@ def fiber_quantum_linear(params: Mapping[str, Any], toggles: Mapping[str, bool],
     at = model.to_w(np.roll(_classical_input(params, t), -shift))
     basis = to_spec(np.eye(2 * n))
     z = 0.0
+    phase = [(key, cc) for key, cc, on in (("raman", c_r, toggles["raman_noise"]), ("gawbs", c_g, toggles["gawbs_noise"]))
+             if on and np.any(cc)]
     for _ in range(n_seg):
-        at0, dat = at, basis
+        m = np.eye(2 * n)
+        add = {key: np.zeros_like(v) for key, _ in phase}
+        d0 = {key: diff(at, cc) for key, cc in phase}
         for _ in range(per):
+            # per-step tangent and per-step trapezoid of the phase noise (M5-01): Q ← m_s Q m_sᵀ +
+            # (h/2)(m_s D(z) m_sᵀ + D(z + h)); the error is O((g_R P h)²) per step, not per segment
             if toggles["kerr_fluct"]:
-                at, dat = model.step(at, h, z, dat)
+                at, dat = model.step(at, h, z, basis)
             else:
-                _, dat = lin.step(at, h, z, dat)
+                _, dat = lin.step(at, h, z, basis)
                 at, _ = model.step(at, h, z, None)
             z += h
-        m = to_x(dat).T
+            ms = to_x(dat).T
+            m = ms @ m
+            for key, cc in phase:
+                d1 = diff(at, cc)
+                add[key] = ms @ (add[key] + 0.5 * h * d0[key]) @ ms.T + 0.5 * h * d1
+                d0[key] = d1
         m_tot = m @ m_tot
-        add = {}
         if toggles["loss_noise"] and model.alpha > 0:
             add["loss"] = _loss_noise(m, np.exp(-model.alpha * h * per))
-        for key, cc, on in (("raman", c_r, toggles["raman_noise"]), ("gawbs", c_g, toggles["gawbs_noise"])):
-            if on and np.any(cc):
-                add[key] = 0.5 * h * per * (m @ diff(at0, cc) @ m.T + diff(at, cc))
         v = m @ v @ m.T + sum(add.values(), np.zeros_like(v))
         for k in NOISE_SOURCES:
             noise[k] = m @ noise[k] @ m.T + add.get(k, 0.0)
@@ -316,14 +355,15 @@ def fiber_quantum_linear(params: Mapping[str, Any], toggles: Mapping[str, bool],
             add = stationary_noise_cov(n, dt, ln, de)
             noise[k], v = noise[k] + add, v + add
     v = 0.5 * (v + v.T)
-    return LinearResult(v, noise, m_tot, np.roll(model.to_t(at), shift), t, None, dt)
+    return LinearResult(v, noise, m_tot, np.roll(model.to_t(at), shift), t, None, dt,
+                        physicality_check(v, log, source))
 
 
 def _p_avg(params):
     return float(params["probe"]["p_peak_w"]) * float(params["probe"]["duty"])
 
 
-def _linear_cw(params, toggles, v0) -> LinearResult:
+def _linear_cw(params, toggles, v0, log=None, source="fiber_quantum_linearized") -> LinearResult:
     """CW sideband path (module docstring)."""
     require(params, "f_s_hz", block="fiber_quantum_linearized")
     f = np.asarray(params["f_s_hz"], dtype=float)
@@ -399,7 +439,8 @@ def _linear_cw(params, toggles, v0) -> LinearResult:
     v = rot @ v @ rot_t
     noise = {k_: rot @ x @ rot_t for k_, x in noise.items()}
     a_out = np.sqrt(p0) * np.exp(-alpha * L / 2) * np.exp(1j * phi)
-    return LinearResult(0.5 * (v + np.swapaxes(v, -1, -2)), noise, rot @ m_tot, a_out, None, f, None)
+    v = 0.5 * (v + np.swapaxes(v, -1, -2))
+    return LinearResult(v, noise, rot @ m_tot, a_out, None, f, None, physicality_check(v, log, source))
 
 
 def _cw_phi_nl(params, tg):
@@ -446,6 +487,7 @@ class FiberQuantumLinearized(BaseBlock):
         sc.check_probe_groups(params, name)
         require(params["probe"], "p_peak_w", "duty", block=f"{name}.probe")
         super().__init__(self.kind_name, name, params)
+        self.chk_log = ChkLog()
         if params["laser_mode"] == "cw" and self._toggles["cw_shortcut"]:
             require(params, "f_s_hz", block=name)
 
@@ -454,7 +496,7 @@ class FiberQuantumLinearized(BaseBlock):
 
     @cached_property
     def result(self) -> LinearResult:
-        return fiber_quantum_linear(self.params, self._toggles)
+        return fiber_quantum_linear(self.params, self._toggles, log=self.chk_log, source=self.name)
 
     @cached_property
     def source_output(self) -> SourceOutput:

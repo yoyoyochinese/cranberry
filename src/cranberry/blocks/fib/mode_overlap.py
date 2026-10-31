@@ -11,6 +11,11 @@ gets ũ_s = ũ e^{i(ΩΔt + φ2Ω²/2 + φ3Ω³/6)} (conv §8); the LO is the so
 Δt = δL = 0), so each entry is ``source.project(U†u_LO)`` and η_t = |∫u_LO* U u_LO dT|². For a single
 mode θ_off = arg κ (T03 §2.5: the GDD turns timing into a squeezing-angle offset the lock cannot see).
 
+η_t bookkeeping (M5-09): V_± already contain η_t (and θ_off the mode-shape rotation), i.e. the
+``projection`` convention of ``lo_temporal_shape``; the ``eta_t`` column is informational. A preset that
+interpolates V_± must not register an η_t loss for the same LO as well (``lo_temporal_shape`` with
+``eta_t_carrier: projection`` registers its element disabled).
+
 Fast timing jitter (T03 §2.6, §8.2): with ``jitter_fast`` on, the LO-mode covariance is averaged over
 Δt ~ N(dt, σ_t,fast²) (Gauss–Hermite, ``n_jitter`` nodes) before (V_−, V_+, θ_off) are formed — the
 measurement is linear in that covariance. Slow jitter belongs to the time loop (no double counting).

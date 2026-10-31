@@ -19,7 +19,7 @@ BOREALIS: dict[str, Any] = {
     "cavity_model": "linewidth", "fwhm_hz": 66e6, "escape_efficiency": 0.95, "pump_fwhm_hz": 127e6,
     "pump_shape": "rect", "pump_duration_s": 3e-9, "x_ss": 1.297, "phi_opa0_rad": 0.0, "delta_s_rad_s": 0.0,
     "delta_p_rad_s": 0.0, "dt_kappa": 1 / 40, "window_kappa": 12.0, "segment": "opo", "rep_rate_hz": 6e6,
-    "angle_table_x_ss": None, "angle_probe_d": 0.01, "toggles": TOGGLES_ON,
+    "angle_table_x_ss": None, "angle_probe_d": 0.01, "discretization": "box", "toggles": TOGGLES_ON,
 }
 
 #: Liu 2026: FSR 7.4 GHz, finesse 59 (signal) / 29 (pump) [L-SI §1.1]; 1.6 ns rectangular pump at 20 MHz
@@ -28,7 +28,7 @@ LIU: dict[str, Any] = {
     "cavity_model": "fsr_finesse", "fsr_hz": 7.4e9, "finesse": 59.0, "escape_efficiency": 0.99,
     "pump_fwhm_hz": 7.4e9 / 29.0, "pump_shape": "rect", "pump_duration_s": 1.6e-9, "x_ss": 4.129, "phi_opa0_rad": 0.0,
     "delta_s_rad_s": 0.0, "delta_p_rad_s": 0.0, "dt_kappa": 1 / 40, "window_kappa": 12.0, "segment": "opo",
-    "rep_rate_hz": 20e6, "angle_table_x_ss": None, "angle_probe_d": 0.01, "toggles": TOGGLES_ON,
+    "rep_rate_hz": 20e6, "angle_table_x_ss": None, "angle_probe_d": 0.01, "discretization": "box", "toggles": TOGGLES_ON,
 }
 
 

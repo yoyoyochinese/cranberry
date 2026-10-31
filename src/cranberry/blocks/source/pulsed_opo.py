@@ -16,13 +16,20 @@ squeezed (θ_sq = π/2, φ_OPA,0 = 0 of this Langevin form, T17 §1); φ = ``phi
 frame (θ_sq,0 = φ/2 + π/2).
 
 Discretisation (T17 §2.2, δt = ``dt_kappa``/κ_c, PLAN §6.4: 1/(40–160 κ_c)): bins of width δt from the
-pump turn-on t = 0 to ``window_kappa``/κ_c. Inside a bin M and the input noise are constant (the
-white inputs are projected on the bin box functions), the Langevin equation is solved exactly
+pump turn-on t = 0 to ``window_kappa``/κ_c. Inside a bin M is constant (``box``: so are the projected
+inputs on the bin boxes), the Langevin equation is solved exactly
 (augmented matrix exponential for e^{Mτ}, ∫e^{Ms}ds, ∫∫), and the output is bin-averaged:
 Y_k = δt^{−1/2}∫_bin X_out dt. Y = T·w with w ~ N(0, 𝟙) (input, loss and the initial intracavity
 vacuum), so the shot-noise-normalised 2N×2N kernel is C = T Tᵀ (xxpp, vacuum = 𝟙; ``cov`` = C/2).
-Errors scale with δt² (V-P1); the box projection also makes C obey the uncertainty relation only
-to O((κ_c δt)²) (vacuum eigenvalues within 2(κ_c δt)², V-P2). The initial-cavity-vacuum columns ("the term 2κ_T G(t,t₀)G(t′,t₀)ᵀ")
+Errors scale with δt² (V-P1). ``discretization`` (D34, no default; M5-07):
+
+* ``box``: the white inputs are projected on the bin boxes (4 noise columns per bin). C obeys the
+  uncertainty relation only to O((κ_c δt)²) (vacuum eigenvalues within 2(κ_c δt)², V-P2; min symplectic
+  eigenvalue 0.99979 at δt = 1/(40κ_c) — 0.002 dB, but a thermal photon number (ν − 1)/2 of −1e−4
+  downstream).
+* ``van_loan``: the in-bin noise of (X(t_k+1), ∫_bin X dt, box part of the input) is integrated exactly
+  (Van Loan's augmented exponential, 6 columns per bin), so C is the exact covariance of the bin
+  averages and physical to rounding (use when a consumer needs a physical covariance, e.g. GBS sampling). The initial-cavity-vacuum columns ("the term 2κ_T G(t,t₀)G(t′,t₀)ᵀ")
 are **always** included; dropping them gives the spurious perfect squeezing of V-P3 — the toggle
 ``include_initial_vacuum`` exists only for that regression test. The basis modes are the bin boxes
 f_k = δt^{−1/2}·1_bin (orthonormal), ``grid`` = bin centres.
@@ -55,8 +62,10 @@ Params (D34: all required where they apply)
     ``escape_efficiency`` ρ, ``x_ss``, ``phi_opa0_rad``, ``delta_s_rad_s``, ``delta_p_rad_s``,
     ``pump_shape`` (rect: ``pump_duration_s`` | envelope: ``pump_envelope`` callable of ``t_s``, peak 1),
     ``dt_kappa``, ``window_kappa``, ``segment``, ``rep_rate_hz`` (→ ``tail_into_next_slot`` =
-    ε_tail(1/f_rep), T from the pump turn-on), ``angle_table_x_ss`` (list or None),
-    ``angle_probe_d``; pump_resonant on: ``pump_fwhm_hz``; pulsed off: ``f_s_hz``.
+    ε_tail(1/f_rep), T from the pump turn-on; 1/f_rep beyond the window → analytic 8.8e^{−2κ_cT} + CHK
+    ``source_window_short``), ``angle_table_x_ss`` (list or None),
+    ``angle_probe_d``, ``discretization`` (box | van_loan); pump_resonant on: ``pump_fwhm_hz``; pulsed off:
+    ``f_s_hz``.
     ``toggles`` {pulsed, pump_resonant, detuning, include_initial_vacuum}.
 """
 
@@ -69,21 +78,27 @@ from typing import Any
 import numpy as np
 from scipy.linalg import expm
 
+from cranberry.blocks.chk.rep_rate_tail import tail_analytic
 from cranberry.blocks.source import temporal_modes as tm
 from cranberry.blocks.source.opo_cw import make_opo_cw_spectrum
 from cranberry.config.resolve import as_callable
 from cranberry.core.block import BaseBlock, Block, require
+from cranberry.core.checks import ChkLog
 from cranberry.core.registry import register_block
 from cranberry.offline import gaussian
 from cranberry.offline.source_output import SourceOutput, wrap_half_pi
 from cranberry.offline.tables import Table
 
-__all__ = ["PulsedOpoSource", "make_pulsed_opo_source", "pump_cavity", "transfer_matrix", "schmidt_number"]
+__all__ = ["PulsedOpoSource", "make_pulsed_opo_source", "pump_cavity", "transfer_matrix", "schmidt_number",
+           "DISCRETIZATIONS"]
 
 KIND = "pulsed_opo_source"
 TOGGLES = ("pulsed", "pump_resonant", "detuning", "include_initial_vacuum")
 CAVITY_MODELS = ("linewidth", "fsr_finesse")
 PUMP_SHAPES = ("rect", "envelope")
+DISCRETIZATIONS = ("box", "van_loan")
+#: window cut (mode energy beyond the window) above which ``tail`` warns ``source_window_short``
+WINDOW_CUT_WARN = 1e-9
 
 
 def pump_cavity(s: np.ndarray, dt: float, kappa_p: float | None, delta_p: float) -> np.ndarray:
@@ -103,31 +118,66 @@ def pump_cavity(s: np.ndarray, dt: float, kappa_p: float | None, delta_p: float)
     return out
 
 
+def _bin_noise_van_loan(m: np.ndarray, dt: float, kt: float, kl: float) -> np.ndarray:
+    """L (6×6) with L Lᵀ = exact covariance of (ΔX, ΔI, Ξ) over one bin (``discretization: van_loan``):
+    ΔX = X(t_k+1) − e^{Mδt}X(t_k), ΔI = δt^{−1}[∫_bin X dt − (∫e^{Ms}ds)X(t_k)] (bin average, so all
+    entries are O(κδt) and the factorisation keeps full precision), Ξ = δt^{−1/2}∫_bin dW_in, driven by the
+    white input and loss noise. Augmented S = (X, I, Ξ), dS = A S dt + G dW; Van Loan (1978):
+    expm([[−A, GGᵀ], [0, Aᵀ]]δt) = [[·, F12], [0, F22]] ⇒ Q = F22ᵀ F12."""
+    a = np.zeros((6, 6))
+    a[:2, :2], a[2:4, :2] = m, np.eye(2) / dt
+    g = np.zeros((6, 4))
+    g[:2, :2], g[:2, 2:] = np.sqrt(2.0 * kt) * np.eye(2), np.sqrt(2.0 * kl) * np.eye(2)
+    g[4:, :2] = np.eye(2) / np.sqrt(dt)
+    big = np.zeros((12, 12))
+    big[:6, :6], big[:6, 6:], big[6:, 6:] = -a, g @ g.T, a.T
+    f = expm(big * dt)
+    q = f[6:, 6:].T @ f[:6, 6:]
+    lam, vec = np.linalg.eigh(0.5 * (q + q.T))
+    return vec * np.sqrt(np.clip(lam, 0.0, None))
+
+
 def transfer_matrix(eps: np.ndarray, dt: float, kappa_c: float, rho: float, delta_s: float,
-                    include_initial_vacuum: bool) -> np.ndarray:
-    """T (2N × (4N + 2)): bin-averaged output quadratures (xxpp) = T·w, w standard normal (module
-    docstring). Columns 4k..4k+3: (q_in, p_in, q_L, p_L) of bin k; last two: initial cavity vacuum."""
+                    include_initial_vacuum: bool, discretization: str = "box") -> np.ndarray:
+    """T (2N × ncol): bin-averaged output quadratures (xxpp) = T·w, w standard normal (module
+    docstring). ``box``: columns 4k..4k+3 = (q_in, p_in, q_L, p_L) of bin k (box projection of the
+    inputs, physical to O((κδt)²)); ``van_loan``: columns 6k..6k+5 = the exact in-bin noise of
+    (ΔX, ΔI, Ξ) (:func:`_bin_noise_van_loan`), so C = TTᵀ is physical to rounding. Last two columns:
+    initial cavity vacuum."""
+    if discretization not in DISCRETIZATIONS:
+        raise ValueError(f"discretization must be one of {DISCRETIZATIONS}, got {discretization!r}")
+    vl = discretization == "van_loan"
     n = eps.size
     kt, kl = rho * kappa_c, (1.0 - rho) * kappa_c
-    ncol = 4 * n + 2
+    per = 6 if vl else 4
+    ncol = per * n + 2
     t = np.zeros((2 * n, ncol))
     a = np.zeros((2, ncol))  # intracavity X(t_k) as a linear form in w
     if include_initial_vacuum:
-        a[0, 4 * n] = a[1, 4 * n + 1] = 1.0
+        a[0, per * n] = a[1, per * n + 1] = 1.0
     sq, cy = np.sqrt(dt), np.sqrt(2.0 * kt / dt)
     fin, fl = np.sqrt(2.0 * kt) / sq, np.sqrt(2.0 * kl) / sq
     big = np.zeros((6, 6))
     big[:2, 2:4] = big[2:4, 4:6] = np.eye(2) * dt
-    cache: dict[complex, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    cache: dict[complex, tuple[np.ndarray, ...]] = {}
     for k in range(n):
         e = complex(eps[k])
         if e not in cache:
-            big[:2, :2] = np.array([[-kappa_c + e.real, delta_s + e.imag], [-delta_s + e.imag, -kappa_c - e.real]]) * dt
+            mk = np.array([[-kappa_c + e.real, delta_s + e.imag], [-delta_s + e.imag, -kappa_c - e.real]])
+            big[:2, :2] = mk * dt
             x = expm(big)
-            cache[e] = (x[:2, :2].copy(), x[:2, 2:4].copy(), x[:2, 4:6].copy())  # e^{Mδt}, ∫e^{Ms}, ∫∫
-        em, p1, p2 = cache[e]
+            cache[e] = (x[:2, :2].copy(), x[:2, 2:4].copy(), x[:2, 4:6].copy(),  # e^{Mδt}, ∫e^{Ms}, ∫∫
+                        _bin_noise_van_loan(mk, dt, kt, kl) if vl else None)
+        em, p1, p2, lk = cache[e]
+        c = slice(per * k, per * k + per)
+        if vl:
+            y = cy * (p1 @ a)
+            y[:, c] += cy * dt * lk[2:4] - lk[4:6]
+            t[k], t[n + k] = y[0], y[1]
+            a = em @ a
+            a[:, c] += lk[:2]
+            continue
         y = cy * (p1 @ a)
-        c = slice(4 * k, 4 * k + 4)
         f = np.array([[fin, 0.0, fl, 0.0], [0.0, fin, 0.0, fl]])  # forcing per unit w of this bin
         y[:, c] += cy * (p2 @ f)
         y[0, 4 * k] -= 1.0
@@ -154,6 +204,7 @@ class PulsedOpoSource(BaseBlock):
         require(params, "cavity_model", "escape_efficiency", "x_ss", "phi_opa0_rad", "delta_s_rad_s", "delta_p_rad_s",
                 "segment", block=name)
         super().__init__(KIND, name, params)
+        self.chk_log = ChkLog()
         tg = self._toggles
         cm = params["cavity_model"]
         if cm not in CAVITY_MODELS:
@@ -165,7 +216,9 @@ class PulsedOpoSource(BaseBlock):
             require(params, "f_s_hz", block=name)
             return
         require(params, "pump_shape", "dt_kappa", "window_kappa", "rep_rate_hz", "angle_table_x_ss", "angle_probe_d",
-                block=name)
+                "discretization", block=name)
+        if params["discretization"] not in DISCRETIZATIONS:
+            raise ValueError(f"block {name!r}: discretization must be one of {DISCRETIZATIONS}")
         if params["pump_shape"] not in PUMP_SHAPES:
             raise ValueError(f"block {name!r}: pump_shape must be one of {PUMP_SHAPES}")
         require(params, {"rect": "pump_duration_s", "envelope": "pump_envelope"}[params["pump_shape"]], block=name)
@@ -239,7 +292,7 @@ class PulsedOpoSource(BaseBlock):
             b = b * np.exp(-1j * self.static_pump_phase(delta_p))
         eps = self.kappa_c * x * b * np.exp(1j * float(self.params["phi_opa0_rad"]))
         return transfer_matrix(eps, self.dt_s, self.kappa_c, self.rho if rho is None else float(rho), delta_s,
-                               self._toggles["include_initial_vacuum"])
+                               self._toggles["include_initial_vacuum"], str(self.params["discretization"]))
 
     # --------------------------------------------------------------------------------------------- products
 
@@ -264,7 +317,8 @@ class PulsedOpoSource(BaseBlock):
                           modes=modes, pump_path_phase_rad={seg: self.static_pump_phase(dp)},
                           coef_tables=self._coef_tables(), provenance={})
         u, vmin = tm.optimal_lo_mode(so)
-        tail = tm.tail_energy(u, self.grid, 1.0 / float(p["rep_rate_hz"]))
+        trep = 1.0 / float(p["rep_rate_hz"])
+        tail = tm.tail_energy(u, self.grid, trep) if trep < self.window_s else self.tail(trep)
         prov = {"block": self.name, "model": "pulsed_langevin", "kappa_c_rad_s": self.kappa_c, "kappa_p_rad_s": self.kappa_p,
                 "escape_efficiency": self.rho, "x_ss": float(p["x_ss"]), "dt_s": self.dt_s, "n_bins": n,
                 "R_minus": 2.0 * vmin, "tau_eff_s": tm.tau_eff_s(u, self.grid), "toggles": dict(self._toggles),
@@ -318,9 +372,33 @@ class PulsedOpoSource(BaseBlock):
     def tau_eff_s(self) -> float:
         return tm.tau_eff_s(self.optimal_mode[0], self.grid)
 
+    @property
+    def window_s(self) -> float:
+        """End of the computation window [s] (``window_kappa``/κ_c from the pump turn-on)."""
+        return float(self.grid[-1] + 0.5 * self.dt_s)
+
+    @property
+    def window_cut(self) -> float:
+        """Mode energy the window cuts off, 8.8 e^{−2κ_c·window} (T17 §5.2); > :data:`WINDOW_CUT_WARN` ⇒
+        the window is short (the computed mode itself is truncated)."""
+        return tail_analytic(self.kappa_c, self.window_s)
+
     def tail(self, t_s: float) -> float:
-        """ε_tail(T): energy of the optimal mode after T from the pump turn-on."""
-        return tm.tail_energy(self.optimal_mode[0], self.grid, t_s)
+        """ε_tail(T): energy of the optimal mode after T from the pump turn-on. Beyond the window (T ≥
+        ``window_s``) the mode is not computed, so the analytic 8.8 e^{−2κ_c T} (T17 §5.2,
+        ``chk.rep_rate_tail.tail_analytic``) is returned instead of 0 (M5-06: a short window must not hide
+        a tail); if the window also cuts a non-negligible part of the mode (:attr:`window_cut`) a
+        ``source_window_short`` CHK warning goes to ``chk_log``."""
+        if t_s < self.window_s:
+            return tm.tail_energy(self.optimal_mode[0], self.grid, t_s)
+        ext = tail_analytic(self.kappa_c, t_s)
+        if self.window_cut > WINDOW_CUT_WARN:
+            self.chk_log.warn("source_window_short", self.name,
+                              f"T = {t_s:.3g} s is beyond the source window {self.window_s:.3g} s "
+                              f"(window_kappa = {self.params['window_kappa']}, cuts {self.window_cut:.2g} of the "
+                              f"mode); tail extrapolated 8.8 e^(-2 κ_c T) = {ext:.3g} — enlarge window_kappa",
+                              t_s=float(t_s), window_s=self.window_s, tail_extrapolated=ext)
+        return ext
 
     # --------------------------------------------------------------------------------------------- detuning
 
@@ -359,11 +437,23 @@ class PulsedOpoSource(BaseBlock):
                 f"{seg}.detuning.pump": Table(f"{seg}.detuning.pump", {"x_ss": xs}, pu, "rad/(rad/s)", prov)}
 
     def angle_map_params(self, beams: Mapping[str, str]) -> dict[str, Any]:
-        """``x_grid`` and ``coef`` params of ``opo_angle_map`` for {beam: role}, role ∈ {squeezed, pump}."""
+        """``x_grid`` and ``coef`` params of ``opo_angle_map`` for {beam: role}, role ∈ {squeezed, pump}.
+
+        ``pulsed`` off (M5-08): the CW tables of ``opo_cw_spectrum`` (axis ``x``, one Δ_s coefficient per
+        role ``squeezed`` | ``probe``) are used with c_p = 0 — the CW limit has no pump cavity, so Δ_p does
+        not act and role ``pump`` (transmitted pump phase) is not available (ValueError)."""
         tabs, seg = self.source_output.coef_tables, str(self.params["segment"])
-        x = tabs[f"{seg}.detuning.squeezed"].grid["x_ss"]
+        if self._toggles["pulsed"]:
+            x = tabs[f"{seg}.detuning.squeezed"].grid["x_ss"]
+            return {"segment": seg, "x_grid": x.tolist(),
+                    "coef": {b: tabs[f"{seg}.detuning.{role}"].values.tolist() for b, role in beams.items()}}
+        bad = {r for r in beams.values() if r not in ("squeezed", "probe")}
+        if bad:
+            raise ValueError(f"block {self.name!r}: pulsed off (CW limit) has roles squeezed/probe only, got {sorted(bad)}")
+        x = tabs[f"{seg}.detuning.squeezed"].grid["x"]
         return {"segment": seg, "x_grid": x.tolist(),
-                "coef": {b: tabs[f"{seg}.detuning.{role}"].values.tolist() for b, role in beams.items()}}
+                "coef": {b: [[float(c), 0.0] for c in np.ravel(tabs[f"{seg}.detuning.{role}"].values)]
+                         for b, role in beams.items()}}
 
 
 @register_block(KIND)

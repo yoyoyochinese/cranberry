@@ -163,3 +163,30 @@ def test_pulsed_kernel_gate_shorter_than_mode_warns():
     assert [e.code for e in short.chk_log.events] == ["gate_shorter_than_mode"]
     assert not ok.chk_log.events and not unchecked.chk_log.events
     assert any(issubclass(x.category, ChkWarning) for x in w)
+
+
+def test_pulsed_kernel_charge_profile_ns_mode():
+    """M5-11: δ pulses vs an extended charge profile. Closed form (first order, a = 2πB, profile inside the
+    window, m ≥ 1): c_m = Σq e^{−a(mT − s)}(1 − e^{−aW}) / Σq (1 − e^{−a(W − s)}). The Borealis-type ns mode
+    at 45 MHz (charge |u_opt|², 22 ns slot) gives a larger c_1 than the δ assumption."""
+    from cranberry.blocks.source.pulsed_testing import BOREALIS, pulsed_opo
+
+    resp, per, W = {"model": "first_order", "bandwidth_hz": 30e6}, 1 / 45e6, 1 / 45e6
+    a = 2 * np.pi * 30e6
+    s, q = np.array([2e-9, 9e-9]), np.array([0.7, 0.3])
+    c = crosstalk_coefficients(resp, 45e6, W, 3, {"t_s": s.tolist(), "weight": q.tolist()})
+    den = np.sum(q * (1 - np.exp(-a * (W - s))))
+    for m in (1, 2, 3):
+        assert c[m] == pytest.approx(np.sum(q * np.exp(-a * (m * per - s)) * (1 - np.exp(-a * W))) / den, rel=1e-12)
+    delta = crosstalk_coefficients(resp, 45e6, W, 3)
+    assert np.array_equal(delta, crosstalk_coefficients(resp, 45e6, W, 3, {"t_s": [0.0], "weight": [1.0]}))
+    opo = pulsed_opo(BOREALIS, x_ss=2.4)
+    u = opo.optimal_mode[0]
+    keep = opo.grid < per
+    prof = {"t_s": opo.grid[keep].tolist(), "weight": (np.abs(u[keep]) ** 2).tolist()}
+    ns = crosstalk_coefficients(resp, 45e6, W, 3, prof)
+    assert ns[1] > 1.5 * delta[1]  # the δ assumption underestimates c_1 for ns modes near 45 MHz
+    d = T.pulsed_kernel(f_rep_hz=45e6, window_s=W, response=resp, pulse_charge_profile=prof)
+    assert np.allclose(mk(d).c[:4], ns, rtol=1e-12)
+    with pytest.raises(ValueError):
+        crosstalk_coefficients(resp, 45e6, W, 3, {"t_s": [0.0, 1e-9], "weight": [1.0]})

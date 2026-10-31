@@ -3,6 +3,8 @@
 * V1 Gaussian overlap: numerical κ (FFT delay + GDD) vs the closed form, Δt ∈ [−3T0, 3T0],
   χ ∈ [−5, 5]: |κ_num − κ_ana| < 1e−6 (sign of Δt and of arg κ included).
 * V2 symplectic: C C† − S S† = 𝟙, C Sᵀ = S Cᵀ to 1e−8 at N = 512.
+* V2b grid coverage (M5-05): (NΔΩ/2)/Ω_PM < 3 → CHK ``opa_grid_pm_coverage``; K grows with N there,
+  converges (1 %) once covered; r_0 converged either way.
 * V3 low gain: S/g → JSA F (relative 1e−3), K of the supermodes = K of F (1e−3); Gaussian JSA
   K = ½(σ_−/σ_+ + σ_+/σ_−) (1e−3).
 * V4 multimode BHD: u_LO = ψ_0 → V_− = e^{−2r_0}/2; u_LO ⟂ every ψ_n → V = 1/2 (1e−9).
@@ -52,6 +54,25 @@ def test_v2_symplectic_n512():
     c, s = opa(n_points=512, time_window_s=16e-12, n_z=3).propagator
     assert np.max(np.abs(c @ c.conj().T - s @ s.conj().T - np.eye(512))) < 1e-8
     assert np.max(np.abs(c @ s.T - s @ c.T)) < 1e-8
+
+
+def test_v2b_grid_covers_phase_matching():
+    """M5-05: Ω_PM = √(2π/(β2,s L)) ≈ 2π × 40 THz for the fixture; N = 128 / 256 at W = 8 ps cover 0.2 / 0.4
+    of it → CHK ``opa_grid_pm_coverage`` and K ∝ N (24 → 48) while r_0 is converged. With β2,s = 1e−23
+    s²/m (Ω_PM 2π × 4 THz) and W = 4 ps the coverage is 4 (no warning) and K changes < 1 % on doubling N."""
+    narrow, wide = opa(), opa(n_points=256)
+    assert narrow.omega_pm == pytest.approx(np.sqrt(2 * np.pi / (1e-25 * 1e-3)), rel=1e-12)
+    assert narrow.pm_coverage == pytest.approx(128 * np.pi / 8e-12 / narrow.omega_pm, rel=1e-12)
+    for b in (narrow, wide):
+        (ev,) = b.chk_log.events
+        assert ev.code == "opa_grid_pm_coverage" and ev.context["coverage"] == b.pm_coverage < 1
+    assert wide.schmidt_number / narrow.schmidt_number > 1.7
+    assert wide.supermode_r[0] == pytest.approx(narrow.supermode_r[0], rel=1e-3)
+    ok = opa(beta2_signal_s2_per_m=1e-23, time_window_s=4e-12)
+    ok2 = opa(beta2_signal_s2_per_m=1e-23, time_window_s=4e-12, n_points=256)
+    assert ok.pm_coverage == pytest.approx(4.0, rel=0.01) and not ok.chk_log.events
+    assert ok2.schmidt_number == pytest.approx(ok.schmidt_number, rel=0.01)
+    assert opa(toggles={"gvd": False}).pm_coverage == 0.0  # unbounded band: always warns
 
 
 def test_v3_low_gain_schmidt():
