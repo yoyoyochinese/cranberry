@@ -589,6 +589,12 @@ class _Parser:
             except (TypeError, ValueError):
                 self.err(f"{where}: pm_diagonal K_T / K_tau / b_g must be numbers")
                 return False
+            if pol["K_T_rad_per_m_K"] > 0:  # allowed (D34), but D51-2 / conv §9: K_T < 0 (Phase 5 F6-4)
+                from cranberry.core.checks import ChkLog
+
+                ChkLog().warn("pm_K_T_sign", where, f"K_T_rad_per_m_K = {pol['K_T_rad_per_m_K']!r} > 0; the PM birefringence "
+                              "temperature coefficient is negative (conv §9, D51-2: nominal -2.05 rad/(m K)); a positive "
+                              "value flips the sign of the slow-fast phase drift", K_T_rad_per_m_K=pol["K_T_rad_per_m_K"])
             ad = pol["axis_drivers"]
             if not isinstance(ad, (list, tuple)) or any(d not in DRIVERS for d in ad):
                 self.err(f"{where}: axis_drivers must be a list of drivers from {DRIVERS}")

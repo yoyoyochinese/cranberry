@@ -8,6 +8,18 @@ Hold semantics
     n = 0. Composites (Seq / Parallel / Stack) always have ``rate_div = 1``; decimation is a property
     of leaves.
 
+Hold delay (rule, Phase 5 F1-3)
+    A block held at ``rate_div = r`` adds **(r − 1)/(2 f_sim)** of delay to what it passes on (the
+    phase-averaged group delay of the discrete sample-and-hold: an input seen at n = r·⌊n/r⌋ is used
+    for n … n + r − 1, mean lag (r − 1)/2 base samples), not the r/(2 f_sim) of a continuous-time
+    zero-order hold of width r/f_sim. The remaining half base sample 1/(2 f_sim) of the physical D/A
+    hold appears **only** when the downstream continuous-time block is discretised with ``zoh``
+    (whose DC group delay is the analogue one + h/2); with ``bilinear`` / ``tustin`` it does not. So a
+    preset subtracting explicitly modelled delays from a loop budget (D61-2, ``tau_s = τ_L − 1/f_sim −
+    explicit``) counts a held instrument stage as (r − 1)/(2 f_sim) plus 1/(2 f_sim) only if the next
+    block is ``zoh``-discretised (e.g. Ref D: DSC1 ``dac`` at r = 2 into the ``zoh`` 914 filter, VT-24
+    test 10). ``tests/unit/core/test_rates_draws_recorder.py::test_hold_delay_rule`` fixes both numbers.
+
 Pieces
     The time loop advances in *pieces* of at most :data:`PIECE_SAMPLES` base samples (the runner's
     ``chunk_samples`` is split into pieces). Before each piece, the optional leaf hook

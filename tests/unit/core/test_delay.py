@@ -35,6 +35,7 @@ def test_linear_fractional_formula():
     np.testing.assert_allclose(y, expect, rtol=0, atol=1e-15)
 
 
+@pytest.mark.filterwarnings("ignore::cranberry.core.checks.ChkWarning")
 @pytest.mark.parametrize("D", [0.3, 0.5, 1.0 + 1e-3, 2.7, 6.49, 6.5])
 def test_thiran_design(D):
     d = DelayDesign(D, "thiran1")
@@ -45,6 +46,28 @@ def test_thiran_design(D):
     np.testing.assert_allclose(np.abs(d.freq_response(f, FS)), 1.0, atol=1e-13)  # all-pass
 
 
+def test_thiran_short_delay_warns():
+    """Phase 5 F1-6: thiran1 is documented for D >= 0.5; 0 < D < 0.5 emits a ChkWarning (linear does not,
+    integer delays do not)."""
+    import warnings
+
+    from cranberry.core.checks import ChkWarning
+
+    with pytest.warns(ChkWarning, match="thiran1_short_delay"):
+        DelayDesign(0.3, "thiran1")
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ChkWarning)
+        DelayDesign(0.3, "linear")
+        DelayDesign(0.5, "thiran1")
+        DelayDesign(0.0, "thiran1")
+    lay = SlotLayout(FS)
+    lay.add("v.x", (), np.float64, "V")
+    blk = make_delay_buffer({"in": "v.x", "out": "delay.dd.out", "tau_s": 0.2 / FS, "method": "thiran1"}, name="dd")
+    with pytest.warns(ChkWarning, match="dd"):
+        blk.init(lay, None)
+
+
+@pytest.mark.filterwarnings("ignore::cranberry.core.checks.ChkWarning")
 @pytest.mark.parametrize("method", METHODS)
 @pytest.mark.parametrize("D", [2.3, 5.75, 0.4])
 def test_low_frequency_phase_delay_equals_D(method, D):
@@ -127,3 +150,18 @@ def test_delay_buffer_params_validated():
 
 def test_toy_import_side_effect_free_of_delay():
     assert toy("toy_gain", "g", in_="v.a", out="v.b", unit="V", gain=1.0)["params"]["in"] == "v.a"
+
+
+@pytest.mark.parametrize("D", [0.3, 2.7, 5.0])
+def test_interp_variance_deficit_closed_form(D):
+    """D65-4 helper: one linear stage on a unit-variance white driver loses 2μ(1 − μ) of the variance
+    (review F6-1 closed form); an integer delay loses nothing; an AR(1)-like 1/f² tail is integrable."""
+    from cranberry.core.delay import interp_variance_deficit
+
+    mu = D - np.floor(D)
+    white = lambda f: np.full_like(f, 2.0 / FS)  # noqa: E731  one-sided, ∫ = 1
+    assert interp_variance_deficit([[(D / FS, 1.0)]], FS, white) == pytest.approx(2 * mu * (1 - mu), abs=1e-6)
+    assert interp_variance_deficit([[(D / FS, 1.0)], [(D / FS, -1.0)]], FS, white) == pytest.approx(
+        4 * mu * (1 - mu), abs=1e-6)  # independent channels add
+    assert np.isfinite(interp_variance_deficit([[(D / FS, 1.0)]], FS, lambda f: 1.0 / f**2))
+

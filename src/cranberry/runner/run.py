@@ -80,11 +80,23 @@ Measurement-stage hooks (WP-I1, D58-6; :func:`evaluate_measurements`, after the 
 Recording (``RunSpec.measure["record"]``, optional; without it no series are recorded)::
 
     measure:
-      record: {slots: [<slot name>, ...], decim: <int >= 1>}
+      record: {slots: [<slot name>, ...], decim: <int >= 1>, antialias: none | boxcar | fir}
 
 Slot values are recorded at the end of every sample n with ``n % decim == 0`` (after all blocks
 ran), at time t = n / f_sim. float64, int64 and complex128 slots of any (non-ring) shape are
 supported; ``series[name]`` has shape ``(n_records, *slot.shape)``.
+
+Anti-alias decimation (``antialias``, Phase 5 F1-7). ``none`` is point sampling: the mean and the
+variance of a recorded series are unbiased, but its PSD (and anything built from it, e.g. the zero-span
+trace of ``measure.esa``) contains the content above f_rec/2 = f_sim/(2·decim) folded back into the
+band. ``boxcar`` records the mean of the last ``decim`` base samples (sinc response, zeros at
+multiples of f_rec; delay (decim − 1)/2 samples); ``fir`` records the output of a Hamming-windowed
+sinc low-pass of 16·decim + 1 taps with −6 dB at f_rec/2 (≈ −53 dB stop band from ~0.6 f_rec; delay
+8·decim samples). Both filter float and complex slots (int slots are point-sampled), start from a
+zero history before n = 0 (the first records carry the start-up transient), and keep the time stamps
+t = n / f_sim (the filter delay is not removed). The key is optional for backward compatibility: if it
+is absent the recorder point-samples as before and, when decim > 1, warns once per process
+(:class:`RecordAliasWarning`). With decim = 1 every mode is the identity.
 """
 
 from __future__ import annotations
@@ -115,6 +127,9 @@ __all__ = [
     "RunResult",
     "run",
     "Recorder",
+    "RECORD_ANTIALIAS",
+    "RecordAliasWarning",
+    "antialias_taps",
     "RUN_MODES",
     "TOPOLOGY_KINDS",
     "OfflineStage",
@@ -316,8 +331,38 @@ def build_offline_stage(
     return OfflineStage(topo, list(offline_blocks), sources, reg, led, names)
 
 
+#: Anti-alias modes of ``measure.record.antialias`` (module docstring, Phase 5 F1-7).
+RECORD_ANTIALIAS: tuple[str, ...] = ("none", "boxcar", "fir")
+
+
+class RecordAliasWarning(UserWarning):
+    """``measure.record`` decimates (decim > 1) without an ``antialias`` key: point sampling aliases."""
+
+
+_ALIAS_WARNED = False
+
+
+def antialias_taps(mode: str, decim: int) -> np.ndarray | None:
+    """FIR taps (newest sample first; unit DC gain) of a recorder anti-alias mode, None for point
+    sampling (``none`` or decim = 1)."""
+    if mode not in RECORD_ANTIALIAS:
+        raise ValueError(f"measure.record.antialias must be one of {RECORD_ANTIALIAS}, got {mode!r}")
+    if mode == "none" or decim == 1:
+        return None
+    if mode == "boxcar":
+        return np.full(decim, 1.0 / decim)
+    from scipy.signal import firwin
+
+    return firwin(16 * decim + 1, 1.0 / decim, window="hamming")
+
+
 class Recorder(BaseBlock):
-    """Runner-owned leaf that copies slots into a buffer every ``decim`` samples (``rate_div = decim``).
+    """Runner-owned leaf that records slots every ``decim`` samples (module docstring, "Recording").
+
+    Point sampling (``antialias`` none, or decim = 1) runs at ``rate_div = decim`` and copies the slots.
+    ``boxcar`` / ``fir`` run every sample (``rate_div = 1``): the float columns (S slots, and the real /
+    imaginary parts of Z slots) are pushed into a history ring ``rec.<name>.hist`` (rows = number of
+    taps) and every ``decim``-th sample the filtered value Σ_m taps[m]·x[n − m] is recorded.
 
     Slots: ``rec.<name>.buf`` float64 ``(capacity, n_columns)`` and ``rec.<name>.idx`` int64 (rows
     written since the last :meth:`harvest`). ``capacity = ceil(chunk_samples / decim)``; the runner
@@ -328,18 +373,30 @@ class Recorder(BaseBlock):
         decim: record every ``decim``-th base sample.
         chunk_samples: maximum samples between two harvests.
         name: instance name.
+        antialias: ``none`` | ``boxcar`` | ``fir`` (:data:`RECORD_ANTIALIAS`).
     """
 
-    def __init__(self, slots: Sequence[str], decim: int, chunk_samples: int, name: str = "recorder"):
+    def __init__(self, slots: Sequence[str], decim: int, chunk_samples: int, name: str = "recorder",
+                 antialias: str = "none"):
         if isinstance(decim, bool) or int(decim) != decim or decim < 1:
             raise ValueError(f"measure.record.decim must be an int >= 1, got {decim!r}")
         if not slots or len(set(slots)) != len(slots):
             raise ValueError(f"measure.record.slots must be a non-empty list of distinct names, got {slots!r}")
+        self.taps = antialias_taps(antialias, int(decim))
+        self.decim = int(decim)
+        self.antialias = antialias
         self.buf_name, self.idx_name = f"rec.{name}.buf", f"rec.{name}.idx"
-        super().__init__("recorder", name, {"slots": list(slots), "decim": int(decim)},
-                         reads=tuple(slots), writes=(self.buf_name, self.idx_name), rate_div=int(decim))
+        self.hist_name = f"rec.{name}.hist"
+        writes = (self.buf_name, self.idx_name) + ((self.hist_name,) if self.taps is not None else ())
+        params = {"slots": list(slots), "decim": int(decim)}
+        if antialias != "none":
+            params["antialias"] = antialias
+        super().__init__("recorder", name, params, reads=tuple(slots), writes=writes,
+                         rate_div=int(decim) if self.taps is None else 1)
         self.capacity = max_steps_in(int(chunk_samples), int(decim))
         self.chunk_samples = int(chunk_samples)
+        #: delay of the recorded values behind their time stamps [base samples]
+        self.delay_samples = 0.0 if self.taps is None else (len(self.taps) - 1) / 2
 
     def init(self, layout, rng):
         super().init(layout, rng)
@@ -354,6 +411,9 @@ class Recorder(BaseBlock):
         self.n_cols = cols
         layout.add(self.buf_name, (self.capacity, max(cols, 1)), np.float64, "1")
         layout.add(self.idx_name, (), np.int64, "1")
+        if self.taps is not None:
+            n_int = sum(layout.slot(s).size for s in self.reads if s in layout and layout.slot(s).array == "I")
+            layout.add(self.hist_name, (max(cols - n_int, 1),), np.float64, "1", ring_len=len(self.taps))
 
     def bind(self, layout):
         src = {"S": [], "I": [], "Z": []}
@@ -374,6 +434,9 @@ class Recorder(BaseBlock):
         buf, idx, width, cap = layout.slot(self.buf_name).offset, layout.slot(self.idx_name).offset, max(self.n_cols, 1), self.capacity
         ns, ni, nz = len(s_src), len(i_src), len(z_src)
         self._off = (buf, idx, width, cap)
+        if self.taps is not None:
+            self.kernel = self._filtered_kernel(layout)
+            return
 
         @numba.njit
         def kernel(S, Z, I, P):  # noqa: N803
@@ -392,7 +455,77 @@ class Recorder(BaseBlock):
 
         self.kernel = kernel
 
+    def _filtered_kernel(self, layout):
+        buf, idx, width, cap = self._off
+        s_src, i_src, z_src = self._src
+        ns, ni, nz = len(s_src), len(i_src), len(z_src)
+        hs = layout.slot(self.hist_name)
+        hoff, hlen, hhead, hw = hs.offset, hs.ring_len, hs.head, hs.shape[0]  # hw: row width (size = hlen·hw)
+        n_off, decim, taps = layout.slot("n").offset, self.decim, np.ascontiguousarray(self.taps)
+        M = len(taps)
+
+        @numba.njit
+        def kernel(S, Z, I, P):  # noqa: N803
+            h = I[hhead] + 1
+            if h == hlen:
+                h = 0
+            I[hhead] = h
+            r = hoff + h * hw
+            for j in range(ns):
+                S[r + j] = S[s_src[j]]
+            for j in range(nz):
+                S[r + ns + 2 * j] = Z[z_src[j]].real
+                S[r + ns + 2 * j + 1] = Z[z_src[j]].imag
+            if I[n_off] % decim != 0:
+                return
+            row = I[idx]
+            if row >= cap:
+                raise IndexError("recorder buffer overflow (harvest after every chunk)")
+            base = buf + row * width
+            for c in range(ns + 2 * nz):
+                acc = 0.0
+                for m in range(M):
+                    a = h - m
+                    if a < 0:
+                        a += hlen
+                    acc += taps[m] * S[hoff + a * hw + c]
+                S[base + (c if c < ns else c + ni)] = acc
+            for j in range(ni):
+                S[base + ns + j] = I[i_src[j]]
+            I[idx] = row + 1
+
+        return kernel
+
+    def _filtered_call(self, state):
+        buf, idx, width, cap = self._off
+        s_src, i_src, z_src = self._src
+        ns, ni = len(s_src), len(i_src)
+        S = state.S
+        hs = state.layout.slot(self.hist_name)
+        h = (int(state.I[hs.head]) + 1) % hs.ring_len
+        state.I[hs.head] = h
+        hist = state[self.hist_name]  # (ring_len, width) view
+        z = state.Z[z_src]
+        hist[h, :ns] = S[s_src]
+        hist[h, ns::2] = z.real
+        hist[h, ns + 1::2] = z.imag
+        if state.n % self.decim != 0:
+            return state
+        row = int(state.I[idx])
+        if row >= cap:
+            raise IndexError("recorder buffer overflow (harvest after every chunk)")
+        rows = (h - np.arange(len(self.taps))) % hs.ring_len
+        y = self.taps @ hist[rows]
+        base = buf + row * width
+        S[base : base + ns] = y[:ns]
+        S[base + ns : base + ns + ni] = state.I[i_src]
+        S[base + ns + ni : base + ns + ni + 2 * len(z_src)] = y[ns:]
+        state.I[idx] = row + 1
+        return state
+
     def __call__(self, state, params):
+        if self.taps is not None:
+            return self._filtered_call(state)
         buf, idx, width, cap = self._off
         s_src, i_src, z_src = self._src
         row = int(state.I[idx])
@@ -703,7 +836,17 @@ def run(
             raise KeyError(f"measure.record needs {missing} (D34: no defaults)")
         slots = list(rec_cfg["slots"])
         slots += [s for b in probes for p in b.pairs if (s := b.slot(p.port)) not in slots]
-        recorder = Recorder(slots, rec_cfg["decim"], settings.chunk_samples)
+        if "antialias" not in rec_cfg and int(rec_cfg["decim"]) > 1:
+            global _ALIAS_WARNED
+            if not _ALIAS_WARNED:
+                import warnings
+
+                _ALIAS_WARNED = True
+                warnings.warn("measure.record decimates (decim > 1) without 'antialias': point sampling, content "
+                              "above f_sim/(2 decim) aliases into the recorded PSD; set antialias: none | boxcar | fir "
+                              "(runner.run docstring, Phase 5 F1-7)", RecordAliasWarning, stacklevel=2)
+        recorder = Recorder(slots, rec_cfg["decim"], settings.chunk_samples,
+                            antialias=rec_cfg.get("antialias", "none"))
         root = Seq([root, recorder])
 
     layout = SlotLayout(settings.f_sim_hz)
@@ -744,7 +887,7 @@ def run(
     if recorder is not None:
         table = np.concatenate(tables, axis=0) if tables else np.zeros((0, recorder.n_cols))
         series = recorder.split(table, layout)
-        n_rec = np.arange(0, n_total, recorder.rate_div, dtype=np.int64)
+        n_rec = np.arange(0, n_total, recorder.decim, dtype=np.int64)
         t_s = n_rec / settings.f_sim_hz
 
     root_ss = root_seed_sequence(settings.seed)
@@ -758,7 +901,7 @@ def run(
     measurements: dict[str, dict[str, Any]] = {}
     if any((rs.measure or {}).get(h) for h in MEASUREMENT_HOOKS):
         named = {b.name: b for b in (*offline_blocks, *leaves)}
-        f_rec = settings.f_sim_hz / recorder.rate_div if recorder is not None else None
+        f_rec = settings.f_sim_hz / recorder.decim if recorder is not None else None
         measurements = evaluate_measurements(rs.measure, named, metrics=metrics, loss_registry=offline.loss_registry,
                                              f_record_hz=f_rec, seed=settings.seed)
     result = RunResult(

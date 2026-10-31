@@ -75,6 +75,43 @@ def test_read_before_write_rejected():
     try_build([obj[0], obj[2], obj[1]])  # correct order builds
 
 
+def test_loop_with_two_back_edges_rejected():
+    """Phase 5 F1-1: a delay_buffer placed before the controller it delays (plant → sensor → d → pid → act)
+    makes the loop close with two back edges (pid → d, act → plant): loop delay tau_s + 2/f_sim, not the
+    tau_s + 1/f_sim of D55-1. It used to build silently; now it is rejected naming k = 2."""
+    obj = loop_obj(True)
+    plant, sensor, pid, d, act = obj
+    d["params"]["unit"] = "V"  # its input is registered later in this order
+    v = violations([plant, sensor, d, pid, act])
+    assert len(v) == 2 and all("closes with 2 back edges" in m and "1e-06 s" in m for m in v)
+    try_build([plant, sensor, pid, d, act])  # the D55-1 order still builds
+
+
+def test_coupled_loops_each_closing_once_build():
+    """Two cross-coupled loops (each sensor sees both plants) that each close with one back edge build,
+    although the elementary cycle pA → sB → pid2 → d2 → act2 → pB → sA → pid1 → d1 → act1 → pA crosses two
+    back edges: each of them also closes its own one-back-edge loop."""
+    def pid(name, inp, out):
+        return toy("toy_pid", name, in_=inp, out=out, unit="V", kp=0.1, ki=0.0, kd=0.0, setpoint=0.0)
+
+    def mix(name, out):
+        return toy("toy_sum", name, ins=["psi.pa.x", "psi.pb.x"], out=out, unit="V", gains=[1.0, 0.5])
+
+    obj = [
+        gain("pA", "act.a1", "psi.pa.x", unit="rad"),
+        gain("pB", "act.a2", "psi.pb.x", unit="rad"),
+        mix("sA", "v.y1"),
+        mix("sB", "v.y2"),
+        pid("pid1", "v.y1", "ctrl.pid1.u"),
+        pid("pid2", "v.y2", "ctrl.pid2.u"),
+        delay("d1", "ctrl.pid1.u", "delay.d1.out", 1e-6),
+        delay("d2", "ctrl.pid2.u", "delay.d2.out", 1e-6),
+        gain("act1", "delay.d1.out", "act.a1"),
+        gain("act2", "delay.d2.out", "act.a2"),
+    ]
+    try_build(obj)
+
+
 def test_missing_writer_and_external():
     obj = [gain("g", "v.in", "v.out")]
     v = violations(obj, pre=("v.in",))

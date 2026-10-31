@@ -18,6 +18,13 @@ Implementation (WP-F6)
       ``psi.<seg>.<beam>`` = Σ_j ψ_{i,m_j,b}(t − (n − j − ½)·δ_i), read from the ring with linear
       fractional interpolation (``core.delay`` arithmetic; δ_i = n_g L/(c N_sub)). A counter-propagating
       beam reads the same subsegments in the opposite order, i.e. at other times (T08 §2.7, T10 §3.2);
+    * the segment phase as it **arrives at the beam's observer now** (Phase 5 F6-2, D65-4):
+      ``psi.<seg>.<beam>.obs`` = Σ_j ψ_{i,m_j,b}(t − (n − j − ½)·δ_i − τ_after), read from the same ring
+      with **one** linear interpolation at the total delay (τ_after: segment exit → observer, nominal,
+      ``Topology.timing``). ``beam_assembler`` uses this slot (with emission time on) instead of delaying
+      ``psi.<seg>.<beam>`` a second time, so a subsegment's phase reaches the observer through a single
+      linear fractional delay (two cascaded stages attenuate more: white driver, μ₁ = 0.3, μ₂ = 0.4 →
+      variance 0.40 instead of 0.58). Both are evaluated at this block's step h = rate_div/f_sim;
     * the group delay of the traversed part ``tau_g.<seg>.<beam>`` = τ_0 + Σ_drv c^{group_delay} Σ_j
       x_{drv,m_j}(t) (current sample; thermal / strain group delay is slow, T03 §8). τ_0 = n·δ_i, minus
       b_g·L·n/N for a fast-axis beam on a pm_diagonal segment when ``pm_axis_drift`` is on.
@@ -38,7 +45,10 @@ PM DGD are per segment × beam):
     reads   drv.<seg>.<driver>       scalar, or (N_sub,) for per_sub placements (written by NOISE /
                                       TEC / ACT blocks, which register them)
     writes  psi.<seg>.<beam>         rad   segment phase of a beam leaving the segment now
+            psi.<seg>.<beam>.obs     rad   the same arriving at the beam's observer now (one
+                                            interpolation at to_exit + τ_after; Phase 5 addition)
             psi.<seg>.<beam>.sub     rad   ring (ring_len, n): per-subsegment phase history
+                                            (ring_len = max integer delay incl. τ_after + 2)
             tau_g.<seg>.<beam>       s     group delay of the traversed part
 
 Params (all required, D34)::
@@ -70,7 +80,7 @@ from cranberry.core.registry import register_block
 from cranberry.path.coef import EFFECTS, CoefKey
 from cranberry.path.topology import Topology, as_topology
 
-__all__ = ["SegmentPhase", "make_segment_phase", "DRIVER_UNITS", "frac_delay", "select_ids"]
+__all__ = ["SegmentPhase", "make_segment_phase", "DRIVER_UNITS", "frac_delay", "select_ids", "subsegment_channels"]
 
 #: Unit tags expected for driver slots (stretcher / eom units depend on the actuator preset).
 DRIVER_UNITS: dict[str, str] = {"dT": "K", "tec": "K", "strain": "1", "detuning": "rad/s"}
@@ -91,6 +101,34 @@ def frac_delay(delay_s: float, h_s: float) -> tuple[int, float]:
     return k, D - k
 
 
+def subsegment_channels(topology: Any, segment: str, driver: str, combo: Mapping[str, float], *,
+                        emission_time: bool = True) -> list[list[tuple[float, float]]]:
+    """Channels for ``core.delay.interp_variance_deficit``: how ``driver`` on ``segment`` reaches the
+    signed beam combination Σ_b combo[b]·φ_b at the beams' observers (the delays ``segment_phase``
+    interpolates once: to_exit + τ_after, F6-2).
+
+    Taps are (delay [s], weight = combo[b] · phase coefficient (topology, slow axis) · placement
+    weight). A ``per_sub`` driver gives one independent channel per subsegment (weight 1/N_sub, the
+    driver slot holds per-subsegment values); any other placement is one coherent channel. With
+    ``emission_time`` off only the in-segment delays remain (``beam_assembler`` then uses τ_after = 0).
+    """
+    from cranberry.path.coef import CoefKey
+
+    topo = as_topology(topology)
+    seg = topo.segments[segment]
+    w = seg.weights(driver)
+    per_sub: dict[int, list[tuple[float, float]]] = {}
+    for b, cb in combo.items():
+        st = next(s for s in topo.timing(b).steps if s.segment == segment)
+        c = float(cb) * topo.coef_value(CoefKey(segment, driver, b, "phase"))
+        after = st.after_s if emission_time else 0.0
+        for m, d in zip(st.subs, st.to_exit_s):
+            wm = 1.0 / seg.n_sub if w is None else float(w[m])
+            if wm != 0.0:
+                per_sub.setdefault(m if w is None else 0, []).append((d + after, c * wm))
+    return list(per_sub.values())
+
+
 def select_ids(spec: Any, known: Mapping[str, Any], what: str, block: str) -> list[str]:
     """``"all"`` → every id of ``known`` (in order); a list → validated ids."""
     if spec == "all":
@@ -105,6 +143,23 @@ def select_ids(spec: Any, known: Mapping[str, Any], what: str, block: str) -> li
     return list(spec)
 
 
+def _ring_read(S, base, ntr, L, h, j, k, mu):  # noqa: N803
+    """Column j of the (L, ntr) ring at ``base``, k + μ rows older than head row h (linear interpolation)."""
+    a = h - k
+    if a < 0:
+        a += L
+    y = S[base + a * ntr + j]
+    if mu != 0.0:
+        b = a - 1
+        if b < 0:
+            b += L
+        y = (1.0 - mu) * y + mu * S[base + b * ntr + j]
+    return y
+
+
+_ring_read_nb = numba.njit(inline="always")(_ring_read)
+
+
 class _Pair:
     """Build-time description of one (segment, beam) pair."""
 
@@ -117,7 +172,10 @@ class _Pair:
         kmu = [frac_delay(d, h) for d in st.to_exit_s]
         self.k = np.array([k for k, _ in kmu], dtype=np.int64)
         self.mu = np.array([m for _, m in kmu], dtype=np.float64)
-        self.ring_len = int(self.k.max()) + 2
+        kmo = [frac_delay(d + st.after_s, h) for d in st.to_exit_s]  # to the observer: one interpolation
+        self.ko = np.array([k for k, _ in kmo], dtype=np.int64)
+        self.muo = np.array([m for _, m in kmo], dtype=np.float64)
+        self.ring_len = int(max(self.k.max(), self.ko.max())) + 2
         fast = seg.pol_model == "pm_diagonal" and step.axis == "fast" and axis_on
         pol = seg.pol_params
         frac = len(st.subs) / seg.n_sub
@@ -133,6 +191,7 @@ class _Pair:
         self.weights = {d: seg.weights(d) for d in self.drivers}  # None for per_sub
         self.n_sub = seg.n_sub
         self.psi = f"psi.{seg_id}.{beam}"
+        self.obs = f"psi.{seg_id}.{beam}.obs"
         self.ring = f"psi.{seg_id}.{beam}.sub"
         self.tau = f"tau_g.{seg_id}.{beam}"
 
@@ -151,7 +210,8 @@ class SegmentPhase(BaseBlock):
         self.pairs_spec = [(s, b) for s in seg_ids for b in topo.beams_on(s)]
         reads = [f"drv.{s}.{d}" for s in seg_ids for d in topo.segments[s].drivers
                  if topo.beams_on(s)]
-        writes = [w for s, b in self.pairs_spec for w in (f"psi.{s}.{b}", f"psi.{s}.{b}.sub", f"tau_g.{s}.{b}")]
+        writes = [w for s, b in self.pairs_spec
+                  for w in (f"psi.{s}.{b}", f"psi.{s}.{b}.obs", f"psi.{s}.{b}.sub", f"tau_g.{s}.{b}")]
         super().__init__("segment_phase", name, params, reads=reads, writes=writes)
         self.slot_units = {r: DRIVER_UNITS[r.rsplit(".", 1)[1]] for r in reads if r.rsplit(".", 1)[1] in DRIVER_UNITS}
         self.pairs: list[_Pair] = []
@@ -163,11 +223,12 @@ class SegmentPhase(BaseBlock):
         self.pairs = [_Pair(self.topo, s, b, h, axis_on) for s, b in self.pairs_spec]
         for p in self.pairs:
             layout.add(p.psi, (), np.float64, "rad")
+            layout.add(p.obs, (), np.float64, "rad")
             layout.add(p.ring, (len(p.subs),), np.float64, "rad", ring_len=p.ring_len)
             layout.add(p.tau, (), np.float64, "s", init=p.tau0)
             for (drv, eff), c in p.coef.items():
                 layout.add_param(self._pname(p, drv, eff), c, (), "s" if eff == "group_delay" else "rad")
-            self.slot_units.update({p.psi: "rad", p.tau: "s"})
+            self.slot_units.update({p.psi: "rad", p.obs: "rad", p.tau: "s"})
 
     def _pname(self, p: _Pair, drv: str, eff: str) -> str:
         return f"{self.name}.{p.seg}.{p.beam}.{drv}.{eff}"
@@ -187,6 +248,7 @@ class SegmentPhase(BaseBlock):
         self._check_driver_slots(layout)
         for p in self.pairs:
             p.psi_off = layout.slot(p.psi).offset
+            p.obs_off = layout.slot(p.obs).offset
             p.tau_off = layout.slot(p.tau).offset
             r = layout.slot(p.ring)
             p.ring_off, p.head = r.offset, r.head
@@ -196,11 +258,12 @@ class SegmentPhase(BaseBlock):
 
     def _build_kernel(self):
         # flat tables (structure only: offsets, indices, weights, nominal delays; coefficients stay in P)
-        pr = {k: [] for k in ("psi", "tau", "roff", "rlen", "head", "ntr", "tr0", "tm0", "ntm")}
-        tau0, tr_sub, tr_k, tr_mu = [], [], [], []
+        pr = {k: [] for k in ("psi", "obs", "tau", "roff", "rlen", "head", "ntr", "tr0", "tm0", "ntm")}
+        tau0, tr_sub, tr_k, tr_mu, tr_ko, tr_muo = [], [], [], [], [], []
         tm_kind, tm_off, tm_w0, tm_ninv, tm_pph, tm_pgd, wflat = [], [], [], [], [], [], []
         for p in self.pairs:
             pr["psi"].append(p.psi_off)
+            pr["obs"].append(p.obs_off)
             pr["tau"].append(p.tau_off)
             pr["roff"].append(p.ring_off)
             pr["rlen"].append(p.ring_len)
@@ -213,6 +276,8 @@ class SegmentPhase(BaseBlock):
             tr_sub += p.subs.tolist()
             tr_k += p.k.tolist()
             tr_mu += p.mu.tolist()
+            tr_ko += p.ko.tolist()
+            tr_muo += p.muo.tolist()
             for d in p.drivers:
                 w = p.weights[d]
                 tm_kind.append(0 if w is not None else 1)
@@ -225,13 +290,15 @@ class SegmentPhase(BaseBlock):
                 tm_pgd.append(p.p_off[(d, "group_delay")])
         i64 = lambda x: np.array(x, dtype=np.int64)  # noqa: E731
         f64 = lambda x: np.array(x, dtype=np.float64)  # noqa: E731
-        P_psi, P_tau, P_roff, P_rlen, P_head = (i64(pr[k]) for k in ("psi", "tau", "roff", "rlen", "head"))
+        P_psi, P_obs, P_tau, P_roff, P_rlen, P_head = (i64(pr[k]) for k in ("psi", "obs", "tau", "roff", "rlen", "head"))
         P_ntr, P_tr0, P_tm0, P_ntm = (i64(pr[k]) for k in ("ntr", "tr0", "tm0", "ntm"))
         T0, TR_sub, TR_k, TR_mu = f64(tau0), i64(tr_sub), i64(tr_k), f64(tr_mu)
+        TR_ko, TR_muo = i64(tr_ko), f64(tr_muo)
         TM_kind, TM_off, TM_w0, TM_ninv = i64(tm_kind), i64(tm_off), i64(tm_w0), f64(tm_ninv)
         TM_pph, TM_pgd, W = i64(tm_pph), i64(tm_pgd), f64(wflat if wflat else [0.0])
         n_pairs = len(self.pairs)
         phase_on, gd_on = self.toggles["phase"], self.toggles["group_delay"]
+        ring_read = _ring_read_nb
 
         @numba.njit
         def kernel(S, Z, I, P):  # noqa: N803
@@ -262,21 +329,13 @@ class SegmentPhase(BaseBlock):
                         S[row + j] = v
                     gd += g
                 psi = 0.0
+                obs = 0.0
                 if phase_on:
                     for j in range(ntr):
-                        k = TR_k[tr0 + j]
-                        mu = TR_mu[tr0 + j]
-                        a = h - k
-                        if a < 0:
-                            a += L
-                        y = S[base + a * ntr + j]
-                        if mu != 0.0:
-                            b = a - 1
-                            if b < 0:
-                                b += L
-                            y = (1.0 - mu) * y + mu * S[base + b * ntr + j]
-                        psi += y
+                        psi += ring_read(S, base, ntr, L, h, j, TR_k[tr0 + j], TR_mu[tr0 + j])
+                        obs += ring_read(S, base, ntr, L, h, j, TR_ko[tr0 + j], TR_muo[tr0 + j])
                 S[P_psi[p]] = psi
+                S[P_obs[p]] = obs
                 S[P_tau[p]] = T0[p] + gd if gd_on else T0[p]
 
         return kernel
@@ -294,7 +353,7 @@ class SegmentPhase(BaseBlock):
                 x = p.weights[d][p.subs] * val[0] if p.weights[d] is not None else val[p.subs] / p.n_sub
                 dens += float(params[self._pname(p, d, "phase")]) * x
                 gdv += float(params[self._pname(p, d, "group_delay")]) * x
-            psi = 0.0
+            psi = obs = 0.0
             if phase_on:
                 ring = state[p.ring]  # (ring_len, n) view
                 head = state.layout.slot(p.ring).head
@@ -306,7 +365,10 @@ class SegmentPhase(BaseBlock):
                 cols = np.arange(n)
                 y0, y1 = ring[rows0, cols], ring[rows1, cols]
                 psi = float(np.sum(np.where(p.mu != 0.0, (1.0 - p.mu) * y0 + p.mu * y1, y0)))
+                y0, y1 = ring[(h - p.ko) % p.ring_len, cols], ring[(h - p.ko - 1) % p.ring_len, cols]
+                obs = float(np.sum(np.where(p.muo != 0.0, (1.0 - p.muo) * y0 + p.muo * y1, y0)))
             state[p.psi] = psi
+            state[p.obs] = obs
             state[p.tau] = p.tau0 + float(np.sum(gdv)) if gd_on else p.tau0
         return state
 
