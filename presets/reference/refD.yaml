@@ -249,7 +249,7 @@ pipeline:
     params:
       topology: *topo
       segments:
-        smf0: {model: smf, axis_drivers: [], axis_stokes: [1, 0, 0],
+        smf0: {model: smf, axis_drivers: [], axis_stokes: [1, 0, 0], u0: identity, drift: diffusion,   # WP-B7 M4 keys (D62); identity/diffusion = the M1 behaviour
                D_pol_rad2_per_s: !expr "offline.params.D_pol_rad2_per_s", k_T_rad_per_m_K: 0.0}
         a1: {model: pm, axis_drivers: [dT], dpsi_b0_rad: !expr "offline.params.dpsi_b0_rad",
              K_T_rad_per_m_K: !expr "offline.params.K_T_rad_per_m_K",
