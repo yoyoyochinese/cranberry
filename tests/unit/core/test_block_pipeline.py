@@ -193,13 +193,9 @@ def test_composite_rejects_non_blocks_and_empty():
 
 
 def test_framework_stubs_name_their_wp():
-    from cranberry.core.pipeline import build
-
     registry.ensure_loaded()
     assert {"delay_buffer", "segment_phase", "beam_assembler", "metric_i", "metric_ii"} <= set(registry.registered_kinds())
-    with pytest.raises(NotImplementedError, match="WP-F1"):
+    with pytest.raises(MissingParameterError):  # delay_buffer is implemented (WP-F1); D34: params required
         registry.make_block(BlockSpec("delay_buffer", "d", {}))
     with pytest.raises(NotImplementedError, match="WP-F6"):
         registry.make_block(BlockSpec("segment_phase", "sp", {}))
-    with pytest.raises(NotImplementedError, match="WP-F1"):
-        build(SeqSpec(()), SlotLayout(1.0), 0)

@@ -27,6 +27,24 @@ Block
     ``bands()``        ``list[BandDecl]`` declared to the ``BandLedger`` (G05)
     =================  ========================================================================
 
+    Optional members (WP-F1; looked up with ``getattr``, so blocks without them stay valid):
+
+    =================  ========================================================================
+    ``slot_units``     {slot name: unit tag} the block expects for slots it reads or writes;
+                       compared with the layout's tag by ``check_pipeline`` (check 4)
+    ``prepare``        ``prepare(state, params, n0, n_samples)``: Python hook run before each
+                       piece of <= ``core.rates.PIECE_SAMPLES`` base samples starting at n0
+                       (open-loop work, e.g. pre-drawing random numbers, G11). Must consume
+                       exactly what the piece needs so results are chunk-length invariant.
+    =================  ========================================================================
+
+Kernel rules (G02, ``core.compile``)
+    ``kernel(S, Z, I, P)`` may capture only slot / parameter offsets, structural parameters,
+    ``f_sim`` and ``rate_div`` as constants. Anything seed-dependent or runtime-changeable lives in
+    S / Z / I / P, because a compiled loop is reused across builds with the same structure
+    (sweeps, seed ensembles). Kernels must not use ``np.random``; random numbers come from a
+    ``core.rng.DrawBuffer`` filled in ``prepare``.
+
 Lifecycle (builder = ``core.pipeline.build``, WP-F1)::
 
     blk = make_<kind>(params, name=...)          # structural params fixed, validated
@@ -223,6 +241,8 @@ class BaseBlock(ABC):
         self._toggles = self._resolve_toggles(self.params.get("toggles", {}))
         self.kernel: KernelFn | None = None
         self.rng: np.random.Generator | None = None
+        #: expected unit tags of read / written slots (check 4 of ``check_pipeline``); optional
+        self.slot_units: dict[str, str] = {}
 
     def _resolve_toggles(self, given: Mapping[str, Any]) -> dict[str, bool]:
         given = dict(given or {})
@@ -268,6 +288,9 @@ class BaseBlock(ABC):
     def bind(self, layout: SlotLayout) -> None:
         """Resolve offsets and set ``self.kernel``. Default: Python-only block (kernel None)."""
         self.kernel = None
+
+    def prepare(self, state: State, params: Params, n0: int, n_samples: int) -> None:
+        """Python hook before each piece of ``n_samples`` base samples starting at ``n0``. Default: no-op."""
 
     def losses(self) -> list[LossElement]:
         return []
