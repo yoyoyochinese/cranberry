@@ -14,8 +14,10 @@ Common conventions of the B4 blocks
       with ``device_values(load_device(name))`` and may be overridden by the spec (D34, prompt §5.3).
     * Segment drivers (G08, PLAN §2.3.2, F6 slot names): an actuator / modulator writes
       ``drv.<segment>.<driver>`` of shape ``(n_sub,)``, non-zero only on subsegments ``sub = [lo, hi)``.
-      Phase-like drivers (stretcher, eom, ...) split the phase evenly over ``[lo, hi)`` so that the
-      sum over subsegments is the actuator's δψ; temperature (TEC) is copied to every subsegment of
+      Driver values are *intensive* (per-subsegment densities), matching F6's ``per_sub`` placement,
+      which reads drv[m]/N_sub (D61): phase-like drivers (stretcher, eom, ...) write
+      δψ·N_sub/(hi − lo) on ``[lo, hi)``, so that F6's Σ drv[m]/N_sub is the actuator's δψ (with a
+      1-element slot, N_sub = 1, this is just δψ); temperature (TEC) is copied to every subsegment of
       the range. ``ring_len > 0`` makes the slot a history ring (head = newest row, ``core.delay``)
       for emission-time reads by ``beam_assembler`` (then the block must run at ``rate_div = 1``).
 """
@@ -136,7 +138,8 @@ class DrvTarget:
         if self.ring_len < 0:
             raise ValueError(f"block {block!r}: ring_len must be >= 0")
         self.unit = unit
-        self.scale = 1.0 / (hi - lo) if split else 1.0
+        # intensive density: F6 per_sub reads drv[m]/N_sub, so Σ over [lo, hi) gives δψ (D61)
+        self.scale = self.n_sub / (hi - lo) if split else 1.0
         self.block = block
 
     def slot_def(self) -> tuple:

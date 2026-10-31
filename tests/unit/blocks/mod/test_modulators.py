@@ -80,7 +80,7 @@ def test_dither_modes():
     blk, tr = trace([dither("timeseries")], 100, ["act.dith.dpsi", "drv.lo1.dither"])
     t = np.arange(100) / FS
     np.testing.assert_allclose(tr["act.dith.dpsi"], 0.0785 * np.sin(2 * np.pi * 1e5 * t), atol=1e-15)
-    np.testing.assert_allclose(tr["drv.lo1.dither"], tr["act.dith.dpsi"], atol=1e-15)  # sum over subsegments
+    np.testing.assert_allclose(tr["drv.lo1.dither"] / 2, tr["act.dith.dpsi"], atol=1e-15)  # Σ density / N_sub = δψ (D61)
     assert np.sqrt(np.mean(tr["act.dith.dpsi"] ** 2)) == pytest.approx(0.0555, abs=5e-4)  # Ref C rms
     blk, tr = trace([dither("analytic")], 50, ["act.dith.dpsi"])
     np.testing.assert_array_equal(tr["act.dith.dpsi"], 0.0)

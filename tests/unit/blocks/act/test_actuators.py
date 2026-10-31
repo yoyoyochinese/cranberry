@@ -53,7 +53,7 @@ def test_toggles_off_identity_and_driver_split():
     np.testing.assert_array_equal(tr["act.a.dpsi"], tr["v.u"])
     d = tr["drv.arm1.stretcher"]
     np.testing.assert_array_equal(d[:, [0, 3]], 0.0)
-    np.testing.assert_allclose(d[:, 1] + d[:, 2], tr["v.u"], rtol=1e-15)  # split over sub [1, 3)
+    np.testing.assert_allclose((d[:, 1] + d[:, 2]) / 4, tr["v.u"], rtol=1e-15)  # intensive density over sub [1, 3), Σ/N_sub = δψ (D61)
 
 
 @pytest.mark.parametrize("mode, keys, k", [
@@ -106,7 +106,7 @@ def test_driver_ring_history():
     ring = st["drv.arm1.stretcher"]
     head = st.ring_head("drv.arm1.stretcher")
     for d in range(3):
-        assert ring[(head - d) % 3, 1] * 2 == pytest.approx(vals[-1 - d], rel=1e-15)
+        assert ring[(head - d) % 3, 1] * 2 / 4 == pytest.approx(vals[-1 - d], rel=1e-15)  # density δψ·N/(hi−lo) (D61)
     with pytest.raises(ValueError, match="rate_div"):
         make([tri(), {**stretcher(ring_len=3), "rate_div": 2}])
 

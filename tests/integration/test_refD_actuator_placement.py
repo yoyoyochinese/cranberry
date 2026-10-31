@@ -1,15 +1,14 @@
 """WP-I2 integration check: B4 actuator drivers × F6 placement weights give exactly the intended δψ.
 
-B4 (``blocks.ctrl._kit.DrvTarget``) writes ``drv.<seg>.<driver>`` with shape (n_sub,), splitting the
-actuator's δψ evenly over ``sub = [lo, hi)`` so that the SUM over subsegments is δψ. F6
+B4 (``blocks.ctrl._kit.DrvTarget``) writes ``drv.<seg>.<driver>`` with shape (n_sub,) as an intensive
+density δψ·N_sub/(hi − lo) on ``sub = [lo, hi)`` (D61). F6
 (``path.segments``) reads a driver with its placement weights: scalar placements (``uniform`` 1/N on
 every subsegment, ``actuator`` / ``{point: k}`` weight 1) read a 1-element slot; ``per_sub`` reads
 drv[m]/N_sub (an intensive per-subsegment value such as strain or temperature).
 
-Finding: a split actuator on a ``per_sub`` placement gives δψ/N_sub (a factor-N error with coefficient
-1). The Ref D preset therefore writes the 915B δψ to a 1-element driver (``n_sub: 1, sub: [0, 1]``)
-read with a scalar placement; this test pins that convention (exact δψ) and documents the per_sub
-pitfall (δψ/N; exact only with the coefficient N_sub).
+Finding (WP-I2): with the earlier "sum = δψ" convention, a split actuator on a ``per_sub`` placement
+gave δψ/N_sub (a factor-N error). Fixed at the root in ``DrvTarget`` (D61); both the scalar placement
+used by the Ref D preset (``n_sub: 1, sub: [0, 1]``) and ``per_sub`` placements now give exact δψ.
 """
 
 import pytest
@@ -65,12 +64,13 @@ def test_scalar_placement_gives_exact_dpsi(placement, actuator_sub, compiled):
 
 
 @pytest.mark.parametrize("compiled", [False, True])
-def test_per_sub_placement_divides_by_n_sub(compiled):
+def test_per_sub_placement_gives_exact_dpsi(compiled):
+    # D61: actuators write intensive densities δψ·N/(hi−lo); F6 per_sub reads drv[m]/N → exact δψ
     psi, dpsi = _psi(_pipeline("per_sub", N_SUB, [0, N_SUB]), compiled)
     assert dpsi == pytest.approx(K * U, rel=1e-15)
-    assert psi == pytest.approx(K * U / N_SUB, rel=1e-12)  # the pitfall: δψ/N_sub
-    psi_n, _ = _psi(_pipeline("per_sub", N_SUB, [0, N_SUB], coef=float(N_SUB)), compiled)
-    assert psi_n == pytest.approx(K * U, rel=1e-12)  # exact only with coefficient N_sub
+    assert psi == pytest.approx(K * U, rel=1e-12)  # was δψ/N_sub before D61 (factor-N bug, fixed in _kit)
+    psi_part, _ = _psi(_pipeline("per_sub", N_SUB, [1, 3]), compiled)
+    assert psi_part == pytest.approx(K * U, rel=1e-12)  # a partial actuator range also gives δψ
 
 
 def test_refD_preset_uses_the_scalar_convention():
