@@ -9,7 +9,6 @@ Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 * ``segment_mech_noise``
 * ``segment_thermodynamic`` (optional)
 * ``gawbs_phase_jitter`` (optional)
-* ``rf_reference``
 * ``pd_offset_drift``
 
 Contract: core.block (factory interface, reads/writes, losses(), bands(), toggles, D34 no defaults).
