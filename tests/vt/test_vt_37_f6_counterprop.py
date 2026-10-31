@@ -8,6 +8,12 @@ path model's handling of environmental drivers (T08 §9 V2, V6, V11, V12; conv �
   note's ±10 %) and statistically with a Welch estimate of a seeded white-noise run (±10 %). A lumped
   (uniform) driver gives S_D = 0 (exact to rounding). This observable is separate from the T10 ideal-
   lock residual 2[1 − sinc(4πf n_g L/c)] (VT-39 F6 file).
+* V6 in the sub-sample regime of the presets (Phase 5 F6-1, D65-4): f_sim = 4 MHz, L = 63 m, N_sub = 20
+  (subsegment delays are fractions of a sample). Linear interpolation is kept (D65-4); its known
+  response S_D(linear)/S_D(exact delay) = 0.948 / 0.821 / 0.682 / 0.600 at f/f_N = 0.25 / 0.5 / 0.75 /
+  0.95 (framework review, f6_fracdelay.py part 3) is pinned to ±3 % with a seeded Welch estimate, and
+  the measured in-band variance of D plus the offline ΔVar (``core.delay.interp_variance_deficit``)
+  reproduces the exact-delay variance.
 * V2: L = 63 m, ΔT = 1 K, κ_τ = 39 ps/(km·K) → Δτ_g = 2.457 ps.
 * V11: segment_phase toggles off → ψ ≡ 0 (exact), τ_g constant (nominal).
 * V12: same ΔT on the slow and fast axis → ψ_slow − ψ_fast = K_T·L·ΔT exactly (conv §9 sign, K_T < 0);
@@ -137,3 +143,33 @@ def test_v11_toggles_off():
     assert np.all(r["psi.c.s"] == 0.0) and np.all(r["psi.c.f"] == 0.0) and np.all(r["beam.s.phi"] == 0.0)
     tau0 = 1.468 * 63.0 / C_M_PER_S
     assert np.all(r["tau_g.c.s"] == r["tau_g.c.s"][0]) and r["tau_g.c.f"][0] == pytest.approx(tau0, rel=1e-15)
+
+
+def test_v6_counterprop_subsample_regime_linear_response():
+    from cranberry.core.delay import interp_variance_deficit
+    from cranberry.path.segments import subsegment_channels
+
+    L, N, fs, n = 63.0, 20, 4.0e6, 2**21  # Welch: ±32 bins of 977 Hz → ~1 % statistical scatter
+    topo = two_way(L, N, "per_sub", "distributed")
+    driver = pt.pathtest("pathtest_white", "noise", "drv.c.strain", (N,), "1", sigma=1.0)
+    rec, _, _ = pt.run_and_record(pipe_for(topo, driver, n), fs, n, compiled=True, seed=37)
+    d = (rec["beam.fwd.phi"] - rec["beam.bwd.phi"])[100:]
+    f, s_d = psd_onesided(d, fs, nperseg=2**12)
+    chans = subsegment_channels(topo, "c", "strain", {"fwd": 1.0, "bwd": -1.0})
+    assert len(chans) == N  # per_sub: one independent driver per subsegment
+
+    def s_exact(ff):  # one-sided PSD of D for unit white drivers (S = 2/fs each)
+        return sum(np.abs(sum(w * np.exp(-2j * np.pi * ff * dl) for dl, w in ch)) ** 2 for ch in chans) * 2 / fs
+
+    pinned = {0.25: 0.948, 0.50: 0.821, 0.75: 0.682, 0.95: 0.600}
+    for x, r in pinned.items():
+        k = int(round(x * fs / 2 / (f[1] - f[0])))
+        band = slice(k - 32, k + 33)
+        assert np.mean(s_d[band]) / np.mean(s_exact(f[band])) == pytest.approx(r, rel=0.03), x
+
+    m = 20000
+    var_exact = float(np.mean(s_exact((np.arange(m) + 0.5) * fs / 2 / m))) * fs / 2  # midpoint rule
+    dvar = interp_variance_deficit(chans, fs, lambda ff: np.full_like(ff, 2 / fs))
+    assert 0.25 < dvar / var_exact < 0.33  # review: in-band variance ratio linear/exact 0.711 (white)
+    assert np.var(d) + dvar == pytest.approx(var_exact, rel=0.01)
+

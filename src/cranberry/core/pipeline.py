@@ -30,7 +30,14 @@ as :class:`PipelineCheckError`):
    the loop closure contributes one sample of delay, see ``core.delay``). With edges
    writer → reader, every cycle must pass through a ``delay_buffer`` leaf (no zero-delay /
    algebraic loop), and every back edge must close a cycle; one that does not is a
-   *read-before-write* ordering error (an unmodelled one-sample delay).
+   *read-before-write* ordering error (an unmodelled one-sample delay). Every back edge must also
+   close a cycle on which it is the **only** back edge (fewest back edges on any closing cycle,
+   0-1 BFS, = 1): a loop whose every closing path needs two or more back edges (e.g. a
+   ``delay_buffer`` placed before the controller it delays: ``plant → sensor → d → pid → act``)
+   would add k ≥ 2 samples at the closure, total loop delay ``tau_s + k/f_sim`` instead of the
+   ``tau_s + 1/f_sim`` of D55-1, and is rejected naming k and the extra delay (Phase 5 F1-1).
+   Cycles that merely traverse two loops which each close with one back edge (coupled locks) are
+   allowed: each of their back edges also closes a one-back-edge loop of its own.
 3. ``Parallel`` branches are independent: their write sets are disjoint and no branch reads a slot
    written by a sibling branch (so the result does not depend on the declaration order, G09).
 4. unit tags: for every slot in a leaf's optional ``slot_units`` mapping, the expected tag equals
@@ -50,6 +57,7 @@ individually (``iter_leaves``) with ``core.rng.stream(root, leaf.name)`` (G11).
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Union
@@ -407,6 +415,7 @@ def check_pipeline(block: Block, layout: SlotLayout, *, external: Iterable[str] 
             writers.setdefault(w, []).append(i)
     edges: dict[int, set[int]] = {i: set() for i in range(len(leaves))}
     back: list[tuple[int, int, str]] = []
+    back_pairs: set[tuple[int, int]] = set()
     for i, leaf in enumerate(leaves):
         for r in dict.fromkeys(leaf.reads):
             ws = writers.get(r, [])
@@ -422,6 +431,7 @@ def check_pipeline(block: Block, layout: SlotLayout, *, external: Iterable[str] 
                 j = max(ws)
                 edges[j].add(i)
                 back.append((j, i, r))
+                back_pairs.add((j, i))
 
     def reachable(src: int, dst: int, skip: set[int]) -> bool:
         stack, seen = [src], {src}
@@ -435,7 +445,20 @@ def check_pipeline(block: Block, layout: SlotLayout, *, external: Iterable[str] 
                     stack.append(v)
         return False
 
+    def fewest_back_edges(src: int, dst: int) -> int | None:
+        """Fewest back edges on a path src → dst (0-1 BFS over the dataflow graph), None if unreachable."""
+        dist, dq = {src: 0}, deque([src])
+        while dq:
+            u = dq.popleft()
+            for v in edges[u]:
+                w = int((u, v) in back_pairs)
+                if v not in dist or dist[u] + w < dist[v]:
+                    dist[v] = dist[u] + w
+                    (dq.append if w else dq.appendleft)(v)
+        return dist.get(dst)
+
     delay_nodes = {i for i, leaf in enumerate(leaves) if leaf.kind == DELAY_BUFFER_KIND}
+    f_sim = getattr(layout, "f_sim_hz", None)
     for j, i, r in back:
         if not reachable(i, j, set()):
             errs.append(f"read-before-write: {leaves[i].name!r} reads {r!r} before its writer {leaves[j].name!r} "
@@ -444,6 +467,14 @@ def check_pipeline(block: Block, layout: SlotLayout, *, external: Iterable[str] 
         elif j not in delay_nodes and i not in delay_nodes and reachable(i, j, delay_nodes):
             errs.append(f"zero-delay feedback loop: {leaves[i].name!r} reads {r!r} from {leaves[j].name!r} on a "
                         "cycle without a delay_buffer (algebraic loop, G09)")
+        else:
+            k = (fewest_back_edges(i, j) or 0) + 1  # + the closing edge j → i itself
+            if k > 1:
+                extra = f" = {(k - 1) / f_sim:.4g} s" if f_sim else ""
+                errs.append(f"feedback loop through {leaves[j].name!r} → {leaves[i].name!r} (via {r!r}) closes with {k} "
+                            f"back edges: total loop delay tau_s + {k}/f_sim, {k - 1} sample(s){extra} more than the "
+                            "tau_s + 1/f_sim of D55-1; place the delay_buffer after the controller it delays (just "
+                            "before the actuator) so that the loop closes exactly once (Phase 5 F1-1)")
     if errs:
         raise PipelineCheckError(errs)
 

@@ -49,6 +49,7 @@ __all__ = [
     "root_seed_sequence",
     "DRAW_DISTS",
     "DrawBuffer",
+    "DrawCountError",
 ]
 
 _KEY_WORDS = 4
@@ -106,11 +107,25 @@ def substream(parent: np.random.Generator, label: str) -> np.random.Generator:
 DRAW_DISTS: tuple[str, ...] = ("standard_normal", "random")
 
 
+class DrawCountError(RuntimeError):
+    """A piece consumed a different number of pre-drawn random numbers than were drawn (G11)."""
+
+
 class DrawBuffer:
     """Pre-drawn random numbers for one block, readable from kernels (G11; see module docstring).
 
     Slots (registered by :meth:`init`): ``rng.<owner>[.<label>].buf`` float64 of shape
-    ``(capacity * per_step,)`` and ``rng.<owner>[.<label>].idx`` int64 (next unread entry).
+    ``(capacity * per_step + 1,)`` (the draws, then one bookkeeping entry: the number of entries drawn
+    by the last :meth:`refill`) and ``rng.<owner>[.<label>].idx`` int64 (next unread entry).
+
+    Consumption check (Phase 5 F1-5): :meth:`refill` verifies that the previous piece consumed
+    exactly the entries drawn for it (``idx`` == the bookkeeping entry) and raises
+    :class:`DrawCountError` otherwise. The check is per ``State`` and lives in the ``.buf`` slot, so it
+    adds no slot (``.buf`` / ``.idx`` are already excluded from chunk-invariance comparisons).
+    A kernel that skips draws conditionally (or reads ``per_step`` wrongly) would otherwise discard
+    the unread numbers at every piece boundary, making the realisation depend on the chunk length
+    (G11) without any error. A block whose toggle switches its noise off must then also skip the
+    refill (draw nothing), as the existing noise blocks do.
 
     Kernel use (offsets from :meth:`bind`)::
 
@@ -151,7 +166,7 @@ class DrawBuffer:
         self.rng = rng
         self.rate_div = int(rate_div)
         self.capacity = max_steps_in(PIECE_SAMPLES, self.rate_div)
-        layout.add(self.buf_name, (self.capacity * self.per_step,), np.float64, "1")
+        layout.add(self.buf_name, (self.capacity * self.per_step + 1,), np.float64, "1")
         layout.add(self.idx_name, (), np.int64, "1")
 
     def bind(self, layout: SlotLayout) -> None:
@@ -164,10 +179,19 @@ class DrawBuffer:
             raise RuntimeError(f"DrawBuffer {self.buf_name!r} used before init")
         if n_samples > PIECE_SAMPLES:
             raise ValueError(f"piece of {n_samples} samples exceeds PIECE_SAMPLES={PIECE_SAMPLES}")
+        idx, buf = state.view(self.idx_name), state.view(self.buf_name)
+        cnt = buf[-1]  # entries drawn by the previous refill (0 for a fresh state)
+        if int(idx) != int(cnt):
+            raise DrawCountError(
+                f"DrawBuffer {self.buf_name!r}: the piece before sample {n0} consumed {int(idx)} of the {int(cnt)} "
+                "random numbers drawn for it; a kernel must consume exactly per_step draws at every step of its "
+                "block (G11: otherwise the realisation depends on the chunk length). Draw unconditionally and "
+                "discard, or skip the refill when the noise is switched off."
+            )
         count = n_steps_in(n0, n_samples, self.rate_div) * self.per_step
-        buf = state.view(self.buf_name)
         getattr(self.rng, self.dist)(out=buf[:count])
-        state.view(self.idx_name)[...] = 0
+        idx[...] = 0
+        buf[-1] = count
 
     def take(self, state: State) -> float:
         """Python reference: return the next entry and advance the index."""

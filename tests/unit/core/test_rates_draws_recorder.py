@@ -54,6 +54,28 @@ def test_draw_buffer_validation():
     assert db.slot_names == ("rng.x.phase.buf", "rng.x.phase.idx")
 
 
+def test_draw_buffer_refill_checks_consumption():
+    """Phase 5 F1-5: refill raises when the previous piece did not consume exactly what was drawn for it
+    (unread numbers would be discarded at the piece boundary, making results chunk-length dependent)."""
+    from cranberry.core.rng import DrawCountError
+
+    lay = SlotLayout(1.0)
+    db = DrawBuffer("n1", 1, "standard_normal")
+    db.init(lay, stream(5, "n1"), 1)
+    lay.freeze()
+    db.bind(lay)
+    st = State(lay)
+    db.refill(st, 0, 3)
+    for _ in range(3):
+        db.take(st)
+    db.refill(st, 3, 3)  # exact consumption: fine
+    db.take(st)
+    with pytest.raises(DrawCountError, match="consumed 1 of the 3"):
+        db.refill(st, 6, 3)
+    st2 = State(lay)  # the check is per state: a fresh state starts clean
+    db.refill(st2, 0, 3)
+
+
 class Writer(BaseBlock):
     """Writes a float vector, an int and a complex 2×2 slot each step (Python and kernel)."""
 
@@ -117,3 +139,130 @@ def test_recorder_overflow_raises():
     st, p = State(lay), Params(lay)
     with pytest.raises(IndexError):
         run_reference(blk, st, p, 5)
+
+
+
+@pytest.mark.parametrize("r", [2, 4])
+def test_hold_delay_rule(r):
+    """Phase 5 F1-3 (core.rates "Hold delay"): a block held at rate_div r delays by (r − 1)/2 base samples
+    (not r/2); the remaining half sample of a physical D/A hold appears only when the downstream
+    continuous-time block is discretised with zoh (a bilinear design adds nothing).
+
+    ramp x[n] (integrator of 1) → hold (toy_gain, rate_div r) → 1st-order low-pass (zoh | bilinear);
+    the steady-state lag of a unit-DC-gain LTI stage behind a ramp is its DC group delay."""
+    import cranberry.blocks.ctrl.filters  # noqa: F401  (registers lpf)
+    import cranberry.core.testing  # noqa: F401
+    from cranberry.core.pipeline import spec_from_obj
+    from cranberry.core.testing import toy
+
+    fs, fc, n = 1.0e6, 1.0e3, 8000
+
+    def run(method):
+        obj = [toy("toy_integrator", "ramp", in_="v.one", out="v.x", unit="V", k=fs),
+               toy("toy_gain", "hold", rate_div=r, in_="v.x", out="v.h", unit="V", gain=1.0),
+               {"block": "lpf", "name": "lp", "params": {"in": "v.h", "out": "v.y", "unit": "V", "order": 1,
+                                                         "f_c_hz": fc, "method": method,
+                                                         "toggles": {"enabled": True}}}]
+        lay = SlotLayout(fs)
+        lay.add("v.one", (), np.float64, "V")
+        blk = build(spec_from_obj(obj), lay, 0, external=["v.one"])
+        st, pa = State(lay), Params(lay)
+        st["v.one"] = 1.0
+        x, h, y = (np.empty(n) for _ in range(3))
+        for i in range(n):
+            run_reference(blk, st, pa, 1)
+            x[i], h[i], y[i] = float(st["v.x"]), float(st["v.h"]), float(st["v.y"])
+        tail = slice(n - 4000, n)  # whole hold periods, transient gone (≫ 1/(2π fc))
+        return np.mean((x - h)[tail]), np.mean((x - y)[tail])
+
+    hold_zoh, lag_zoh = run("zoh")
+    hold_bil, lag_bil = run("bilinear")
+    assert hold_zoh == pytest.approx((r - 1) / 2, abs=1e-9) and hold_bil == pytest.approx((r - 1) / 2, abs=1e-9)
+    tau_zoh = 1.0 / (1.0 - np.exp(-2 * np.pi * fc / fs)) - 0.5  # analogue 1/(a h) to O(a h)
+    tau_bil = 1.0 / (2.0 * np.tan(np.pi * fc / fs))  # prewarped analogue prototype, no extra delay
+    assert lag_zoh - (r - 1) / 2 - tau_zoh == pytest.approx(0.5, abs=2e-3)
+    assert lag_bil - (r - 1) / 2 - tau_bil == pytest.approx(0.0, abs=2e-3)
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+def test_recorder_antialias_boxcar_fir(compiled):
+    """Phase 5 F1-7: boxcar records the mean of the last decim samples, fir a unit-DC-gain linear-phase
+    low-pass (ramp → n − 8·decim after the transient); int slots stay point-sampled; compiled = reference."""
+    from cranberry.runner.run import antialias_taps
+
+    d = 3
+    out = {}
+    for mode in ("boxcar", "fir"):
+        rec = Recorder(["J.w", "v.w", "lock.w.state"], decim=d, chunk_samples=50, antialias=mode)
+        assert rec.rate_div == 1 and rec.decim == d
+        lay = SlotLayout(1.0e3)
+        blk = build(Seq([Writer(), rec]), lay, 0)
+        st, p = State(lay), Params(lay)
+        tables = []
+        for _ in range(4):
+            (run_compiled if compiled else run_reference)(blk, st, p, 50)
+            tables.append(rec.harvest(st))
+        out[mode] = rec.split(np.concatenate(tables), lay)
+    n = np.arange(0, 200, d)
+    bx = out["boxcar"]
+    np.testing.assert_allclose(bx["v.w"][1:, 0], n[1:] - (d - 1) / 2, rtol=0, atol=1e-12)
+    np.testing.assert_allclose(bx["v.w"][1:, 1], -(n[1:] - (d - 1) / 2), rtol=0, atol=1e-12)
+    np.testing.assert_allclose(bx["J.w"][1:, 1, 1], (n[1:] - (d - 1) / 2) * (1 + 1j), rtol=0, atol=1e-12)
+    np.testing.assert_array_equal(bx["lock.w.state"], 2 * n)
+    ntaps = len(antialias_taps("fir", d))
+    assert ntaps == 16 * d + 1
+    late = n >= ntaps
+    np.testing.assert_allclose(out["fir"]["v.w"][late, 0], n[late] - 8 * d, rtol=0, atol=1e-9)
+    np.testing.assert_array_equal(out["fir"]["lock.w.state"], 2 * n)
+
+
+def test_recorder_antialias_suppresses_folding():
+    """A tone just below f_rec = f_sim/decim folds to near DC with full amplitude under point sampling;
+    boxcar (sinc zero at f_rec) and fir attenuate it."""
+    import cranberry.core.testing  # noqa: F401
+    from cranberry.core.pipeline import from_spec, spec_from_obj
+    from cranberry.core.testing import toy
+
+    fs, d = 1.0e4, 10
+    amp = {}
+    for mode in ("none", "boxcar", "fir"):
+        rec = Recorder(["v.s"], decim=d, chunk_samples=20000, antialias=mode)
+        lay = SlotLayout(fs)
+        sine = from_spec(spec_from_obj(toy("toy_sine", "s", out="v.s", unit="V", amp=1.0, freq_hz=0.98 * fs / d)))
+        root = Seq([sine, rec])
+        blk = build(root, lay, 0)
+        st, p = State(lay), Params(lay)
+        run_compiled(blk, st, p, 20000)
+        y = rec.split(rec.harvest(st), lay)["v.s"][400:]
+        amp[mode] = np.sqrt(2) * np.std(y)
+    assert amp["none"] == pytest.approx(1.0, rel=0.02)
+    assert amp["boxcar"] < 0.05 and amp["fir"] < 0.02
+
+
+def test_record_without_antialias_warns_once_when_decimating():
+    import warnings
+
+    import cranberry.core.testing  # noqa: F401
+    import cranberry.runner.run as rr
+    from cranberry.config.spec import RunSettings, RunSpec
+    from cranberry.core.pipeline import spec_from_obj
+    from cranberry.core.testing import toy
+
+    def spec(rec):
+        return RunSpec(run=RunSettings(duration_s=100 / 1e3, f_sim_hz=1e3, chunk_samples=64, seed=1),
+                       pipeline=spec_from_obj([toy("toy_sine", "s", out="v.s", unit="V", amp=1.0, freq_hz=10.0)]),
+                       measure={"record": rec})
+
+    rr._ALIAS_WARNED = False
+    with pytest.warns(rr.RecordAliasWarning):
+        a = rr.run(spec({"slots": ["v.s"], "decim": 4}))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", rr.RecordAliasWarning)
+        b = rr.run(spec({"slots": ["v.s"], "decim": 4}))  # once per process
+        rr._ALIAS_WARNED = False
+        c = rr.run(spec({"slots": ["v.s"], "decim": 4, "antialias": "none"}))  # explicit: no warning
+        rr.run(spec({"slots": ["v.s"], "decim": 1}))  # no decimation: no warning
+    np.testing.assert_array_equal(a.series["v.s"], c.series["v.s"])  # backward compatible
+    np.testing.assert_array_equal(a.t_s, b.t_s)
+    bx = rr.run(spec({"slots": ["v.s"], "decim": 4, "antialias": "boxcar"}))
+    assert bx.series["v.s"].shape == a.series["v.s"].shape and not np.array_equal(bx.series["v.s"], a.series["v.s"])

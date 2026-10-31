@@ -129,6 +129,26 @@ def test_pm_axis_ok():
     assert t.step("b", "p").axis == "fast" and t.segments["p"].pol_params["axis_drivers"] == ("dT",)
 
 
+def test_pm_positive_K_T_warns():
+    """Phase 5 F6-4: a positive PM K_T (conv §9 / D51-2: negative) is allowed (D34) but emits a ChkWarning."""
+    import warnings
+
+    from cranberry.core.checks import ChkWarning
+
+    def topo(kt):
+        pm = {"K_T_rad_per_m_K": kt, "K_tau_s_per_m_K": -1.78e-15, "b_g_s_per_m": 1.36e-12, "axis_drivers": ["dT"]}
+        segs = [seg_spec("p", 1.0, drivers={"dT": "uniform"}, pol_model="pm_diagonal", pol_params=pm)]
+        return topo_spec(segs, [beam_spec("b", [step_spec("p", 1, axis="fast")], "o")], ["o"],
+                         coef_spec("p", "dT", "*", 1.0))
+
+    with pytest.warns(ChkWarning, match="pm_K_T_sign"):
+        t = Topology.from_spec(topo(2.05))
+    assert t.segments["p"].pol_params["K_T_rad_per_m_K"] == 2.05  # not changed
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ChkWarning)
+        Topology.from_spec(topo(-2.05))
+
+
 def test_registry_helpers():
     t = Topology.from_spec(base())
     reg = LossRegistry()

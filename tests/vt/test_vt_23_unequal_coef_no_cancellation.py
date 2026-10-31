@@ -96,12 +96,18 @@ def test_noisy_detuning_probe_does_not_follow(compiled):
     assert np.std(rec["drv.opo.detuning"]) > 1e-4 * k  # Δ(t) is really there
     assert np.std(rec["beam.pr.phi"]) > 10 * np.std(pr)  # the shared fibre dominates the beam phase ...
     scale = np.max(np.abs(rec["beam.pr.phi"]))
-    # the OPO phase reaches the observer after the s1 group delay (emission time, conv §7): fractional
-    # delay μ of one sample, linear interpolation (path.segments.frac_delay)
-    mu = 3.0 * 1.468 / 299_792_458.0 * FS
-    late = lambda y: (1 - mu) * y[1:] + mu * y[:-1]  # noqa: E731
-    np.testing.assert_allclose(err[1:], late(pr - sq), rtol=0, atol=1e-12 * scale)  # ... and cancels exactly
+    # the OPO phase reaches the observer after half the OPO segment (μ₁, to its exit) plus the s1 group
+    # delay (μ₂; emission time, conv §7), through ONE linear interpolation at μ₁ + μ₂ < 1 sample (Phase 5
+    # F6-2: segment_phase's psi.<seg>.<b>.obs; path.segments.frac_delay)
+    c = 299_792_458.0
+    mu1, mu2 = 0.5 * 0.5 * 1.0 / c * FS, 3.0 * 1.468 / c * FS
+    lin = lambda y, mu: (1 - mu) * y[1:] + mu * y[:-1]  # noqa: E731
+    drv = rec["drv.opo.detuning"]
+    l1 = lin(drv, mu1)  # the segment-exit reading of the (lumped) OPO subsegment
+    c_pr = float(np.dot(pr[1:], l1) / np.dot(l1, l1))
+    np.testing.assert_allclose(pr[1:], c_pr * l1, rtol=1e-12, atol=1e-15)
     np.testing.assert_allclose(sq, pr * 2 / (1 + X**2), rtol=1e-12, atol=1e-15)
-    resid = pr * (1 - 2 / (1 + X**2))  # = c_res·Δ: the probe does not fully follow the ellipse
-    np.testing.assert_allclose(err[1:], late(resid), rtol=1e-9, atol=1e-12 * scale)
+    c_res = c_pr * (1 - 2 / (1 + X**2))  # = c_pr − c_sq: the probe does not fully follow the ellipse
+    np.testing.assert_allclose(err[1:], lin(c_res * drv, mu1 + mu2), rtol=1e-9, atol=1e-12 * scale)  # fibre cancels
+    resid = pr * (1 - 2 / (1 + X**2))
     assert np.std(resid) / np.std(pr) == pytest.approx((1 - X**2) / (1 + X**2), rel=1e-9)

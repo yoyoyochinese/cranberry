@@ -10,7 +10,10 @@ execution order (the actuator output read by the plant / segment drivers): that 
 previous sample, i.e. the loop closure itself contributes exactly one base sample 1/f_sim (PLAN
 §2.5: "actuators act on the next sample"). The total modelled loop delay is therefore
 ``tau_s + 1/f_sim`` (+ the delays of the blocks' own discretisations); a preset wanting a total τ_L
-sets ``tau_s = τ_L − 1/f_sim``.
+sets ``tau_s = τ_L − 1/f_sim``. ``core.pipeline.check_pipeline`` enforces the "exactly once": a loop
+that can only close through two or more back edges (a ``delay_buffer`` ordered before the controller
+it delays) would add k/f_sim with k ≥ 2 and is rejected at build time (Phase 5 F1-1). Blocks held at
+``rate_div = r`` add (r − 1)/(2 f_sim) more (``core.rates``, "Hold delay").
 
 Delay arithmetic. With the block's own step h = rate_div / f_sim, D = τ/h samples:
 
@@ -20,6 +23,11 @@ Delay arithmetic. With the block's own step h = rate_div / f_sim, D = τ/h sampl
   D = k + d with d ∈ [0.5, 1.5) (d = D for D < 0.5), a = (1 − d)/(1 + d),
   H(z) = z^−k (a + z^−1)/(1 + a z^−1), i.e. v[n] = a u[n] + u[n−1] − a v[n−1] with u[n] = x[n−k].
   Unit magnitude; maximally flat group delay d at DC (Thiran 1971; Välimäki & Laakso 2000).
+  **Use thiran1 only for D ≥ 0.5** and when keeping the magnitude at 1 is the point: for D < 0.5 the
+  pole −a → −1 (D = 0.01: a = 0.980, the impulse response rings at Nyquist for ~35 samples) and its
+  phase error in the loop band exceeds linear's. ``"linear"`` is the default choice (both reference
+  presets use it; D57-7 / D65-4). A thiran1 design with 0 < D < 0.5 emits a :class:`ChkWarning`
+  (code ``thiran1_short_delay``; Phase 5 F1-6).
 
 Ring semantics (also used for ``laser.*`` / ``drv.*`` emission-time histories, WP-F6): the head is
 the row of the newest sample; a push advances the head (mod ring_len) and writes that row; the value
@@ -49,6 +57,7 @@ import numba
 import numpy as np
 
 from cranberry.core.block import BaseBlock, Block, require
+from cranberry.core.checks import ChkLog
 from cranberry.core.pipeline import DELAY_BUFFER_KIND
 from cranberry.core.rates import block_dt_s
 from cranberry.core.registry import register_block
@@ -57,6 +66,7 @@ __all__ = [
     "DELAY_METHODS",
     "DelayDesign",
     "design_delay",
+    "interp_variance_deficit",
     "ring_push",
     "ring_at",
     "ring_push_nb",
@@ -87,7 +97,7 @@ class DelayDesign:
         ring_len: k + 2.
     """
 
-    def __init__(self, delay_samples: float, method: str):
+    def __init__(self, delay_samples: float, method: str, *, source: str = "delay"):
         if method not in DELAY_METHODS:
             raise ValueError(f"delay method must be one of {DELAY_METHODS}, got {method!r}")
         if not (np.isfinite(delay_samples) and delay_samples >= 0):
@@ -104,6 +114,10 @@ class DelayDesign:
             self.mu = D - self.k
         else:
             self.mode = _MODE_THIRAN
+            if D < 0.5:
+                ChkLog().warn("thiran1_short_delay", source,
+                              f"thiran1 with D = {D:.4g} samples < 0.5: pole at {-(1.0 - D) / (1.0 + D):.4f} rings at "
+                              "Nyquist; use method 'linear' (core.delay docstring)", delay_samples=D)
             self.k = 0 if D < 0.5 else int(math.floor(D - 0.5))
             d = D - self.k
             self.a = (1.0 - d) / (1.0 + d)
@@ -120,9 +134,55 @@ class DelayDesign:
         return h
 
 
-def design_delay(tau_s: float, step_hz: float, method: str) -> DelayDesign:
-    """:class:`DelayDesign` for a delay ``tau_s`` at step rate ``step_hz`` (= f_sim / rate_div)."""
-    return DelayDesign(tau_s * step_hz, method)
+def design_delay(tau_s: float, step_hz: float, method: str, *, source: str = "delay") -> DelayDesign:
+    """:class:`DelayDesign` for a delay ``tau_s`` at step rate ``step_hz`` (= f_sim / rate_div);
+    ``source`` names the owner in CHK warnings."""
+    return DelayDesign(tau_s * step_hz, method, source=source)
+
+
+def interp_variance_deficit(
+    channels: Any,
+    step_hz: float,
+    psd: Any,
+    *,
+    f_lo_hz: float = 0.0,
+    n_f: int = 4096,
+) -> float:
+    """In-band variance the linear fractional delay misses (D65-4, Phase 5 F6-1):
+
+        ΔVar = ∫_{f_lo}^{f_N} (|H_exact(f)|² − |H_lin(f)|²) S(f) df,   f_N = step_hz / 2,
+
+    summed over independent ``channels``. A channel is a list of taps ``(delay_s, weight)`` that see the
+    *same* driver sequence (coherent: H = Σ w·e^{−i2πf·d} exactly, Σ w·H_lin(d) with the ``"linear"``
+    design of :class:`DelayDesign`); different channels are independent drivers with the same one-sided
+    PSD ``psd(f)`` [unit²/Hz] (callable, vectorised). Midpoint rule on ``n_f`` points (f = 0 is never
+    evaluated, so 1/f² spectra work with ``f_lo_hz = 0``).
+
+    It is an **offline correction, never applied automatically**: when a preset needs the total in-band
+    variance of a path-phase combination whose driver is flat up to f_N, it declares ΔVar in the
+    ``BandLedger`` (e.g. ``BandDecl(source=..., quantity="phase", targets=(...), f_lo_hz=...,
+    f_hi_hz=f_N, unit="rad", variance_outside=ΔVar)`` on a dedicated target), alongside the
+    out-of-band part. Spectral conclusions should instead be drawn at f ≤ f_N/4 (≤ 5 % error) or
+    f ≤ f_N/10 (1 %), where no correction is needed (D65-4). ``path.segments.subsegment_channels``
+    builds the channels of a beam combination on a segment.
+    """
+    if not (step_hz > 0 and np.isfinite(step_hz)):
+        raise ValueError(f"step_hz must be finite and > 0, got {step_hz!r}")
+    f_n = 0.5 * float(step_hz)
+    if not (0.0 <= f_lo_hz < f_n):
+        raise ValueError(f"need 0 <= f_lo_hz < f_N = {f_n:g}, got {f_lo_hz!r}")
+    df = (f_n - f_lo_hz) / int(n_f)
+    f = f_lo_hz + (np.arange(int(n_f)) + 0.5) * df
+    s = np.asarray(psd(f), dtype=float) * np.ones_like(f)
+    total = 0.0
+    for taps in channels:
+        h_ex = np.zeros(f.shape, dtype=complex)
+        h_li = np.zeros(f.shape, dtype=complex)
+        for d_s, w in taps:
+            h_ex += float(w) * np.exp(-2j * np.pi * f * float(d_s))
+            h_li += float(w) * design_delay(float(d_s), step_hz, "linear").freq_response(f, step_hz)
+        total += float(np.sum((np.abs(h_ex) ** 2 - np.abs(h_li) ** 2) * s) * df)
+    return total
 
 
 def ring_push(S, I, off, ring_len, head, x):  # noqa: N803 (flat-array names, G02)
@@ -242,7 +302,7 @@ class DelayBuffer(BaseBlock):
             )
         self.slot_units = {src: unit, out: unit}
         self.design = design_delay(float(self.params["tau_s"]), 1.0 / block_dt_s(layout.f_sim_hz, self.rate_div),
-                                   self.params["method"])
+                                   self.params["method"], source=self.name)
         layout.add(out, (), np.float64, unit)
         layout.add(self.ring_name, (), np.float64, unit, ring_len=self.design.ring_len)
         layout.add(self.ap_name, (), np.float64, unit)

@@ -172,6 +172,64 @@ def test_emission_delay_fractional_ramp_exact():
     assert float(st["beam.b.t_emit"]) == pytest.approx(t_last - tau, rel=1e-12)
 
 
+@pytest.mark.parametrize("compiled", [False, True])
+def test_segment_phase_reaches_observer_through_one_interpolation(compiled):
+    """Phase 5 F6-2 / D65-4: a subsegment phase reaches the observer through ONE linear fractional delay
+    at the total delay to_exit + τ_after. Driven segment a (to_exit 0.3 samples) followed by an undriven
+    segment b (2.4 samples): an impulse arrives as taps 0.3 / 0.7 at delays 2 / 3 samples (the two-stage
+    cascade (0.7 + 0.3 z⁻¹)(0.6 + 0.4 z⁻¹) z⁻² gave 0.42 / 0.46 / 0.12)."""
+    fs, n_g = 1e8, 1.468
+    La, Lb = 0.6 * C_M_PER_S / n_g / fs, 2.4 * C_M_PER_S / n_g / fs
+    segs = [pt.seg_spec("a", La, drivers={"strain": "uniform"}), pt.seg_spec("b", Lb)]
+    topo = pt.topo_spec(segs, [pt.beam_spec("o", [pt.step_spec("a"), pt.step_spec("b")], "det")], ["det"],
+                        pt.coef_spec("a", "strain", "*", 1.0))
+    n0, n = 3, 12
+    pipe = [pt.pathtest("pathtest_table", "drv", "drv.a.strain", (), "1", n_rows=n),
+            pt.pathtest("pathtest_table", "las", "laser.las.phi", (), "rad", n_rows=1),
+            *pt.path_pipeline(topo, {"las": "laser.las.phi"}), pt.record(["beam.o.phi", "psi.a.o"], n)]
+    tab = np.zeros(n)
+    tab[n0] = 1.0
+    rec, _, _ = pt.run_and_record(pipe, fs, n, {"drv.a.strain_table": tab}, compiled=compiled)
+    expect = np.zeros(n)
+    expect[n0 + 2], expect[n0 + 3] = 0.3, 0.7
+    np.testing.assert_allclose(rec["beam.o.phi"], expect, rtol=0, atol=1e-12)
+    # the segment-exit value keeps its meaning: taps 0.7 / 0.3 at delays 0 / 1
+    np.testing.assert_allclose(rec["psi.a.o"][n0:n0 + 2], [0.7, 0.3], rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+def test_polarization_phase_unwrapped_under_random_smf_drift(compiled):
+    """Phase 5 F6-3: with a randomly drifting SMF Jones matrix (Haar start + small random SU(2) steps),
+    t_pol crosses the negative real axis; beam.phi and lock.err follow arg t_pol continuously (no 2π
+    jumps) and equal np.unwrap of the principal values."""
+    from scipy.linalg import expm
+
+    rng = np.random.default_rng(63)
+    segs = [pt.seg_spec("smf", 5.0, kind="smf", pol_model="jones", pol_params={"J_slot": "J.smf"})]
+    topo = pt.topo_spec(segs, [pt.beam_spec("b", [pt.step_spec("smf")], "det", jones_out=[1, 0])], ["det"], [],
+                        locks=[{"id": "lk", "combo": {"b": 1.0}, "setpoint_rad": 0.0, "observer": "det"}])
+    pipe = [pt.pathtest("pathtest_table", "las", "laser.las.phi", (), "rad", n_rows=1),
+            *pt.path_pipeline(topo, {"las": "laser.las.phi"}, locks=True)]
+    blk, st, pa = make(pipe, 1e8, external=["J.smf"], setup=lambda lay: lay.add("J.smf", (2, 2), np.complex128, "1"))
+    paulis = [np.array([[0, 1], [1, 0]]), np.array([[0, -1j], [1j, 0]]), np.array([[1, 0], [0, -1]])]
+    U = rand_unitary(rng)
+    step = run_compiled if compiled else run_reference
+    phi, err, principal = [], [], []
+    for _ in range(3000):
+        U = expm(1j * 0.05 * sum(rng.standard_normal() * p for p in paulis)) @ U
+        st["J.smf"] = U
+        step(blk, st, pa, 1)
+        phi.append(float(st["beam.b.phi"]))
+        err.append(float(st["lock.lk.err"]))
+        principal.append(np.angle(U[0, 0]))  # t_pol = jones_out† U jones_in = U[0, 0]
+    phi, err, principal = map(np.array, (phi, err, principal))
+    assert np.max(np.abs(np.diff(principal))) > np.pi  # the drift does cross the branch cut
+    # no 2π jumps (steps up to π remain possible where |t_pol| passes near 0: arg t_pol is fast there)
+    assert np.max(np.abs(np.diff(phi))) <= np.pi and np.max(np.abs(np.diff(err))) <= np.pi
+    np.testing.assert_allclose(phi, np.unwrap(principal), rtol=0, atol=1e-9)
+    np.testing.assert_allclose(err, phi, rtol=0, atol=1e-12)
+
+
 def test_lock_error_function_and_block():
     topo, _ = rich_topology()
     t = Topology.from_spec(topo)

@@ -24,7 +24,10 @@ an in-process cache keyed by the *structure*: leaf classes, kinds, names, rate_d
 params (runtime-param values stripped), the slot / param table of the layout and f_sim. A sweep over
 runtime parameters or seeds with the same structure reuses the compiled loop (compile once, then
 only ``Params.set`` / a new ``State``). This relies on the kernel rule of ``core.block``: kernels
-capture only offsets, structural params, f_sim and rate_div.
+capture only offsets, structural params, f_sim and rate_div. Structural params are keyed by content
+(arrays and tables hashed in full, dataclasses / objects field by field, registered functions by
+name; :func:`_canon`). A structural param holding an unregistered callable (lambda, local function)
+has no stable key, so that pipeline bypasses the cache (compiled each time; Phase 5 F1-4).
 """
 
 from __future__ import annotations
@@ -86,25 +89,89 @@ def is_compilable(block: Block) -> bool:
     return all(leaf.kernel is not None for leaf in _leaves(block))
 
 
+class _Uncacheable(Exception):
+    """Raised by :func:`_canon` for a value without a stable content key (see :func:`structure_key`)."""
+
+
 def _canon(obj: Any) -> Any:
-    """Hashable, repr-stable canonical form of spec params (arrays hashed by content)."""
+    """Hashable canonical form of spec params, by content (Phase 5 F1-4).
+
+    * arrays: dtype, shape and SHA-256 of the full contents (never ``repr``, which numpy abbreviates
+      above 1000 elements);
+    * mappings, sequences, dataclasses (e.g. ``offline.tables.Table``, ``Fn``, ``Expr``) and plain
+      objects (``__dict__`` / ``__slots__``): recursively, field by field, with the class name;
+    * callables: a registered function (``core.registry.register_fn``) by its registry name, a
+      ``functools.partial`` by function + arguments, an ``ExprFunction`` by (source, args, env);
+      any other callable (lambda, local function, bound method) has no stable key — ``id`` can be
+      reused after garbage collection — so :class:`_Uncacheable` is raised and the loop is compiled
+      without the cache.
+    """
+    import dataclasses
+    import functools
+
     if isinstance(obj, np.ndarray):
+        if obj.dtype.hasobject:
+            return ("ndarray-obj", obj.shape, tuple(_canon(v) for v in obj.ravel().tolist()))
         return ("ndarray", obj.dtype.str, obj.shape, hashlib.sha256(np.ascontiguousarray(obj).tobytes()).hexdigest())
-    if isinstance(obj, dict) or hasattr(obj, "items"):
+    if obj is None or isinstance(obj, (bool, int, str, bytes)):
+        return (type(obj).__name__, obj)
+    if isinstance(obj, float):
+        return ("f", obj.hex())
+    if isinstance(obj, complex):
+        return ("c", obj.real.hex(), obj.imag.hex())
+    if isinstance(obj, (np.floating, np.integer, np.bool_, np.complexfloating)):
+        return _canon(obj.item())
+    if isinstance(obj, dict) or (hasattr(obj, "items") and not dataclasses.is_dataclass(obj)):
         return ("map", tuple(sorted((str(k), _canon(v)) for k, v in obj.items())))
     if isinstance(obj, (list, tuple)):
         return ("seq", tuple(_canon(v) for v in obj))
-    if isinstance(obj, float):
-        return ("f", obj.hex())
-    if isinstance(obj, (np.floating, np.integer, np.bool_)):
-        return _canon(obj.item())
+    if isinstance(obj, (set, frozenset)):
+        return ("set", tuple(sorted(repr(_canon(v)) for v in obj)))
+    cls = f"{type(obj).__module__}.{type(obj).__qualname__}"
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return ("dc", cls, tuple((f.name, _canon(getattr(obj, f.name))) for f in dataclasses.fields(obj)))
+    from cranberry.config.expr import ExprFunction
+
+    if isinstance(obj, ExprFunction):
+        return ("expr", obj.source, obj.arg_names, _canon(obj.env))
+    if isinstance(obj, functools.partial):
+        return ("partial", _canon(obj.func), _canon(obj.args), _canon(obj.keywords or {}))
     if callable(obj):
-        return ("fn", getattr(obj, "__module__", "?"), getattr(obj, "__qualname__", "?"), id(obj))
-    return (type(obj).__name__, repr(obj))
+        from cranberry.core.registry import fn_name
+
+        name = fn_name(obj)
+        if name is None:
+            raise _Uncacheable(getattr(obj, "__qualname__", repr(obj)))
+        return ("fn", name)
+    if hasattr(obj, "__dict__") or hasattr(type(obj), "__slots__"):
+        if id(obj) in _CANON_ACTIVE:  # self-referencing object graph: no finite content key
+            raise _Uncacheable(cls)
+        fields = dict(vars(obj)) if hasattr(obj, "__dict__") else {}
+        for k in getattr(type(obj), "__slots__", ()):
+            if hasattr(obj, k):
+                fields[k] = getattr(obj, k)
+        _CANON_ACTIVE.add(id(obj))
+        try:
+            return ("obj", cls, _canon(fields))
+        finally:
+            _CANON_ACTIVE.discard(id(obj))
+    return (cls, repr(obj))
 
 
-def structure_key(block: Block, layout: SlotLayout) -> str:
-    """Hash of everything a compiled loop depends on (module docstring), excluding runtime values."""
+_CANON_ACTIVE: set[int] = set()
+
+
+def structure_key(block: Block, layout: SlotLayout) -> str | None:
+    """Hash of everything a compiled loop depends on (module docstring), excluding runtime values;
+    None when a structural param holds a callable without a stable key (:func:`_canon`): such a
+    pipeline is compiled afresh every time instead of risking a stale cached loop."""
+    try:
+        return _structure_key(block, layout)
+    except _Uncacheable:
+        return None
+
+
+def _structure_key(block: Block, layout: SlotLayout) -> str:
     leaves = []
     for leaf in _leaves(block):
         params = dict(getattr(leaf, "params", {}) or {})

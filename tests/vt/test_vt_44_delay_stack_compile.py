@@ -113,6 +113,50 @@ def test_kernel_reuse_same_structure():
     assert compile_loop(b4) is not loop1
 
 
+def test_cache_key_by_content_not_repr_or_id():
+    """Phase 5 F1-4: two 5000-point Tables that differ in one middle element (numpy's repr abbreviates
+    them identically) get different structure keys and loops; an unregistered callable in a structural
+    param has no stable key (ids are reused), so that pipeline bypasses the cache; a registered function
+    is keyed by its registry name."""
+    from cranberry.core.compile import structure_key
+    from cranberry.core.registry import register_fn
+    from cranberry.offline.tables import Table
+
+    v1 = np.linspace(0.0, 1.0, 5000)
+    v2 = v1.copy()
+    v2[2500] += 1e-3
+    assert repr(v1) == repr(v2)
+
+    def with_param(value, g=1.0):
+        obj = [gain("g", "v.x", "v.y", g)]
+        obj[0]["params"]["structural"] = value
+        lay = SlotLayout(FS)
+        lay.add("v.x", (), np.float64, "V")
+        blk = build(spec_from_obj(obj), lay, 0, external=["v.x"])
+        return blk, lay
+
+    t1 = Table("tab", {"f_hz": np.arange(5000.0)}, v1, "1")
+    t2 = Table("tab", {"f_hz": np.arange(5000.0)}, v2, "1")
+    (b1, l1), (b2, l2), (b3, l3) = with_param(t1), with_param(t2), with_param(t1, g=2.0)
+    assert structure_key(b1, l1) != structure_key(b2, l2)
+    assert structure_key(b1, l1) == structure_key(b3, l3)  # gain is runtime: same structure
+    assert compile_loop(b1) is not compile_loop(b2) and compile_loop(b3) is compile_loop(b1)
+    assert structure_key(*with_param(v1)) != structure_key(*with_param(v2))  # bare arrays too
+
+    keys = {structure_key(*with_param(lambda x, c=c: c * x)) for c in range(3)}
+    assert keys == {None}  # unregistered callables: no cache key
+    n0 = loop_cache_size()
+    b4, _ = with_param(lambda x: x)
+    assert compile_loop(b4) is not compile_loop(b4) and loop_cache_size() == n0
+
+    @register_fn("vt44_f1_4_square")
+    def square(x):
+        return x * x
+
+    k1 = structure_key(*with_param(square))
+    assert k1 is not None and k1 == structure_key(*with_param(square))
+
+
 def stack_vs_expansion_objs():
     stages = [pid("c1", "v.e", 0.5, 2e3), pid("c2", "ctrl.c1.u", 0.3, 5e2), pid("c3", "ctrl.c2.u", 0.2, 1e2)]
     acts = [gain("a1", "ctrl.c1.u", "act.a1", 1.0), gain("a2", "ctrl.c2.u", "act.a2", 2.0),

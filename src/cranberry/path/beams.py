@@ -11,13 +11,20 @@ frequency dependence of the propagation phase is NOT added on top (no double cou
 Jones matrices (Jᵀ for d = −1) multiply the input Jones vector (G04). Writes ``beam.<id>.*``.
 
 Implementation (WP-F6)
-    The delay τ_{b,after(i,m)} is split at the segment exit: ``segment_phase`` already evaluates
-    ``psi.<seg>.<beam>`` = Σ_m ψ_{i,m,b} at the times the beam passes each subsegment relative to the
-    moment it leaves the segment; this block delays that value by τ_after(i) (segment exit → observer)
-    and the source phase by τ_b, both with linear fractional interpolation on rings it owns (nominal
-    delays from ``Topology.timing``; ``core.delay`` arithmetic). Per beam b and sample t:
+    Segment phases reach the observer through **one** linear fractional delay (Phase 5 F6-2, D65-4):
+    when the segment's writer provides ``psi.<seg>.<beam>.obs`` (``segment_phase`` does: Σ_m ψ_{i,m,b}
+    read from its subsegment ring at the total delay to_exit + τ_after) and emission time is on, this
+    block adds that value as it is. For other writers of ``psi.<seg>.<beam>`` (``opo_angle_map``,
+    ``filter_cavity``, ...; a value at the segment exit) it delays it by τ_after(i) (segment exit →
+    observer) on a ring it owns. The source phase is delayed by τ_b. Both use linear fractional
+    interpolation (nominal delays from ``Topology.timing``; ``core.delay`` arithmetic). Per beam b and
+    sample t:
 
         φ_b(t) = φ_src(t − τ_b) + 2π·f_off·τ_b + Σ_steps psi.<seg>.<b>(t − τ_after) [+ arg t_pol]
+
+    (the ``.obs`` slot is the bracketed term already; its ring ``beam.<b>.hist_<seg>`` then has delay 0).
+    The ``.obs`` value is computed at ``segment_phase``'s step (rate_div / f_sim); give both blocks the
+    same rate_div (they normally run at rate_div 1).
 
     * ``2π f_off τ_b``: a beam shifted by f_off from its source carrier is written in its own rotating
       frame (the carrier term −2π f_off t of conv §4 belongs to the demodulating error block); the
@@ -26,7 +33,11 @@ Implementation (WP-F6)
     * Polarization (G04, T09 §1.6): for a beam with a ``jones`` segment on its path, e_out = M_n⋯M_1
       e_in with M = U (d = +1) or Uᵀ (d = −1), U = static ``pol_params.J`` or the slot ``J.<seg>``
       (current sample; polarization drift is slow); t_pol = jones_out^† e_out; the phase gains arg t_pol
-      (wrapped, undefined when |t_pol| → 0) and the power |t_pol|². Segments with pol_model ``off`` /
+      and the power |t_pol|². arg t_pol is **unwrapped continuously** per beam (Phase 5 F6-3): the slot
+      ``beam.<b>.pol_arg`` keeps the previous value, and each sample adds the step wrapped to [−π, π),
+      so ``beam.<b>.phi`` and ``lock.*.err`` never jump by 2π when t_pol crosses the negative real axis
+      (first sample: the principal value; undefined when |t_pol| → 0, and a true step > π per sample is
+      read as the opposite step). Segments with pol_model ``off`` /
       ``pm_diagonal`` have U = 1 (their per-axis phases are in ψ, ``segment_phase``).
       A jones segment with ``J_nr_slot`` (non-reciprocal factor N, WP-B7 addition) uses M = N·U for
       d = +1 and M = Uᵀ·N for d = −1 (N is not transposed: Faraday, T09 §1.8).
@@ -35,9 +46,12 @@ Slots (WP-F6):
 
     reads   <source slot>            rad   from params ``sources`` (e.g. laser.dx1.phi, pump.p.phi)
             psi.<seg>.<beam>         rad   for every path step (segment_phase / opo_angle_map / ...)
+            psi.<seg>.<beam>.obs     rad   instead, when registered before this block (segment_phase)
+                                            and emission_time is on (added to ``reads`` in ``init``)
             J.<seg>                  1     complex (2, 2), jones segments with J_slot (polarization on)
             <J_nr_slot>              1     complex (2, 2), non-reciprocal factor N (polarization on)
-    writes  beam.<b>.phi             rad   phase at the observer (unwrapped except arg t_pol)
+    writes  beam.<b>.phi             rad   phase at the observer (continuous, incl. arg t_pol)
+            beam.<b>.pol_arg         rad   unwrapped arg t_pol (previous sample's value; 0 without pol)
             beam.<b>.power           W     power_w·|t_pol|² (static losses: LossRegistry, G06)
             beam.<b>.jones           1     complex (2,): output Jones vector e_out
             beam.<b>.t_emit          s     emission time t − τ_b
@@ -89,6 +103,20 @@ def _interp(S, off, L, h, k, mu):  # noqa: N803
 _interp_nb = numba.njit(inline="always")(_interp)
 
 
+def _unwrap(S, off, a):  # noqa: N803
+    """Continuous continuation of the principal angle ``a``: S[off] (previous value) + the step wrapped
+    to [−π, π); stores and returns the new value (F6-3)."""
+    prev = S[off]
+    d = a - prev
+    d -= 2.0 * math.pi * math.floor((d + math.pi) / (2.0 * math.pi))
+    v = prev + d
+    S[off] = v
+    return v
+
+
+_unwrap_nb = numba.njit(inline="always")(_unwrap)
+
+
 class BeamAssembler(BaseBlock):
     """The ``beam_assembler`` block (module docstring)."""
 
@@ -117,7 +145,7 @@ class BeamAssembler(BaseBlock):
             if pol_on:
                 reads += [topo.segments[s.segment].pol_params[k] for s in beam.path for k in ("J_slot", "J_nr_slot")
                           if k in topo.segments[s.segment].pol_params]
-            writes += [f"beam.{b}.{f}" for f in ("phi", "power", "jones", "t_emit")]
+            writes += [f"beam.{b}.{f}" for f in ("phi", "power", "jones", "t_emit", "pol_arg")]
             writes += [f"beam.{b}.hist_{s.segment}" for s in beam.path]
         writes += [f"beam.{name}.src_{s}" for s in self.sources]
         super().__init__("beam_assembler", name, params, reads=list(dict.fromkeys(reads)), writes=writes)
@@ -142,7 +170,14 @@ class BeamAssembler(BaseBlock):
             steps = []
             for st, ps in zip(tm.steps, beam.path):
                 seg = self.topo.segments[st.segment]
-                ka, mua = frac_delay(st.after_s if emit else 0.0, h)
+                psi_slot = f"psi.{st.segment}.{b}"
+                if emit and f"{psi_slot}.obs" in layout:  # already delayed to the observer (segment_phase)
+                    psi_slot = f"{psi_slot}.obs"
+                    self.reads = tuple(dict.fromkeys((*self.reads, psi_slot)))
+                    self.slot_units[psi_slot] = "rad"
+                    ka, mua = 0, 0.0
+                else:
+                    ka, mua = frac_delay(st.after_s if emit else 0.0, h)
                 if seg.pol_model != "jones":
                     kind, mat = 0, None
                 elif "J" in seg.pol_params:
@@ -151,7 +186,7 @@ class BeamAssembler(BaseBlock):
                     kind, mat = 2, seg.pol_params["J_slot"]
                 nr = seg.pol_params.get("J_nr_slot") if seg.pol_model == "jones" else None
                 steps.append({"seg": st.segment, "k": ka, "mu": mua, "ring_len": ka + 2, "kind": kind, "mat": mat, "nr": nr,
-                              "T": ps.direction == -1, "psi": f"psi.{st.segment}.{b}", "ring": f"beam.{b}.hist_{st.segment}"})
+                              "T": ps.direction == -1, "psi": psi_slot, "ring": f"beam.{b}.hist_{st.segment}"})
             has_pol = self.pol_on and any(s["kind"] != 0 for s in steps)
             self.bd.append({"id": b, "src": beam.source, "k": k, "mu": mu, "tau": tau,
                             "static": 2.0 * math.pi * beam.freq_offset_hz * tau, "steps": steps, "pol": has_pol,
@@ -162,6 +197,7 @@ class BeamAssembler(BaseBlock):
             layout.add(f"beam.{b}.power", (), np.float64, "W", init=beam.power_w)
             layout.add(f"beam.{b}.jones", (2,), np.complex128, "1")
             layout.add(f"beam.{b}.t_emit", (), np.float64, "s", init=-tau)
+            layout.add(f"beam.{b}.pol_arg", (), np.float64, "rad")
             for s in steps:
                 layout.add(s["ring"], (), np.float64, "rad", ring_len=s["ring_len"])
         self.src_len = src_len
@@ -177,7 +213,7 @@ class BeamAssembler(BaseBlock):
         self.src_ring = {s: layout.slot(self._src_ring(s)) for s in self.sources}
         self.t_off = layout.slot("t").offset
         for bd in self.bd:
-            for nm in ("phi", "power", "jones", "t_emit"):
+            for nm in ("phi", "power", "jones", "t_emit", "pol_arg"):
                 bd[nm] = layout.slot(f"beam.{bd['id']}.{nm}").offset
             for s in bd["steps"]:
                 s["psi_off"] = layout.slot(s["psi"]).offset
@@ -204,7 +240,8 @@ class BeamAssembler(BaseBlock):
         Q_roff = i64([self.src_ring[s].offset for s in srcs])
         Q_rlen = i64([self.src_ring[s].ring_len for s in srcs])
         Q_head = i64([self.src_ring[s].head for s in srcs])
-        B = {k: [] for k in ("src", "k", "mu", "static", "tau", "phi", "pow", "jones", "temit", "p0", "st0", "nst", "pol")}
+        B = {k: [] for k in ("src", "k", "mu", "static", "tau", "phi", "pow", "jones", "temit", "parg", "p0", "st0", "nst",
+                             "pol")}
         jin, jout = [], []
         st = {k: [] for k in ("psi", "roff", "rlen", "head", "k", "mu", "kind", "moff", "T", "nr")}
         mats = [0j]
@@ -216,6 +253,7 @@ class BeamAssembler(BaseBlock):
             B["pow"].append(bd["power"])
             B["jones"].append(bd["jones"])
             B["temit"].append(bd["t_emit"])
+            B["parg"].append(bd["pol_arg"])
             B["st0"].append(len(st["psi"]))
             B["nst"].append(len(bd["steps"]))
             B["pol"].append(1 if bd["pol"] else 0)
@@ -239,8 +277,8 @@ class BeamAssembler(BaseBlock):
                     st["moff"].append(-1)
                 st["T"].append(1 if s["T"] else 0)
                 st["nr"].append(s["nr_off"] if kind != 0 else -1)
-        B_src, B_k, B_phi, B_pow, B_jones, B_temit, B_st0, B_nst, B_pol = (
-            i64(B[k]) for k in ("src", "k", "phi", "pow", "jones", "temit", "st0", "nst", "pol"))
+        B_src, B_k, B_phi, B_pow, B_jones, B_temit, B_parg, B_st0, B_nst, B_pol = (
+            i64(B[k]) for k in ("src", "k", "phi", "pow", "jones", "temit", "parg", "st0", "nst", "pol"))
         B_mu, B_static, B_tau, B_p0 = (f64(B[k]) for k in ("mu", "static", "tau", "p0"))
         JIN = np.array(jin if jin else [0j], dtype=np.complex128)
         JOUT = np.array(jout if jout else [0j], dtype=np.complex128)
@@ -250,6 +288,7 @@ class BeamAssembler(BaseBlock):
         MATS = np.array(mats, dtype=np.complex128)
         n_src, n_beam, t_off = len(srcs), len(self.bd), self.t_off
         interp = _interp_nb
+        unwrap = _unwrap_nb
 
         @numba.njit
         def push(S, I, off, L, head, x):  # noqa: N803
@@ -291,7 +330,7 @@ class BeamAssembler(BaseBlock):
                 p = B_p0[b]
                 if B_pol[b] == 1:
                     t = JOUT[2 * b] * e0 + JOUT[2 * b + 1] * e1
-                    phi += math.atan2(t.imag, t.real)
+                    phi += unwrap(S, B_parg[b], math.atan2(t.imag, t.real))
                     p = p * (t.real * t.real + t.imag * t.imag)
                 S[B_phi[b]] = phi
                 S[B_pow[b]] = p
@@ -325,7 +364,7 @@ class BeamAssembler(BaseBlock):
             p = bd["p0"]
             if bd["pol"]:
                 t = complex(np.vdot(bd["jout"], e))
-                phi += math.atan2(t.imag, t.real)
+                phi += _unwrap(S, bd["pol_arg"], math.atan2(t.imag, t.real))
                 p = p * abs(t) ** 2
             S[bd["phi"]] = phi
             S[bd["power"]] = p
