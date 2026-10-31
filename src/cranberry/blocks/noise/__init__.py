@@ -1,15 +1,17 @@
-"""NOISE: environmental and electronic noise sources (PLAN §4.3 NOISE; stateful filters, G11).
-
-Owner: WP-B2.
+"""NOISE: environmental and electronic noise sources, and the laser (PLAN §4.3 NOISE / SRC; stateful
+filters, G11). Owner: WP-B2.
 
 Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 
-* ``ambient_temperature``
-* ``segment_thermal``
-* ``segment_mech_noise``
-* ``segment_thermodynamic`` (optional)
-* ``gawbs_phase_jitter`` (optional)
-* ``pd_offset_drift``
+* ``laser_source``           (``laser``: white / flicker FM, peaks, drift, dither, SBS, RIN; ledger)
+* ``segment_thermal``        (``thermal``: zone ambient temperature = the former ``ambient_temperature``,
+  first-order lag per segment)
+* ``crystal_thermal``        (``thermal``: crystal ΔT and Δk for the OPA mismatch rotation)
+* ``pd_offset_drift``        (``thermal``: PD / TIA DC offset drift)
+* ``segment_mech_noise``     (``mech``: h/f², peaks, inter-segment ρ(f), spatial structure)
+* ``segment_thermodynamic``  (``mech``, optional: Wanser + thermomechanical)
+* ``gawbs_phase_jitter``     (``mech``, optional: ledger only)
 
+Coloured noise: ``_lgs`` (exactly discretised linear Gaussian sections, one RNG sub-stream per bank).
 Contract: core.block (factory interface, reads/writes, losses(), bands(), toggles, D34 no defaults).
 """

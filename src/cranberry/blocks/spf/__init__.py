@@ -1,6 +1,6 @@
 """SPF: spectral filters and dispersion compensation (PLAN §4.3 SPF; LO filter cavity placed here, see note).
 
-Owner: WP-B11 (filter_cavity: WP-B2).
+Owner: WP-B11 (filter_cavity: WP-B2, module ``filter_cavity``).
 
 Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 
