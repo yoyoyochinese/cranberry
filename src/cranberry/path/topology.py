@@ -65,7 +65,10 @@ Rules checked by :meth:`Topology.from_spec`:
   are the slow-axis values; ``segment_phase`` adds the fast-axis terms (toggle ``pm_axis_drift``).
 * jones ``pol_params``: exactly one of ``J`` (static 2×2 polarization matrix U) or ``J_slot`` (slot
   ``J.<seg>`` written by ``segment_jones``, WP-B7). The full segment Jones matrix is e^{iψ}·U with ψ
-  = ``psi.<seg>.<beam>``; U must not contain the common (driver × coefficient) phase.
+  = ``psi.<seg>.<beam>``; U must not contain the common (driver × coefficient) phase. Optional
+  ``J_nr_slot`` (WP-B7 addition): slot of a non-reciprocal factor N (``faraday_nonreciprocal``) at the
+  segment's d = +1 exit end. ``beam_assembler`` applies N·U for d = +1 and Uᵀ·N for d = −1, i.e. N is
+  NOT transposed for the backward beam (J_back = Jᵀ holds for the reciprocal part only, T09 §1.8).
 * Locks: every combo beam has the lock's observer. Ports: port 0 exists when ports exist (G13).
 
 Nominal timing (:meth:`Topology.timing`): subsegment m of segment i has length L/N and group delay
@@ -592,7 +595,17 @@ class _Parser:
                 return False
             pol["axis_drivers"] = tuple(ad)
             return True
-        # jones
+        # jones (optional J_nr_slot: non-reciprocal factor, WP-B7 addition)
+        nr = pol.pop("J_nr_slot", None)
+        ok = self._check_jones(pol, where)
+        if nr is not None:
+            if not isinstance(nr, str):
+                self.err(f"{where}: jones pol_params J_nr_slot must be a slot name")
+                return False
+            pol["J_nr_slot"] = nr
+        return ok
+
+    def _check_jones(self, pol: dict[str, Any], where: str) -> bool:
         if set(pol) == {"J"}:
             try:
                 pol["J"] = _cmat(pol["J"], f"{where}.pol_params.J")

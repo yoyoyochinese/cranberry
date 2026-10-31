@@ -28,12 +28,15 @@ Implementation (WP-F6)
       (current sample; polarization drift is slow); t_pol = jones_out^† e_out; the phase gains arg t_pol
       (wrapped, undefined when |t_pol| → 0) and the power |t_pol|². Segments with pol_model ``off`` /
       ``pm_diagonal`` have U = 1 (their per-axis phases are in ψ, ``segment_phase``).
+      A jones segment with ``J_nr_slot`` (non-reciprocal factor N, WP-B7 addition) uses M = N·U for
+      d = +1 and M = Uᵀ·N for d = −1 (N is not transposed: Faraday, T09 §1.8).
 
 Slots (WP-F6):
 
     reads   <source slot>            rad   from params ``sources`` (e.g. laser.dx1.phi, pump.p.phi)
             psi.<seg>.<beam>         rad   for every path step (segment_phase / opo_angle_map / ...)
             J.<seg>                  1     complex (2, 2), jones segments with J_slot (polarization on)
+            <J_nr_slot>              1     complex (2, 2), non-reciprocal factor N (polarization on)
     writes  beam.<b>.phi             rad   phase at the observer (unwrapped except arg t_pol)
             beam.<b>.power           W     power_w·|t_pol|² (static losses: LossRegistry, G06)
             beam.<b>.jones           1     complex (2,): output Jones vector e_out
@@ -112,8 +115,8 @@ class BeamAssembler(BaseBlock):
             beam = topo.beams[b]
             reads += [f"psi.{s.segment}.{b}" for s in beam.path]
             if pol_on:
-                reads += [topo.segments[s.segment].pol_params["J_slot"] for s in beam.path
-                          if "J_slot" in topo.segments[s.segment].pol_params]
+                reads += [topo.segments[s.segment].pol_params[k] for s in beam.path for k in ("J_slot", "J_nr_slot")
+                          if k in topo.segments[s.segment].pol_params]
             writes += [f"beam.{b}.{f}" for f in ("phi", "power", "jones", "t_emit")]
             writes += [f"beam.{b}.hist_{s.segment}" for s in beam.path]
         writes += [f"beam.{name}.src_{s}" for s in self.sources]
@@ -146,7 +149,8 @@ class BeamAssembler(BaseBlock):
                     kind, mat = 1, np.asarray(seg.pol_params["J"], dtype=np.complex128)
                 else:
                     kind, mat = 2, seg.pol_params["J_slot"]
-                steps.append({"seg": st.segment, "k": ka, "mu": mua, "ring_len": ka + 2, "kind": kind, "mat": mat,
+                nr = seg.pol_params.get("J_nr_slot") if seg.pol_model == "jones" else None
+                steps.append({"seg": st.segment, "k": ka, "mu": mua, "ring_len": ka + 2, "kind": kind, "mat": mat, "nr": nr,
                               "T": ps.direction == -1, "psi": f"psi.{st.segment}.{b}", "ring": f"beam.{b}.hist_{st.segment}"})
             has_pol = self.pol_on and any(s["kind"] != 0 for s in steps)
             self.bd.append({"id": b, "src": beam.source, "k": k, "mu": mu, "tau": tau,
@@ -184,6 +188,12 @@ class BeamAssembler(BaseBlock):
                     if sl.array != "Z" or sl.shape != (2, 2) or sl.ring_len:
                         raise TypeError(f"block {self.name!r}: {s['mat']!r} must be a complex (2, 2) slot")
                     s["mat_off"] = sl.offset
+                s["nr_off"] = -1
+                if s["nr"] is not None and bd["pol"]:
+                    sl = layout.slot(s["nr"])
+                    if sl.array != "Z" or sl.shape != (2, 2) or sl.ring_len:
+                        raise TypeError(f"block {self.name!r}: {s['nr']!r} must be a complex (2, 2) slot")
+                    s["nr_off"] = sl.offset
         self.kernel = self._build_kernel()
 
     def _build_kernel(self):
@@ -196,7 +206,7 @@ class BeamAssembler(BaseBlock):
         Q_head = i64([self.src_ring[s].head for s in srcs])
         B = {k: [] for k in ("src", "k", "mu", "static", "tau", "phi", "pow", "jones", "temit", "p0", "st0", "nst", "pol")}
         jin, jout = [], []
-        st = {k: [] for k in ("psi", "roff", "rlen", "head", "k", "mu", "kind", "moff", "T")}
+        st = {k: [] for k in ("psi", "roff", "rlen", "head", "k", "mu", "kind", "moff", "T", "nr")}
         mats = [0j]
         for bd in self.bd:
             B["src"].append(srcs.index(bd["src"]))
@@ -228,13 +238,14 @@ class BeamAssembler(BaseBlock):
                 else:
                     st["moff"].append(-1)
                 st["T"].append(1 if s["T"] else 0)
+                st["nr"].append(s["nr_off"] if kind != 0 else -1)
         B_src, B_k, B_phi, B_pow, B_jones, B_temit, B_st0, B_nst, B_pol = (
             i64(B[k]) for k in ("src", "k", "phi", "pow", "jones", "temit", "st0", "nst", "pol"))
         B_mu, B_static, B_tau, B_p0 = (f64(B[k]) for k in ("mu", "static", "tau", "p0"))
         JIN = np.array(jin if jin else [0j], dtype=np.complex128)
         JOUT = np.array(jout if jout else [0j], dtype=np.complex128)
-        ST_psi, ST_roff, ST_rlen, ST_head, ST_k, ST_kind, ST_moff, ST_T = (
-            i64(st[k] if st[k] else [0]) for k in ("psi", "roff", "rlen", "head", "k", "kind", "moff", "T"))
+        ST_psi, ST_roff, ST_rlen, ST_head, ST_k, ST_kind, ST_moff, ST_T, ST_nr = (
+            i64(st[k] if st[k] else [0]) for k in ("psi", "roff", "rlen", "head", "k", "kind", "moff", "T", "nr"))
         ST_mu = f64(st["mu"] if st["mu"] else [0.0])
         MATS = np.array(mats, dtype=np.complex128)
         n_src, n_beam, t_off = len(srcs), len(self.bd), self.t_off
@@ -271,7 +282,12 @@ class BeamAssembler(BaseBlock):
                             m00, m01, m10, m11 = Z[o], Z[o + 1], Z[o + 2], Z[o + 3]
                         if ST_T[s] == 1:
                             m01, m10 = m10, m01
+                        o = ST_nr[s]
+                        if o >= 0 and ST_T[s] == 1:  # backward: N first (not transposed)
+                            e0, e1 = Z[o] * e0 + Z[o + 1] * e1, Z[o + 2] * e0 + Z[o + 3] * e1
                         e0, e1 = m00 * e0 + m01 * e1, m10 * e0 + m11 * e1
+                        if o >= 0 and ST_T[s] == 0:  # forward: N at the exit
+                            e0, e1 = Z[o] * e0 + Z[o + 1] * e1, Z[o + 2] * e0 + Z[o + 3] * e1
                 p = B_p0[b]
                 if B_pol[b] == 1:
                     t = JOUT[2 * b] * e0 + JOUT[2 * b + 1] * e1
@@ -304,7 +320,8 @@ class BeamAssembler(BaseBlock):
                 phi += _interp(S, s["ring_off"], s["ring_len"], h, s["k"], s["mu"])
                 if bd["pol"] and s["kind"] != 0:
                     U = s["mat"] if s["kind"] == 1 else np.array(state[s["mat"]])
-                    e = (U.T if s["T"] else U) @ e
+                    N = np.array(state[s["nr"]]) if s["nr_off"] >= 0 else np.eye(2)
+                    e = U.T @ (N @ e) if s["T"] else N @ (U @ e)
             p = bd["p0"]
             if bd["pol"]:
                 t = complex(np.vdot(bd["jout"], e))
