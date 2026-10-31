@@ -1,17 +1,23 @@
-# Ref B with the LO mode-cleaning cavity's laser low-pass ON (T05 §6; [Ref B Fig. 1] MCC on the LO path, linewidth
-# not published: axis dnu_mcc_hz). Overlay on refB / refB_nominal (D34 comparison).
+# Ref B with the laser low passes of the two cavities ON (T05 §6; Phase 5 M3B-06): the LO mode-cleaning cavity
+# [Ref B Fig. 1] (axis dnu_mcc_hz) and the SHG bow-tie cavity on the pump [Ref B Fig. 1] (axis dnu_shg_hz); neither
+# linewidth is published. Overlay on refB / refB_nominal (D34 comparison).
 #
-# The LO then carries H_MCC φ_L(t − τ_b), the squeezed light (via the pump) and the probe φ_L itself, so the
-# Ti:Sa frequency noise — white FM and the 89 / 177 kHz excess peaks [Ref B §3] — reaches Δ as
-# |1 − H_MCC|² S_φ above the lock bands (the MCC acts as a delay line τ_eff = 1/(π Δν_MCC), T05 §6). The laser's
-# out-of-band ledger pair switches to the filter-cavity form (refA pattern, M1-A-01): delays = τ_b of `lo`
-# (LO + MCC) and of `sqz` (PUMP + OPO + SQ).
-# At f_sim = 2 MHz and Δν_MCC = 1 MHz the discrete cavity + interpolation chain exceeds the continuous white-FM
-# variance by ≈ 17 %, so the ledger row is clipped to 0 with a warning (signed rows are Open, D66-1); raise f_sim for
+# The LO then carries H_MCC φ_L(t − τ_b), the squeezed light, the probe gain frame prf and the lock-1 pump reference
+# (all via the pump) H_SHG φ_L, the probe φ_L itself, so the Ti:Sa frequency noise — white FM and the 89 / 177 kHz
+# excess peaks [Ref B §3] — reaches Δ as |H_SHG − H_MCC|² S_φ above the lock bands (each cavity acts as a delay
+# line τ_eff = 1/(π Δν), T05 §6): at equal linewidths (refB_nominal: both 1 MHz) the two cancel. The laser's
+# out-of-band ledger pair switches to the two-cavity filter form (refA pattern, M1-A-01, with the reference beam
+# through the SHG): delays = τ_b of `lo` (LO + MCC) and of `sqz` (PUMP + OPO + SQ) plus θ_sq's detuning lag τ_det
+# (M3B-02).
+# At f_sim = 2 MHz and Δν ≈ 1 MHz the discrete cavity + interpolation chain can exceed the continuous white-FM
+# variance, then the ledger row is clipped to 0 with a warning (signed rows are Open, D66-1); raise f_sim for
 # quantitative use of this variant.
 
 toggles:
   mcc.laser_lowpass: true
+  shg_sqz.laser_lowpass: true
+  shg_prf.laser_lowpass: true
+  shg_ppd.laser_lowpass: true
 
 pipeline:
   - name: tisa
@@ -20,4 +26,5 @@ pipeline:
         - target: MCC
           dnu_fc_hz: !expr "mcc.params.dnu_fc_hz"
           tau_fc_s: !expr "mcc.params.in_delay_s"
-          tau_ref_s: !expr "(topology.segments.PUMP.L_m * topology.segments.PUMP.n_g + topology.segments.OPO.L_m * topology.segments.OPO.n_g + topology.segments.SQ.L_m * topology.segments.SQ.n_g) / 299792458.0"
+          dnu_ref_hz: !expr "offline.params.dnu_shg_hz"
+          tau_ref_s: !expr "(topology.segments.PUMP.L_m * topology.segments.PUMP.n_g + topology.segments.OPO.L_m * topology.segments.OPO.n_g + topology.segments.SQ.L_m * topology.segments.SQ.n_g) / 299792458.0 + offline.params.tau_det_s"

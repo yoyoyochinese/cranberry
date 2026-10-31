@@ -173,6 +173,45 @@ def test_fc_pair_white_variances_matches_direct_chain():
     assert float(np.var(dl[10_000:])) == pytest.approx(vd, rel=0.03)
 
 
+def test_fc_pair_reference_cavity():
+    """Phase 5 M3B-06 (Ref B: SHG on the pump vs MCC on the LO): ``dnu_ref_hz`` puts the reference beam through a
+    cavity too. Continuous = full-band ∫|H_FC e^{−iωδ} − H_ref|² h0/f² df (both signs of δ, equal and unequal
+    linewidths); Δν_ref → ∞ is the one-cavity pair; the discrete value is the plain sum of the chain; the freq row
+    is |H_FC e^{−i2πfδ} − H_ref|² S_ν."""
+    import scipy.signal
+
+    from cranberry.path.segments import frac_delay
+
+    h0, h = 200 / math.pi, 1 / 2e6
+    x = np.geomspace(1e-2, 1e13, 2_000_001)
+    for dnu, dnu_ref in ((1e6, 1e6), (1e6, 1e7), (3e6, 2e5)):
+        for d in (TAU_LO - TAU_SQ, TAU_SQ - TAU_LO):
+            tf, tr = max(d, 0.0), max(-d, 0.0)
+            vc, _ = fc_pair_white_variances(h0, dnu, tf, tr, h, dnu_ref)
+            g = np.abs(np.exp(-2j * np.pi * x * d) / (1 + 2j * x / dnu) - 1 / (1 + 2j * x / dnu_ref)) ** 2 * h0 / x**2
+            assert vc == pytest.approx(float(np.trapezoid(g * x, np.log(x))), rel=1e-4), (dnu, dnu_ref, d)
+    assert fc_pair_white_variances(h0, 1e6, TAU_LO, TAU_SQ, h, 1e15)[0] == pytest.approx(
+        fc_pair_white_variances(h0, 1e6, TAU_LO, TAU_SQ, h)[0], rel=1e-6)
+    dnu, dnu_ref, n = 1e6, 2e5, 4000
+    _, vd = fc_pair_white_variances(h0, dnu, TAU_LO, TAU_SQ, h, dnu_ref)
+    a, ar = math.exp(-math.pi * dnu * h), math.exp(-math.pi * dnu_ref * h)
+    kf, mf = frac_delay(TAU_LO, h)
+    kr, mr = frac_delay(TAU_SQ, h)
+    xx, r = np.zeros(n), np.zeros(n)
+    xx[kf], xx[kf + 1], r[kr], r[kr + 1] = 1 - mf, mf, 1 - mr, mr
+    y = scipy.signal.lfilter([(1 - a) / 2] * 2, [1, -a], xx) - scipy.signal.lfilter([(1 - ar) / 2] * 2, [1, -ar], r)
+    assert vd == pytest.approx(2 * math.pi**2 * h0 * h * float(np.sum(np.cumsum(y) ** 2)), rel=1e-10)
+    pair = {"target": "FC", "dnu_fc_hz": dnu, "tau_fc_s": TAU_LO, "tau_ref_s": TAU_SQ, "dnu_ref_hz": dnu_ref}
+    root, _, _ = rig([nt.laser(on=("fm_white", "peaks"), oob_pairs=[pair])], 2e6, external={})
+    decls = {(d.targets[0], d.quantity): d for d in root.bands()}
+    s_pk = s_nu_model(nt.laser(on=("peaks",))["params"])
+    f = np.array([1e7, 3e7, 1e9])
+    hh = np.exp(-2j * np.pi * f * (TAU_LO - TAU_SQ)) / (1 + 2j * f / dnu) - 1 / (1 + 2j * f / dnu_ref)
+    np.testing.assert_allclose(decls["FC", "freq"].psd_outside(f), np.abs(hh) ** 2 * s_pk(f), rtol=1e-14)
+    vc, vd = fc_pair_white_variances(8e3, dnu, TAU_LO, TAU_SQ, h, dnu_ref)
+    assert decls["FC", "phase"].variance_outside == pytest.approx(max(vc - vd, 0.0), rel=1e-12)
+
+
 def test_fc_pair_overcounting_chain_warns_and_declares_zero():
     """δ = 0 (no interpolation): the cavity discretisation over-represents π h0/Δν by ≈ ε²/12 — no negative
     ledger rows exist, so the row is 0 with a warning (ponytail ceiling in laser.bands)."""

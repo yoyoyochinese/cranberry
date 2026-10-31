@@ -16,6 +16,8 @@ M2C-02 (stability of the three-stage stack), M2C-03 (actuator clamp fraction as 
   noise (pre-M2C-04 nominal: ρ = 0, f_lo = 0.1 Hz, f_u1 = 10 kHz) and h_ref_conduit = 40 the EOM sits at its
   clamp ≈ 10.6 % of the time (review) and the non-dither residual is 82 mrad; a ±5 V EOM drive range
   (``eom_range_v`` axis) removes the clamp and the residual returns to the linear ≈ 14 mrad.
+* Phase 5 M3B-02 (Ref B review, applied to Ref C): the laser frequency detunes the OPO (Δ = −2π·δν_L, no length
+  lock): θ_sq lags φ_L by τ_det = 0.138 ns, ≈ 2.6 mrad at the top of the h0 axis — negligible for Ref C.
 """
 
 import importlib.util
@@ -141,4 +143,32 @@ def test_m2c03_clamp_fraction_is_reported():
     assert clamped.validity["ctrl.pid2.u"] == 0.0 and clamped.validity["ctrl.pid3.u"] == 0.0
     assert wide.valid
     assert out["clamped"][1] > 0.07 and out["wide_eom"][1] < 0.02                   # 82 vs ≈ 14 mrad (linear)
+
+
+@pytest.mark.numba
+@pytest.mark.integration
+def test_m3b02_laser_frequency_detunes_the_refC_opo():
+    """Phase 5 M3B-02 applied to Ref C (reviews/phase5_M3_refB.md §2.3): Δ = ω_cav − ω_L, the monolithic OPO is not
+    locked to the laser, so Δ = −2π·δν_L drives the OPO segment and θ_sq lags φ_L by τ_det = 1/(κ(1 + x²)) =
+    0.138 ns (x = 0.56, κ = π·1.75 GHz). White FM only (top of the h0 axis, dL = 0): the added variance is
+    4π²h0·f_max·τ_det² (loop below f_N, ledger pair with the combined delay above, f_max = 875 MHz) — 2.6 mrad,
+    negligible against θ̃ ≈ 0.1 rad. With dL = ±2 m the detuning lag combines coherently with the fibre delay
+    (|n_g dL/c − τ_det|: smaller for dL > 0, larger for dL < 0). Nominal point: unchanged to 1e−5 rad."""
+    tog = {k: v for k, v in rs.NOISE_OFF.items() if k != "laser.fm_white"}
+    sig = {}
+    for dl in (0.0, 2.0, -2.0):
+        for ld in (False, True):
+            res = run(rs.load(params={"h0_hz2_per_hz": 1.0e4, "laser_detuning": ld, "dL_m": dl},
+                              run={"duration_s": 0.05}, toggles=tog))
+            sig[dl, ld] = rs.at(res.metrics.noise_levels["i.port0"], "sigma_total_rad", 3e7)   # incl. the dither m/√2
+            p = res.spec.offline["params"]
+    tau_det = p["tau_det_s"]
+    assert tau_det == pytest.approx(1 / (math.pi * 1.75e9 * (1 + 0.56**2)), rel=1e-12)
+    added = math.sqrt(sig[0.0, True] ** 2 - sig[0.0, False] ** 2)
+    assert added == pytest.approx(2 * math.pi * math.sqrt(1.0e4 * 8.75e8) * tau_det, rel=0.05)
+    assert added < 3e-3
+    assert sig[2.0, True] < sig[2.0, False] and sig[-2.0, True] > sig[-2.0, False]
+    nom = [rs.at(run(rs.load(params={"laser_detuning": ld}, run={"duration_s": 0.2})).metrics.noise_levels["i.port0"],
+                 "sigma_total_rad", 3e7) for ld in (False, True)]
+    assert nom[1] == pytest.approx(nom[0], abs=1e-5)
 

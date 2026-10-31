@@ -32,6 +32,13 @@
 # building B are in LO_B): LO_act (fibre EOM `eom`, fibre stretcher `stretcher`) then LO_mir (piezo mirror;
 # path/coef.DRIVERS has no mirror driver, a free-space length actuator is the `stretcher` driver of its own
 # segment). Driver values are intensive with a 1-element driver (D61-1).
+# Laser frequency → OPO detuning (Phase 5 M3B-02, Ref B review §2.3): Δ = ω_cav − ω_L, and the monolithic OPO's
+# resonance is held only by the (slow) crystal temperature, so the adder `opo_lf` writes Δ = −2π·δν_L into the OPO
+# segment's detuning driver (switch `laser_detuning`), which rotates θ_sq by −Δ/(κ(1 + x²)): θ_sq lags φ_L by
+# τ_det = 1/(κ(1 + x²)) = 0.14 ns at x = 0.56 (κ = π·1.75 GHz). Above f_N the laser's ledger pair carries the combined
+# delay |n_g dL/c − τ_det| (one row, D55-6 / D66-1). The Ω → 0 coefficient overstates the rotation near κ, so this
+# is an upper bound; the effect is ≤ 0.2 mrad at the nominal h0 / dL = 0 and ≈ 2 mrad at the top of the h0 axis
+# (vs θ̃ ≈ 0.1 rad): negligible for Ref C (test_refC_review_fixes.py).
 
 preset: refC
 
@@ -49,7 +56,7 @@ topology:
     - {id: SQ_A, kind: free_space, L_m: 1.0, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: lab_A,
        n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}        # laser → SHG → OPO → fibre coupler [AE]
     - {id: OPO, kind: opo, L_m: 0.0026, n_g: 1.816, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: lab_A,
-       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}        # 2.6 mm ppKTP [Ref C §2]; n_g UNVERIFIED (T02 §4)
+       n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {detuning: uniform}}   # 2.6 mm ppKTP [Ref C §2]; n_g UNVERIFIED (T02 §4); Δ = laser only (header)
     - {id: LO_A, kind: free_space, L_m: 1.0, n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: lab_A,
        n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}        # laser → LO fibre coupler [AE]
     # the two 1 km fibres [Ref C §2]: conduit part (both fibres, one thermal / mechanical zone) and spools
@@ -107,6 +114,9 @@ topology:
     - {segment: LOF_spool, driver: dT, beam: "*", effect: group_delay, value: !expr "offline.params.kappa_tau_s_per_m_K * (offline.params.L_fiber_m - offline.params.L_deployed_m + offline.params.dL_m)"}
     - {segment: LOF_spool, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_rad_per_m * (offline.params.L_fiber_m - offline.params.L_deployed_m + offline.params.dL_m)"}
     - {segment: LOF_spool, driver: strain, beam: "*", effect: group_delay, value: !expr "offline.params.n_g * (offline.params.L_fiber_m - offline.params.L_deployed_m + offline.params.dL_m) / 299792458.0"}
+    # OPO detuning Δ [rad/s] → θ_sq: −1/(κ(1 + x²)), κ = π·FWHM (T02 §2.4; Phase 5 M3B-02 laser → detuning, header)
+    - {segment: OPO, driver: detuning, beam: sqz, effect: phase, value: !expr "-1 / (pi * offline.params.fwhm_hz * (1 + offline.params.x**2))"}
+    - {segment: OPO, driver: detuning, beam: "*", effect: group_delay, value: 0.0}
     - {segment: LO_act, driver: eom, beam: "*", effect: phase, value: 1.0}
     - {segment: LO_act, driver: eom, beam: "*", effect: group_delay, value: 0.0}
     - {segment: LO_mir, driver: stretcher, beam: "*", effect: phase, value: 1.0}
@@ -165,8 +175,10 @@ offline:
     rho_spool: !sweep [0.0, 0.99, 3]      # correlation of the two spools (separate spools assumed: nominal 0) [AE]
     f_rho_hz: !sweep_log [1.0, 1.0e+3, 3] # correlation corner (T08 §2.8 shape only, Koke 2019) [AE]
     # --- laser (not specified beyond 1550 nm [Ref C §2]; same laser for squeezer and LO) --------------------
-    h0_hz2_per_hz: !sweep_log [64.0, 1.0e+4, 3]   # white FM; enters only through dL (T05 §3.5); 64 = the Ref A stand-in
-                                          # 0.2 kHz/π (UNVERIFIED), 1e4 ≈ 31 kHz Lorentz linewidth [AE]
+    h0_hz2_per_hz: !sweep_log [64.0, 1.0e+4, 3]   # white FM; enters through dL (T05 §3.5) and the OPO detuning (header);
+                                          # 64 = the Ref A stand-in 0.2 kHz/π (UNVERIFIED), 1e4 ≈ 31 kHz Lorentz linewidth [AE]
+    laser_detuning: true                  # δν_L → Δ = ω_cav − ω_L (Phase 5 M3B-02); false = laser through dL only (D34)
+    tau_det_s: !expr "1 / (pi * fwhm_hz * (1 + x**2)) if laser_detuning else 0.0"   # θ_sq lag behind φ_L via Δ
     # --- QNL error signal [Ref C §2; T14 §6] ----------------------------------------------------------------
     f_dither_hz: 1.0e+6                   # [Ref C §2] 1 MHz dither / demodulation
     v_pi_v: 4.0                           # MPZ-LN-10 U_π = 4 V [Ref C §3]
@@ -387,7 +399,7 @@ pipeline:
       power_w: !expr "offline.params.p_lo_w"     # not used by the phase model
       h0_hz2_per_hz: !expr "offline.params.h0_hz2_per_hz"
       oob_pairs:
-        - {target: LOF_spool, tau_s: !expr "offline.params.n_g * offline.params.dL_m / 299792458.0"}   # T05 §3.5 (δL on the LO)
+        - {target: LOF_spool, tau_s: !expr "abs(offline.params.n_g * offline.params.dL_m / 299792458.0 - offline.params.tau_det_s)"}   # T05 §3.5 (δL on the LO) − θ_sq's detuning lag (M3B-02: one row)
       rin_targets: []
       toggles: {fm_white: true, fm_flicker: false, peaks: false, drift: false, dither: false, sbs: false, rin: false}
   - block: segment_thermal              # conduit zone: both fibres, same ambient (T08 §2.4, §2.8)
@@ -439,6 +451,13 @@ pipeline:
       f_rho_hz: !expr "offline.params.f_rho_hz"
       toggles: {mech: true, peaks: false, correlation: true}
   # ---- path model (F6) ------------------------------------------------------------------------------------
+  - block: adder                      # Δ = ω_cav − ω_L: the laser frequency detunes the OPO (Phase 5 M3B-02, header);
+    name: opo_lf                      # no length lock (the resonance is held by the crystal temperature, slow)
+    params:
+      ins: [laser.laser.dnu]
+      gains: [!expr "-2 * pi if offline.params.laser_detuning else 0.0"]
+      out: drv.OPO.detuning
+      unit: rad/s
   - block: segment_phase
     name: path.phase
     params:

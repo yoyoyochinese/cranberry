@@ -32,13 +32,19 @@ Cavity (``cavity_model``, no default, D34)
                      1.75 GHz FWHM directly, T02 §4).
 
 Detuning coefficients (T02 §2.4; first order in Δ at Ω → 0, independent of ρ)
-    squeezing angle  dθ_sq/dΔ  = −1/(κ(1 + x²))       (:func:`squeezing_angle_coef`)
-    transmitted probe dφ_pr/dΔ = −1/(2κ)  (at the lock-1 extremum, either sign)
-    so after lock 2 (LO on the probe) the residual φ_LO − θ_sq = (Δ/κ)(1 − x²)/(2(1 + x²)). Unequal
+    squeezing angle   dθ_sq/dΔ = −1/(κ(1 + x²))   (:func:`squeezing_angle_coef`)
+    probe gain FRAME  −1/(2κ)  (:func:`probe_phase_coef`): rotation of the transmitted probe's output
+                      singular directions about the pump frame (either extremum); the lock-2 zero of a
+                      dithered co-propagating probe sits on it (Phase 5 M3 review §4, D76-1)
+    probe TRANSIT     dφ_pr/dΔ = −1/κ  (:func:`probe_transit_coef`): change of the probe's phase through
+                      the OPO (= the empty cavity's −arctan(Δ/κ), independent of x); the lock-1 extremum
+                      moves by +Δ/(2κ) at the input, so a probe held there leaves on the frame (M3B-03)
+    so after lock 2 (LO on the probe frame) the residual φ_LO − θ_sq = (Δ/κ)(1 − x²)/(2(1 + x²)). Unequal
     segment × beam coefficients on the OPO segment: the path model computes this residual, nothing
-    is assumed (D11, D47, VT-23). ``coef_tables`` = Tables ``<segment>.detuning.squeezed`` and
-    ``<segment>.detuning.probe`` [rad per rad/s] on axis ``x``; :meth:`coef_entries` turns them into
-    topology ``coef`` entries (driver ``detuning``, phase; group delay 0).
+    is assumed (D11, D47, VT-23). ``coef_tables`` = Tables ``<segment>.detuning.squeezed``,
+    ``<segment>.detuning.probe`` (frame) and ``<segment>.detuning.probe_transit`` [rad per rad/s] on axis
+    ``x``; :meth:`coef_entries` turns them into topology ``coef`` entries (driver ``detuning``, phase;
+    group delay 0).
 
 Gain table (T14 §1, D51-10): ``gain_table`` = Table ``<name>.gain`` with values (A+, A−) =
 (1/(1 − x), 1/(1 + x)) (quasi-static probe gains, ``err.amplitude_gains_opo``) on axis ``pump_w``
@@ -76,7 +82,7 @@ from cranberry.offline.source_output import SourceOutput
 from cranberry.offline.tables import Table
 
 __all__ = ["C_M_PER_S", "OpoCwSpectrum", "make_opo_cw_spectrum", "langevin_spectrum", "closed_form",
-           "squeezing_angle_coef", "probe_phase_coef", "residual_coef"]
+           "squeezing_angle_coef", "probe_phase_coef", "probe_transit_coef", "residual_coef"]
 
 KIND = "opo_cw_spectrum"
 C_M_PER_S = 299_792_458.0
@@ -114,8 +120,16 @@ def squeezing_angle_coef(x: float, kappa: float) -> float:
 
 
 def probe_phase_coef(kappa: float) -> float:
-    """dφ_pr/dΔ = −1/(2κ) of the transmitted co-propagating probe at the lock-1 extremum (T02 §2.4)."""
+    """−1/(2κ) [rad per rad/s]: rotation of the transmitted probe's output GAIN FRAME (its singular directions)
+    about the pump frame (T02 §2.4; module docstring). Not the probe's phase change: see
+    :func:`probe_transit_coef`."""
     return -0.5 / kappa
+
+
+def probe_transit_coef(kappa: float) -> float:
+    """dφ_pr/dΔ = −1/κ [rad per rad/s]: phase change of a probe passing the OPO (empty-cavity value, independent
+    of x; Phase 5 M3B-03, module docstring)."""
+    return -1.0 / kappa
 
 
 def residual_coef(x: float, kappa: float) -> float:
@@ -222,14 +236,19 @@ class OpoCwSpectrum(BaseBlock):
         prov = {"block": self.name, "driver": "detuning", "effect": "phase", "sources": ["T02 §2.4"]}
         sq = np.array([squeezing_angle_coef(x, self.kappa(x)) for x in xs])
         pr = np.array([probe_phase_coef(self.kappa(x)) for x in xs])
+        tr = np.array([probe_transit_coef(self.kappa(x)) for x in xs])
         return {f"{seg}.detuning.squeezed": Table(f"{seg}.detuning.squeezed", {"x": xs}, sq, "rad/(rad/s)", prov),
-                f"{seg}.detuning.probe": Table(f"{seg}.detuning.probe", {"x": xs}, pr, "rad/(rad/s)", prov)}
+                f"{seg}.detuning.probe": Table(f"{seg}.detuning.probe", {"x": xs}, pr, "rad/(rad/s)", prov),
+                f"{seg}.detuning.probe_transit": Table(f"{seg}.detuning.probe_transit", {"x": xs}, tr, "rad/(rad/s)",
+                                                       prov)}
 
-    def coef_entries(self, squeezed: Iterable[str], probes: Iterable[str]) -> list[dict[str, Any]]:
-        """Topology ``coef`` entries of the OPO segment for driver ``detuning`` (module docstring)."""
+    def coef_entries(self, squeezed: Iterable[str], probes: Iterable[str],
+                     transits: Iterable[str] = ()) -> list[dict[str, Any]]:
+        """Topology ``coef`` entries of the OPO segment for driver ``detuning``: ``probes`` get the gain-frame
+        coefficient, ``transits`` the probe-transit one (module docstring)."""
         tabs, seg = self.source_output.coef_tables, str(self.params["segment"])
         out = []
-        for role, beams in (("squeezed", squeezed), ("probe", probes)):
+        for role, beams in (("squeezed", squeezed), ("probe", probes), ("probe_transit", transits)):
             for b in beams:
                 out += [{"segment": seg, "driver": "detuning", "beam": b, "effect": "phase",
                          "value": tabs[f"{seg}.detuning.{role}"], "coords": {"x": self.x}},

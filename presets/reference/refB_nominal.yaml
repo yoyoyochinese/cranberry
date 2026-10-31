@@ -18,6 +18,9 @@ offline:
     opo_h_m2_hz: 1.0e-18         # [AE]: 1 nm rms free-running round-trip path (f_lo = 1 Hz)
     opo_f_ugf_hz: 1000.0         # [AE] → residual ≈ 0.06 nm rms, ≈ 0.06° on Δ at x = 0.745 (T02 §6.1: 0.94°/nm)
     dnu_mcc_hz: 1.0e+6           # [AE] (only with the refB_mcc overlay)
+    dnu_shg_hz: 1.0e+6           # [AE] middle of the axis (only with the refB_mcc overlay): equal to the MCC, so the
+                                 # two low passes cancel at this point (M3B-06); the comparison runs along the axis
+    gain_handling: normalized    # WP-I4's choice (f_u constant along the pump axis); `fixed` is the M3B-01 comparison
     m_dither_rad: 0.1            # [AE] middle of the axis
     p_pd_w: 1.0e-6               # [AE] 1 % of a 100 µW probe
     p_pr_w: 1.0e-8               # [AE] (T14 §3.4 Ref A order: nW at the HD)

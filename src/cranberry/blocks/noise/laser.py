@@ -36,6 +36,9 @@ discretisation +, interpolation loss −, D57-7 / D65-4). The pair therefore dec
 ``phase`` row with variance_outside = (continuous total − expected value of the discrete model)
 (:func:`fc_pair_white_variances`), not the PSD above f_N. The other S_ν terms (flicker, peaks: band-
 limited generators) keep the ``freq`` row |H_FC e^{−i2πfδ} − 1|²·S_ν above f_N, δ = tau_fc_s − tau_ref_s.
+Optional ``dnu_ref_hz`` (Phase 5 M3B-06, Ref B's SHG cavity on the pump vs the MCC on the LO): the reference beam
+passes a cavity of FWHM Δν_ref too (its own ``filter_cavity``), so every "− 1" above becomes − H_ref,
+H_ref = 1/(1 + 2if/Δν_ref), and the discrete model low-passes the reference interpolation as well.
 
 Slots: writes ``laser.<s>.phi`` [rad], ``.dnu`` [Hz], ``.dp`` [1], ``.power`` [W], ``.acc`` [rad]
 (random-phase accumulator), plus the generator states / draw buffers under ``rng.<name>.*``.
@@ -142,54 +145,73 @@ def _pair_psd(pair: Mapping[str, Any], s_nu: Callable[[np.ndarray], np.ndarray],
     if given[0] == "tau_s":
         tau = float(pair["tau_s"])
         return lambda f: 4.0 * np.sin(np.pi * np.asarray(f) * tau) ** 2 * s_nu(f)
-    dnu, tau_fc, tau_ref = _fc_pair(pair, block)
+    dnu, tau_fc, tau_ref, dnu_ref = _fc_pair(pair, block)
     delta = tau_fc - tau_ref
 
     def psd(f):
         f = np.asarray(f, dtype=float)
         h = np.exp(-2j * np.pi * f * delta) / (1.0 + 2j * f / dnu)
-        return np.abs(h - 1.0) ** 2 * s_nu(f)
+        h_ref = 1.0 if dnu_ref is None else 1.0 / (1.0 + 2j * f / dnu_ref)
+        return np.abs(h - h_ref) ** 2 * s_nu(f)
 
     return psd
 
 
-def _fc_pair(pair: Mapping[str, Any], block: str) -> tuple[float, float, float]:
+def _fc_pair(pair: Mapping[str, Any], block: str) -> tuple[float, float, float, float | None]:
     dnu = float(pair["dnu_fc_hz"])
     tau_fc, tau_ref = float(pair.get("tau_fc_s", 0.0)), float(pair.get("tau_ref_s", 0.0))
-    if not dnu > 0.0:
-        raise ValueError(f"block {block!r}: oob_pairs dnu_fc_hz must be > 0")
+    dnu_ref = None if pair.get("dnu_ref_hz") is None else float(pair["dnu_ref_hz"])
+    if not dnu > 0.0 or (dnu_ref is not None and not dnu_ref > 0.0):
+        raise ValueError(f"block {block!r}: oob_pairs dnu_fc_hz / dnu_ref_hz must be > 0")
     if tau_fc < 0.0 or tau_ref < 0.0:
         raise ValueError(f"block {block!r}: oob_pairs tau_fc_s / tau_ref_s must be >= 0")
-    return dnu, tau_fc, tau_ref
+    return dnu, tau_fc, tau_ref, dnu_ref
 
 
 def fc_pair_white_variances(h0: float, dnu_fc_hz: float, tau_fc_s: float, tau_ref_s: float,
-                            h_s: float) -> tuple[float, float]:
-    """(continuous, discrete) variance [rad²] of Δ = (H_FC φ_L)(t − τ_fc) − φ_L(t − τ_ref) for white FM h0.
+                            h_s: float, dnu_ref_hz: float | None = None) -> tuple[float, float]:
+    """(continuous, discrete) variance [rad²] of Δ = (H_FC φ_L)(t − τ_fc) − (H_ref φ_L)(t − τ_ref) for white
+    FM h0 (H_ref = 1 without ``dnu_ref_hz``).
 
     Continuous (all f): Var = 2π²h0 ∫K(t)² dt with K the response to a unit phase step, p = πΔν:
     δ = τ_fc − τ_ref ≥ 0 → δ + 1/(2p); δ = −u < 0 → u − 2(1 − e^{−pu})/p + 1/(2p) (δ = 0: πh0/Δν).
+    With a reference cavity (q = πΔν_ref, cavity step response 1 − e^{−qt}): on [min τ, max τ] only the earlier
+    beam has moved, ∫ = u − 2(1 − e^{−cu})/c + (1 − e^{−2cu})/(2c) (u = |δ|, c its rate); beyond max τ = m,
+    K = A e^{−qs} − B e^{−ps} (A = e^{−q(m − τ_ref)}, B = e^{−p(m − τ_fc)}), ∫ = A²/(2q) + B²/(2p) − 2AB/(p + q).
     Discrete (expected value of the loop's chain at step h, no lock): φ_n is an exact random walk with
     increments of variance 2π²h0h; LO = low pass (y_n = a y_{n−1} + (1 − a)(x_n + x_{n−1})/2, a = e^{−ph},
     ``filter_cavity``) of the linear interpolation at τ_fc, reference = linear interpolation at τ_ref
-    (``core.delay`` / ``beam_assembler``). Var = 2π²h0h Σ K_n², K = step response; once both inputs are
-    past, K_n decays geometrically with ratio a, so the tail is summed in closed form.
+    (``core.delay`` / ``beam_assembler``), low-passed the same way with a_ref = e^{−qh} when given.
+    Var = 2π²h0h Σ K_n², K = step response; once both inputs are past, K_n decays geometrically with ratio a
+    (single cavity: tail summed in closed form; with a reference cavity the sum runs 40 time constants of the
+    slower cavity and the rest is bounded by the slower ratio).
     """
     from cranberry.path.segments import frac_delay
 
     p = math.pi * dnu_fc_hz
     d = tau_fc_s - tau_ref_s
-    if d >= 0.0:
-        k_int = d + 0.5 / p
+    if dnu_ref_hz is None:
+        if d >= 0.0:
+            k_int = d + 0.5 / p
+        else:
+            u = -d
+            k_int = u - 2.0 * (-math.expm1(-p * u)) / p + 0.5 / p
     else:
-        u = -d
-        k_int = u - 2.0 * (-math.expm1(-p * u)) / p + 0.5 / p
+        q = math.pi * dnu_ref_hz
+        u, c = abs(d), (q if d >= 0.0 else p)          # the beam with the smaller delay moves first
+        m = max(tau_fc_s, tau_ref_s)
+        aa, bb = math.exp(-q * (m - tau_ref_s)), math.exp(-p * (m - tau_fc_s))
+        k_int = (u - 2.0 * (-math.expm1(-c * u)) / c + (-math.expm1(-2.0 * c * u)) / (2.0 * c)
+                 + aa * aa / (2.0 * q) + bb * bb / (2.0 * p) - 2.0 * aa * bb / (p + q))
     v_cont = 2.0 * math.pi**2 * h0 * k_int
 
     a = math.exp(-p * h_s)
+    a_ref = 0.0 if dnu_ref_hz is None else math.exp(-math.pi * dnu_ref_hz * h_s)
     kf, mf = frac_delay(tau_fc_s, h_s)
     kr, mr = frac_delay(tau_ref_s, h_s)
     n0 = max(kf, kr) + 3
+    if dnu_ref_hz is not None:
+        n0 += int(math.ceil(40.0 / (-math.log(max(a, a_ref)))))
     x = np.zeros(n0)
     r = np.zeros(n0)
     x[kf] += 1.0 - mf
@@ -198,8 +220,11 @@ def fc_pair_white_variances(h0: float, dnu_fc_hz: float, tau_fc_s: float, tau_re
     r[kr + 1] += mr
     b = 0.5 * (1.0 - a)
     y = scipy.signal.lfilter([b, b], [1.0, -a], x)
+    if dnu_ref_hz is not None:
+        r = scipy.signal.lfilter([0.5 * (1.0 - a_ref)] * 2, [1.0, -a_ref], r)
     k = np.cumsum(y - r)
-    v_disc = 2.0 * math.pi**2 * h0 * h_s * (float(np.sum(k * k)) + k[-1] ** 2 * a * a / (1.0 - a * a))
+    a_t = max(a, a_ref)
+    v_disc = 2.0 * math.pi**2 * h0 * h_s * (float(np.sum(k * k)) + k[-1] ** 2 * a_t * a_t / (1.0 - a_t * a_t))
     return v_cont, v_disc
 
 
@@ -387,9 +412,9 @@ class LaserSource(BaseBlock):
                     out.append(BandDecl(source=self.name, quantity="freq", targets=tgt, f_lo_hz=0.0, f_hi_hz=f_n,
                                         unit="Hz", psd_outside=_pair_psd(pair, s_nw, self.name)))
                 if tg["fm_white"]:
-                    dnu, tau_fc, tau_ref = _fc_pair(pair, self.name)
+                    dnu, tau_fc, tau_ref, dnu_ref = _fc_pair(pair, self.name)
                     v_cont, v_disc = fc_pair_white_variances(float(p["h0_hz2_per_hz"]), dnu, tau_fc, tau_ref,
-                                                             1.0 / self._fb)
+                                                             1.0 / self._fb, dnu_ref)
                     corr = v_cont - v_disc
                     if corr < 0.0:
                         # ponytail: the ledger has no negative rows (phase_to_quadrature needs σ²_HF ≥ 0), so a

@@ -11,6 +11,8 @@ l = 0.5 m, η = 0.998, ξ = 0.988, ζ = 0.99 (downstream efficiency ζξ²η), R
   x ≈ 0.82" is a statement about measured points and is not a target (D48).
 """
 
+import math
+
 import numpy as np
 import pytest
 from scipy.optimize import brentq, minimize_scalar
@@ -76,6 +78,9 @@ def test_v_b3_minimum_and_flat_band(th, x_opt, r_min, band):
 #   read accuracy ±0.3 dB of the curves. θ̃ of the closed loop grows towards low x (≈ 1.8° / 4.5° at 10 mW):
 #   lock-1's residual reaches Δ through A−/A+ = (1 − x)/(1 + x) (T14 §3.4), a model prediction the constant-θ̃
 #   curves of Fig. 3 do not contain; it stays inside ±0.3 dB because R′ is insensitive to θ̃ at low x.
+# * Phase 5 M3B-01 (recorded check, not a target): θ̃ of both `gain_handling` variants (normalized = the curves'
+#   runs above; fixed = servo gains of 100 mW) against Fig. 3's OBSERVED points (the review's joint (x, θ̃) fit).
+#   The comparison with the paper's curves above stays the VT-17 target.
 # ------------------------------------------------------------------------------------------------------------------
 
 import importlib.util  # noqa: E402
@@ -137,6 +142,57 @@ def test_refB_closed_loop_solid_curve(solid_sweep, record_property):
     assert th[100] == pytest.approx(1.5, abs=0.1)
     assert all(1.3 < v < 1.95 for v in th.values())
     assert th[10] > th[100] > th[150]                                     # A−/A+ coupling of lock 1 (header)
+
+
+# Fig. 3 OBSERVED points: θ̃ [°] of the joint (x, θ̃) fit per point after Ref B §4's circuit-noise subtraction
+# (reviews/phase5_M3_refB.md §2.2, reviews/scripts/m3_refB_theta_vs_pump.py). 10 / 20 mW have no θ̃ solution.
+FIG3_OBSERVED_THETA_DEG = {50: 3.57, 65: 2.80, 90: 2.11, 100: 1.62, 120: 1.47, 130: 1.44, 150: 1.47}
+
+
+@pytest.fixture(scope="module")
+def fixed_sweep():
+    """refB_nominal with gain_handling: fixed (servo gains of 100 mW) at the observed pump powers (0.3 s each)."""
+    import warnings
+
+    from cranberry.runner.run import run
+
+    out = {}
+    for p in FIG3_OBSERVED_THETA_DEG:
+        with warnings.catch_warnings():   # the CHK warning of the unstable point is checked through res.events
+            warnings.simplefilter("ignore")
+            out[p] = run(rs.load(params={"pump_w": p * 1e-3, "gain_handling": "fixed"}, run={"duration_s": 0.3}))
+    return out
+
+
+@pytest.mark.numba
+@pytest.mark.integration
+def test_refB_closed_loop_vs_fig3_observed_points(solid_sweep, fixed_sweep, record_property):
+    """M3B-01, recorded check: θ̃ of the normalized and fixed gain variants vs Fig. 3's observed points.
+
+    Recorded (property ``theta_deg_observed_normalized_fixed``): observed / normalized / fixed. Checked: the same
+    electronics at 100 mW give the same θ̃; at 50–90 mW both variants lie below the observed points and the fixed
+    gains are closer (most of the observed dependence is the loop gain following the error slopes, D76-2); at
+    120 / 130 mW the observed points lie between the variants (fixed undershoots: the real servo was presumably
+    limited or re-tuned at high pump, review §5); with fixed gains lock 1 is linearly unstable at 150 mW — the
+    offline stability check flags it and the time loop runs in a lock-1 limit cycle (Φ1 rms ≫ the locked value;
+    Δ hardly sees it because A−/A+ is small there, so that θ̃ is not a locked value)."""
+    th = lambda r: math.degrees(float(r.metrics.noise_levels["i.port0"]["sigma_total_rad"][rs.I_1MHZ]))  # noqa: E731
+    obs = FIG3_OBSERVED_THETA_DEG
+    norm = {p: th(solid_sweep[p]) for p in obs}
+    fixed = {p: th(r) for p, r in fixed_sweep.items()}
+    record_property("theta_deg_observed_normalized_fixed",
+                    {p: (obs[p], round(norm[p], 3), round(fixed[p], 3)) for p in obs})
+    assert fixed[100] == norm[100]
+    for p in (50, 65, 90):
+        assert norm[p] < fixed[p] < obs[p], p
+        assert obs[p] - fixed[p] < obs[p] - norm[p]
+    for p in (120, 130):
+        assert fixed[p] < obs[p] < norm[p], p
+    codes = {p: [e["code"] for e in r.events] for p, r in fixed_sweep.items()}
+    assert codes == {p: (["loop_unstable"] if p == 150 else []) for p in obs}
+    assert all(r.events == [] for r in solid_sweep.values())
+    phi1 = {p: float(np.std(fixed_sweep[p].series["lock.lock1.err"])) for p in (130, 150)}
+    assert phi1[150] > 0.3 > 0.1 > phi1[130]
 
 
 @pytest.mark.slow

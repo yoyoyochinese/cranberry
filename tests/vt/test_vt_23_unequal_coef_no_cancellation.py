@@ -117,8 +117,10 @@ def test_noisy_detuning_probe_does_not_follow(compiled):
 # WP-I4 (M3): through the refB preset with both locks closed (refB.yaml header). A constant OPO detuning Δ is set
 # through the length lock's offset (every other noise source and quantiser off). Lock 1 holds the probe input at
 # the de-amplification extremum, lock 2 (dither, demodulated HD) holds the LO on the probe's output gain frame, so
-# the measured Δ_metric = φ_LO − θ_sq is the residual (Δ/κ)(1 − x²)/(2(1 + x²)) (T02 §2.4, V-B7) at every x, and
-# the co-propagating probe keeps only (1 − x²)/(1 + x²) of its OPO phase as error (`cop` / ψ_OPO,pr).
+# the measured Δ_metric = φ_LO − θ_sq is the residual (Δ/κ)(1 − x²)/(2(1 + x²)) (T02 §2.4, V-B7) at every x.
+# Phase 5 M3B-03: the lock-1 PD probe pr_pd carries the gain-frame coefficient −1/(2κ) (lock 1 follows the detuned
+# extremum: the probe input moves by +Δ/(2κ)) and the transmitted probe pr_bhd the transit coefficient −1/κ, so
+# `cop` is unchanged and is (1 − x²)/(2(1 + x²)) of the probe's OPO phase ψ_OPO,pr_bhd = −Δ/κ.
 # ------------------------------------------------------------------------------------------------------------------
 
 import importlib.util  # noqa: E402
@@ -147,5 +149,6 @@ def test_refB_preset_probe_does_not_follow_detuning(x):
     want = d * (1 - x * x) / (2 * (1 + x * x))
     assert s["metric.mi.port0"][-1] == pytest.approx(want, rel=1e-6)
     assert s["lock.cop.err"][-1] == pytest.approx(want, rel=1e-9)
-    assert s["lock.cop.err"][-1] / s["psi.OPO.pr_bhd"][-1] == pytest.approx(-(1 - x * x) / (1 + x * x), rel=1e-9)
+    assert s["psi.OPO.pr_bhd"][-1] == pytest.approx(-d, rel=1e-9)                        # transit −Δ/κ
+    assert s["lock.cop.err"][-1] / s["psi.OPO.pr_bhd"][-1] == pytest.approx(-(1 - x * x) / (2 * (1 + x * x)), rel=1e-9)
     assert res.metrics.noise_levels["i.port0"]["mean_loop_rad"][0] == pytest.approx(want, rel=1e-3)

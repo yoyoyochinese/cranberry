@@ -4,10 +4,15 @@
 Both are time-loop (T) blocks writing a detuning [rad/s] (conv §4 / T02 §1: Δ = ω_cav − ω0). The usual
 chain is ``opo_detuning_noise`` (free-running Δ_free) → ``opo_length_lock`` (residual Δ_s) →
 ``drv.<opo segment>.detuning`` → ``segment_phase``, whose OPO segment × beam coefficients
-(``opo_cw_spectrum.coef_entries``: squeezed −1/(κ(1 + x²)), probe −1/(2κ)) turn Δ_s into the
-squeezing-angle and probe-phase rotations; the lock combination then carries the residual
-(Δ/κ)(1 − x²)/(2(1 + x²)) (VT-23). Without a length lock, wire ``opo_detuning_noise.out`` to the drv
-slot directly.
+(``opo_cw_spectrum.coef_entries``: squeezed −1/(κ(1 + x²)), probe frame −1/(2κ), probe transit −1/κ)
+turn Δ_s into the squeezing-angle and probe-phase rotations; the lock combination then carries the
+residual (Δ/κ)(1 − x²)/(2(1 + x²)) (VT-23). Without a length lock, wire ``opo_detuning_noise.out`` to
+the drv slot directly.
+
+Δ = ω_cav − ω_L: the laser frequency is a detuning too (Phase 5 M3B-02). A preset adds −2π·``laser.<s>.dnu``
+to Δ_free (an ``adder`` before ``opo_length_lock``), so a lock whose light follows the laser (r = 1)
+cancels it below f_ugf only; the part above the block Nyquist frequency belongs to the laser's ledger
+pair (θ_sq lags φ_L by 1/(κ(1 + x²)), refB.yaml header), not to this block's ``detuning`` row.
 
 ``opo_detuning_noise`` (T02 §2.4, §5)
     Δ_free = −(ω0/l)·δl + (∂Δ/∂T)·ΔT,  ω0 = 2πν0, l = round-trip optical path length.

@@ -119,14 +119,17 @@ def test_polarization_off_and_on(pol_on):
 # WP-I4 (M3): Ref B part — the co-propagating probe in the refB preset, closed loops (refB.yaml header).
 #
 # The probe `pr_bhd` and the squeezed light (θ_sq bookkeeping beam `sqz`) share the OPO and the OPO → HD path SQ.
-# Lock 2 holds φ_LO − φ_pr; metric (i) is Δ = φ_LO − θ_sq; their difference is `cop` = φ_pr − θ_sq at the HD,
+# `lock2` = φ_LO − φ_pr (lock 2 itself holds φ_LO − φ_prf, `lock2f`, M3B-05); metric (i) is Δ = φ_LO − θ_sq; the
+# difference Δ − lock2 is `cop` = φ_pr − θ_sq at the HD,
 # the part of the squeezing angle the locks cannot see. With table acoustics on the non-common paths (PUMP,
 # PROBE, LO) running, the acoustics of the shared SQ (block env.shared) are switched on / off with the same seed:
 #   * cop is identical to 1e−12 of the beam-phase excursion (shared noise cancels, D11: computed, not assumed);
 #   * Δ and lock2 change (the shared noise is an in-loop disturbance that lock 2 sees one to one), but
 #     Δ − lock2 = cop does not;
 #   * the non-common noise does enter cop (lock-1 residual on the probe path), and the OPO detuning enters it
-#     with the coefficient difference c_pr − c_sq only (the exception named by D51-4; VT-23).
+#     with the coefficient difference c_pr − c_sq only (the exception named by D51-4; VT-23). Since Phase 5
+#     M3B-03 lock 1 senses Δ (its PD is after the OPO), so its actuator also responds to Δ; the path-only check
+#     holds the lock-1 actuator (pid1 feedback off in both runs) and uses c_pr = the transit coefficient −1/κ.
 # ------------------------------------------------------------------------------------------------------------------
 
 import importlib.util  # noqa: E402
@@ -144,8 +147,9 @@ def test_refB_shared_path_noise_absent_from_cop():
 
     slots = ["lock.cop.err", "lock.lock2.err", "metric.mi.port0", "beam.sqz.phi", "drv.OPO.detuning"]
 
-    def go(shared: bool, detuning: bool = False):
-        tg = {**rs.NOISE_OFF, "env.mech.mech": True, "env.shared.mech": shared, "opo_dn.length_noise": detuning}
+    def go(shared: bool, detuning: bool = False, lock1: bool = True):
+        tg = {**rs.NOISE_OFF, "env.mech.mech": True, "env.shared.mech": shared, "opo_dn.length_noise": detuning,
+              "pid1.feedback": lock1}
         return run(rs.load(run={"duration_s": 0.05}, toggles=tg, measure={"record": {"slots": slots, "decim": 1}})).series
 
     on, off = go(True), go(False)
@@ -157,11 +161,12 @@ def test_refB_shared_path_noise_absent_from_cop():
     np.testing.assert_allclose(d_on, d_off, rtol=0, atol=1e-12 * scale)
     assert np.std(on["metric.mi.port0"] - off["metric.mi.port0"]) > 1e-4  # shared noise is in-loop for lock 2
     assert np.std(on["lock.cop.err"]) > 1e-3                              # the non-common paths do enter cop
-    # OPO detuning: cop changes by (c_pr − c_sq)·Δ_opo only (D51-4 exception; the full check is VT-23)
-    det = go(True, detuning=True)
+    # OPO detuning: cop changes by (c_pr − c_sq)·Δ_opo only (D51-4 exception; the full check is VT-23), lock-1
+    # actuator held (M3B-03: a closed lock 1 also follows Δ)
+    det, ref = go(True, detuning=True, lock1=False), go(True, lock1=False)
     p = rs.params_of(rs.load())
-    c_res = -0.5 / p["kappa_rad_s"] + 1 / (p["kappa_rad_s"] * (1 + p["x"] ** 2))
-    dcop, drv = det["lock.cop.err"] - on["lock.cop.err"], det["drv.OPO.detuning"]
+    c_res = -1.0 / p["kappa_rad_s"] + 1 / (p["kappa_rad_s"] * (1 + p["x"] ** 2))
+    dcop, drv = det["lock.cop.err"] - ref["lock.cop.err"], det["drv.OPO.detuning"]
     assert np.std(drv) > 1e-3 * p["kappa_rad_s"]
     # read at the HD through ONE linear interpolation at (half the lumped OPO segment + SQ) group delay (F6, D68-3)
     mu = (0.5 * 0.5 * 1.0 + 1.0 * 1.0003) / 299792458.0 * 2.0e6
