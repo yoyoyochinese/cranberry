@@ -44,7 +44,7 @@ Rules (PLAN §6.1, §6.3):
 | [x] | VT-30 | — | OPA | unit | B1 | M1 | `test_vt_30_opa.py` |
 | [~] | VT-31 | — | CW OPO | unit | B6 | M2 | `test_vt_31_cw_opo.py` |
 | [ ] | VT-32 | — | pulsed OPA (table interpolation 1e−3) | unit | B11 | M5 | `test_vt_32_pulsed_opa.py` |
-| [ ] | VT-33 | — | phase → squeezing, ESA, metric invariance / decomposition (V11, V12), HF add-on (V13) | unit + integ | F4, B5 | M1 (V1–V10, V13), M4 (V11, V12) | `test_vt_33_phase_to_squeezing.py` |
+| [~] | VT-33 | — | phase → squeezing, ESA, metric invariance / decomposition (V11, V12), HF add-on (V13) | unit + integ | F4, B5 | M1 (V1–V10, V13), M4 (V11, V12) | `test_vt_33_phase_to_squeezing.py` |
 | [~] | VT-34 | — | laser (delay, coherence, fractional delay, Liu static compensation, filter cavity, ASE, CMRR) | unit + integ | B2, F6 | M1, M4 | `test_vt_34_laser.py` |
 | [x] | VT-35 | — | GNLSE extras | unit | B9 | M5 | `test_vt_35_gnlse_extra.py` |
 | [ ] | VT-36 | — | fiber quantum extras | unit | B10 | M5 | `test_vt_36_fiber_quantum_extra.py` |
@@ -53,7 +53,7 @@ Rules (PLAN §6.1, §6.3):
 | [~] | VT-39 | — | probe cancellation breakdown | integ | B8, F6, B7 | M4 | `test_vt_39_probe_cancellation.py` |
 | [ ] | VT-40 | — | demux | unit + integ | B8 | M4 | `test_vt_40_demux.py` |
 | [ ] | VT-41 | — | losses (Ref B / C budgets, 32-port budget, GBS vs BHD separation) | unit | F3, I3, I4, I5 | M2–M6 | `test_vt_41_loss_budgets.py` |
-| [ ] | VT-42 | — | detection | unit | B5 | M1 | `test_vt_42_detection.py` |
+| [x] | VT-42 | — | detection | unit | B5 | M1 | `test_vt_42_detection.py` |
 | [x] | VT-43 | — | error signals (incl. baseband ↔ RF-rate equivalence) | unit | B3 | M1–M4 | `test_vt_43_error_signals.py` |
 | [~] | VT-44 | — | actuators, delay buffer, stack = parallel, compiled = pure Python (1e−12), f_sim convergence | unit | F1, B4 | M0, M1 | `test_vt_44_delay_stack_compile.py` |
 | [ ] | VT-45 | — | pulsed OPO | unit | B11 | M5 | `test_vt_45_pulsed_opo.py` |
