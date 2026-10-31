@@ -27,7 +27,7 @@ Slot naming scheme (contract):
   ``laser.dx1.phi``        laser phase φ_L (+ ring: emission-time hist)  S           rad
   ``drv.arm1.dT``          per-subsegment driver (shape (N_sub,), ring)  S           K
   ``psi.arm1.pr``          segment × beam phase ψ                        S           rad
-  ``tau_g.arm1``           segment group delay τ_g(t)                    S           s
+  ``tau_g.arm1.pr``           segment group delay τ_g(t)                    S           s
   ``J.arm1``               segment Jones matrix, shape (2, 2)            Z           1
   ``beam.lo.phi``          beam phase at its observer                    S           rad
   ``v.pdb450c``            a voltage                                     S           V

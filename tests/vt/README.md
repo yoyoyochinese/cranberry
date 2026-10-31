@@ -38,19 +38,19 @@ Rules (PLAN §6.1, §6.3):
 | [~] | VT-19 | 10 | dither contribution | unit + integ | F4, B3, I3 | M2 | `test_vt_19_dither_contribution.py` |
 | [ ] | VT-20 | 10 | total ≈ 0.1 rad, insensitive to controller model (10 %) | integ | I3 | M2 | `test_vt_20_refC_total_residual.py` |
 | [ ] | VT-21 | 10 | lock duration set by slow-actuator range | integ | B4, I2, I3, I5 | M1, M2, M6 | `test_vt_21_lock_duration.py` |
-| [ ] | VT-22 | 11 | shared-segment cancellation (equal coefficients), passes with polarization off | integ | F6 (M0), I4 (M3), B7 | M0, M3, M4 | `test_vt_22_shared_segment_cancellation.py` |
+| [~] | VT-22 | 11 | shared-segment cancellation (equal coefficients), passes with polarization off | integ | F6 (M0), I4 (M3), B7 | M0, M3, M4 | `test_vt_22_shared_segment_cancellation.py` |
 | [ ] | VT-23 | 11 (added) | no cancellation on OPO segment with unequal coefficients | integ | B6, I4, B11 | M3, M5 | `test_vt_23_unequal_coef_no_cancellation.py` |
 | [ ] | VT-24 | D04 | Ref D pre-blind analytic checks | unit + integ | I2, B3, B4, B2, B7 | M1 | `test_vt_24_refD_analytic.py` |
 | [x] | VT-30 | — | OPA | unit | B1 | M1 | `test_vt_30_opa.py` |
 | [ ] | VT-31 | — | CW OPO | unit | B6 | M2 | `test_vt_31_cw_opo.py` |
 | [ ] | VT-32 | — | pulsed OPA (table interpolation 1e−3) | unit | B11 | M5 | `test_vt_32_pulsed_opa.py` |
 | [ ] | VT-33 | — | phase → squeezing, ESA, metric invariance / decomposition (V11, V12), HF add-on (V13) | unit + integ | F4, B5 | M1 (V1–V10, V13), M4 (V11, V12) | `test_vt_33_phase_to_squeezing.py` |
-| [ ] | VT-34 | — | laser (delay, coherence, fractional delay, Liu static compensation, filter cavity, ASE, CMRR) | unit + integ | B2, F6 | M1, M4 | `test_vt_34_laser.py` |
+| [~] | VT-34 | — | laser (delay, coherence, fractional delay, Liu static compensation, filter cavity, ASE, CMRR) | unit + integ | B2, F6 | M1, M4 | `test_vt_34_laser.py` |
 | [ ] | VT-35 | — | GNLSE extras | unit | B9 | M5 | `test_vt_35_gnlse_extra.py` |
 | [ ] | VT-36 | — | fiber quantum extras | unit | B10 | M5 | `test_vt_36_fiber_quantum_extra.py` |
-| [ ] | VT-37 | — | environmental noise (coefficients and signs, PSD, correlation, counter-propagation, axis coefficients) | unit | B2, F6 | M1, M2, M4 | `test_vt_37_environmental_noise.py` |
+| [~] | VT-37 | — | environmental noise (coefficients and signs, PSD, correlation, counter-propagation, axis coefficients) | unit | B2, F6 | M1, M2, M4 | `test_vt_37_environmental_noise.py` |
 | [ ] | VT-38 | — | polarization | unit | B7 | M4 | `test_vt_38_polarization.py` |
-| [ ] | VT-39 | — | probe cancellation breakdown | integ | B8, F6, B7 | M4 | `test_vt_39_probe_cancellation.py` |
+| [~] | VT-39 | — | probe cancellation breakdown | integ | B8, F6, B7 | M4 | `test_vt_39_probe_cancellation.py` |
 | [ ] | VT-40 | — | demux | unit + integ | B8 | M4 | `test_vt_40_demux.py` |
 | [ ] | VT-41 | — | losses (Ref B / C budgets, 32-port budget, GBS vs BHD separation) | unit | F3, I3, I4, I5 | M2–M6 | `test_vt_41_loss_budgets.py` |
 | [ ] | VT-42 | — | detection | unit | B5 | M1 | `test_vt_42_detection.py` |
