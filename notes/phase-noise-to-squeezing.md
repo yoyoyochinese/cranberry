@@ -1,5 +1,8 @@
 # T04 位相雑音 → 測定される squeezing（phase-noise-to-squeezing）
 
+> **訂正（2026-10-31、DECISIONS D65-2）:** ESA のログ平均のトレースのばらつき 0.093–0.099 dB は独立な標本でだけ成り立つ。RBW 1 MHz・VBW 100 Hz では矩形 0.0834–0.0886 dB、Gaussian 0.0706–0.0750 dB（パワー平均は 0.0725–0.0770 / 0.0609–0.0647 dB）。C24 は論文の側の食い違い（D65-6）。
+
+
 - Phase: 1（deep-dive）／トピック T04（survey の E63–E65、D12・D31 の指標、D16 の等高線、prompt §7-1・§7-2）
 - 日付: 2026-10-28
 - 規約: `notes/conventions.md`（以下「conv §n」）に従う。文献の規約との対応は §3.5。

@@ -1,5 +1,8 @@
 # 誤差信号の生成（T14 `error-signal-generation`）
 
+> **訂正（2026-10-31、DECISIONS D65-1）:** dither ロックのセンサ雑音は周期定常（出力 PSD = 2⟨2 sin²θ S_v⟩）。Ref C の残差は 3.58 mrad（2 乗則、連続ループ）・4.11 mrad（ログ検出器）、RAM のずれは 2.54 mrad（暗雑音には RAM をかけない）。§6.3・§6.4 の 3.24・4.2・2.77 mrad は置き換え。Ref B は x = 0.745 で計算し直す（D51-10、lock 2 のずれ 14.64 mrad）。
+
+
 - Phase: 1（deep dive）
 - 日付: 2026-10-28
 - 担当する効果: survey E66–E74（prompt §5.5 の誤差信号 1–4）、D06 の #5（DC fringe lock、汎用ブロックの入出力だけ。Ref D の詳細は T15）、D30 の #6（Liu 型の逆向き probe）と「Liu 型 ＋ Ref A の phase-detection OPA」の統合案
