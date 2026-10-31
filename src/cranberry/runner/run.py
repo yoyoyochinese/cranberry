@@ -476,18 +476,6 @@ def run(
     root = from_spec(pipeline_spec)
     leaves = list(iter_leaves(root))
     probes = metric_blocks(leaves)
-    # offline stage before anything is written (double registrations etc. fail early)
-    offline = build_offline_stage(rs.topology, leaves, offline_blocks, rs.measure)
-
-    run_dir: Path | None = None
-    if record_root is not None:
-        from cranberry.runner.record import record_run
-
-        if config_input is None and not isinstance(spec, RunSpec):
-            config_input = config.read_input(spec)
-        run_dir = record_run(rs, Path(record_root), config_input=config_input,
-                             **({"invocation": dict(invocation)} if invocation else {}))
-
     rec_cfg = (rs.measure or {}).get("record")
     recorder = None
     if rec_cfg is not None:
@@ -501,6 +489,19 @@ def run(
 
     layout = SlotLayout(settings.f_sim_hz)
     block = build(root, layout, settings.seed)
+    # offline stage after build (blocks' bands() need init, e.g. the block rate) and before anything
+    # is written (double registrations etc. fail early)
+    offline = build_offline_stage(rs.topology, leaves, offline_blocks, rs.measure)
+
+    run_dir: Path | None = None
+    if record_root is not None:
+        from cranberry.runner.record import record_run
+
+        if config_input is None and not isinstance(spec, RunSpec):
+            config_input = config.read_input(spec)
+        run_dir = record_run(rs, Path(record_root), config_input=config_input,
+                             **({"invocation": dict(invocation)} if invocation else {}))
+
     state, params = State(layout), Params(layout)
 
     compiled = mode == "compiled" or (mode == "auto" and is_compilable(block))

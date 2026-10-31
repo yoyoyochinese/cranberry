@@ -110,9 +110,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         sweep(spec, **record)  # each point via runner.run (WP-F1)
     elif args.command == "ablate":
-        from cranberry.runner.ablate import ablate
+        from cranberry.runner.ablate import ablate, list_toggles
 
-        ablate(spec, args.toggle or sorted(spec.toggles))
+        ablate(spec, args.toggle or list_toggles(spec))
     elif args.command == "decompose":
         from cranberry.runner.decompose import decompose_metric_ii
 
