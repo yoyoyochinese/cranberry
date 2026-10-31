@@ -115,6 +115,10 @@ def with_f_sim(spec: Any, factor: int, keep_rate: Iterable[str] | Callable[[Any]
     ``duration_s``, ``chunk_samples`` and ``seed`` are unchanged (results never depend on the chunk
     length). Note that the random realisation changes with f_sim (more draws per second), so f_sim
     convergence is judged on statistics or on deterministic configurations.
+
+    This operates on the *resolved* spec: expressions that depend on ``run.f_sim_hz`` (e.g. a loop
+    delay ``tau_s = τ_L − 1/f_sim``) are NOT re-evaluated. Use ``runner.convergence(spec, ["f_sim"])``
+    or ``runner.sweep.expand`` for that (they start from ``RunSpec.unresolved``, D64).
     """
     run = dataclasses.replace(spec.run, f_sim_hz=spec.run.f_sim_hz * int(factor))
     return dataclasses.replace(spec, run=run, pipeline=scale_rate_divs(spec.pipeline, factor, keep_rate))

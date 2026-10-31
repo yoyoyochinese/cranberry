@@ -216,7 +216,8 @@ def sweep(
 
     ``record_root``: write one run record per point under it (``runner.record``); each record's
     ``invocation.json`` holds the point's coordinates and the seed mode, ``config.input.yaml`` the
-    sweep's input document (``config_input``, e.g. ``config.read_input(path)``; None → the sweep spec),
+    sweep's input document (``config_input``, e.g. ``config.read_input(path)``; None → ``spec.unresolved`` if
+    present, else the sweep spec),
     plus the caller's ``invocation`` context (CLI argv, overrides).
     """
     from cranberry.runner.run import run
@@ -224,7 +225,8 @@ def sweep(
     pts = expand(spec, axes)
     if record_root is None:
         return [run(p.spec) for p in pts]
-    inp = spec if config_input is None else config_input
+    # keep the expressions in config.input.yaml when the spec still carries its input tree (D64)
+    inp = config_input if config_input is not None else (getattr(spec, "unresolved", None) or spec)
     base = {**dict(invocation or {}), "seed_mode": spec.run.seed_mode, "n_points": len(pts),
             "axes": {k: list(v) for k, v in (axes or {}).items()}}
     return [

@@ -405,6 +405,8 @@ pipeline:
              toggles: {enabled: !expr "offline.params.in_out_poles"}}
 
 measure:
+  convergence:
+    keep_rate: [dsc1.adc, dsc1.pid, dsc1.sup, dsc1.dac]   # DSC1 device rates stay physical under f_sim ×k (D64; WP-F2c proposal)
   record:
     slots: [lock.lockD.err, v.pdb, v.dsc1.cv, v.dsc1.out, act.stretcher915b.dpsi, pol.per.x, pol.per.dchi]
     decim: 10

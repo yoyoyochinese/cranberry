@@ -448,6 +448,14 @@
   9. `sweep.expand` は解決済みの `!expr` を再評価しない（説明と食い違う）。WP-F2 の後続で直す（Open）。
 - 日付: 2026-10-31 / Phase 4
 
+### D64 掃引と f_sim の変更で依存する式を評価し直す（D63-9 を解決）
+- 決定:
+  1. `RunSpec.unresolved` に式と dB の名前のままの入力の木を持たせる（`==`・`spec_hash`・記録には含めない）。`sweep.expand` と `runner.convergence('f_sim')` はこの木から始め、軸の値（または f_sim と rate_div）を置いてから解決するので、依存する `!expr`・`!fn` が評価し直される。dB → 線形はその後（D56-1）。軸は式が計算する値を指してもよく、その場合は軸の値が式を置き換える。
+  2. 木を持たない仕様（`RunSpec(...)` で直接作ったもの、`run:` 以外を書き換えたもの）は解決済みの値から展開し、軸があれば `FrozenExpressionsWarning` を出す（エラーにはしない）。解決済みの文書（`dump_yaml` の出力、記録の `config.resolved.yaml`）から読んだ仕様は値しか持たないので、式は凍結され警告も出ない。式を掃引したいときは `config.read_input` か記録の `config.input.yaml` を使う。
+  3. `runner.convergence(..., keep_rate=...)`（または `measure.convergence.keep_rate`）で、機器のレートのブロックは f_sim を変えても物理的な更新レートを保つ。`refD` は DSC1 の adc・pid・sup・dac を指定した。`core.rates.with_f_sim` は解決済みの仕様を変えるだけなので式は評価し直さない（説明に明記）。
+  4. `sweep(record_root=...)` で `config_input` を省くと `spec.unresolved` を記録する（式を残す）。
+- 日付: 2026-10-31 / Phase 4
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）
@@ -459,5 +467,4 @@
 - Ref D の静的な値（D36 で測ってよい量）: ΔL、腕 2 のファイバ長、915B のピグテールの長さと挿入損失、曲げ半径。914 とオシロスコープの入力インピーダンス
 - Ref A の導波路の 772 nm の損失と温度帯域の資料、Moku:Delta の PID で 10 Vpp が使えるか、PM15-U25D の K_T を実測してよいか
 - 未解決の物理（Phase 5）: Ref A の lock 1 の SNR と 14 → 9 mrad の関係（C23）、Ref A Fig. 3 の極小の深さと VBW（C24）
-- `sweep.expand` が解決済みの `!expr` を再評価しない（D63-9、WP-F2 の後続）
 - Ref D の実測データ（Phase 5 の終わりに受け取る、D04）
