@@ -1,5 +1,8 @@
 # T10 probe と squeezed 光の相殺の崩れ（probe-cancellation-breakdown）
 
+> **訂正（2026-11-01、DECISIONS D77-1）:** §0-6・式 (12)/(13)・§8 の「T_a = T_b なら帯域内のレーザー項は 0」は誤り。正しい伝達は WP-B8 の H（`reviews/phase5_M4_pol_demux.md`）で、ポートに依らない遅延では 1 ポートしか打ち消せない。帯域内の残差は有限のループ利得 1/(1+L) で決まり、線幅の要求は D31-3 のまま（10 mrad に 51 Hz @ 63 m、5.1 Hz @ 630 m）。
+
+
 - Phase: 1（deep dive）、日付: 2026-10-28
 - 担当する効果: E41–E46（`notes/survey.md` §2.6）、E35 の T10 部分、E30 の probe 部分
 - 前提: DECISIONS D08–D13、D18-5、D28、D30–D32。規約は `notes/conventions.md`（特に §4、§9、§10）

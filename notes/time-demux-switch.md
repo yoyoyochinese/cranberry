@@ -1,5 +1,8 @@
 # T11 時間 → 空間の振り分け素子（time-demux-switch）
 
+> **訂正（2026-11-01、DECISIONS D62-4・D77-2）:** 立ち上がりの縁の条件は ≤ (1 + n_guard)·T_rep（N_b·T_rep ではない）。Borealis の時間配分は T17 の読み方（ロック光 65 µs・squeezed 光 35 µs）。木・鎖のスイッチの偏りのドリフトはポート間で共有される（D77、M4-01）。
+
+
 - Phase: 1（deep dive、T11）
 - 日付: 2026-10-28
 - 担当する効果: E47–E51（`notes/survey.md` §2.7）。D08、D09、D10、D18-2、D30–D32。

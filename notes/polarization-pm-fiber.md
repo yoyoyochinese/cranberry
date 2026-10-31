@@ -1,5 +1,8 @@
 # T09 偏光と PM ファイバ（polarization-pm-fiber）
 
+> **訂正（2026-11-01、DECISIONS D62-6・D77-3）:** 速い軸を通った衛星は早く着く（−1.36 ps、§1.5 の「遅れる」は逆）。test 7 の 1 ps で 1e-4 は誤り（重なり 0.2775、1e-4 には τ_p ≤ 0.373 ps）。PMD は `centered` を名目、`psp` は上限（D77-4）。
+
+
 - Phase: 1（deep-dive）／ 日付: 2026-10-28
 - 担当する効果: E36–E40（survey §2.5、D18-3）。E27 の偏光に関わる部分（915B の巻線部）。
 - 入力: `DECISIONS.md`（D02、D07–D13、D18、D24、D27、D29–D33）、`notes/conventions.md`、`notes/survey.md`、
