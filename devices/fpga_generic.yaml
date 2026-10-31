@@ -1,0 +1,36 @@
+# Device preset: generic FPGA controller (Ref A home-built PID, Ref B servo, Ref C Moku:Pro stand-in;
+# T16 §4.3, §4.5 "Moku:Pro", D25, D51-7; PLAN §2.10).
+#
+# Not a real device: the values are the sweep ranges T16 recommends for a generic FPGA loop. Every value
+# is a leaf {value, source} (+ optional sweep:, note:), SI, linear. A preset must set the values given
+# as null (D34: no modelling defaults).
+
+meta:
+  device: fpga_generic
+  title: Generic FPGA digital controller (Tustin PID)
+  document: T16 §4.3, §4.5; PLAN §2.10
+
+adc:
+  fs_hz: {value: null, source: "not a device fact (T16 §4.5): set per preset; must be ≥ pid.update_hz"}
+  bits: {value: 16, sweep: [12, 16], source: "T16 §4.5 Moku:Pro (16 bit equivalent); PLAN §2.10 (12–16 bit)"}
+  range_v: {value: [-0.5, 0.5], source: "T16 §4.5: ranges taken from Moku:Delta as stand-in (Moku p.65 ±500 mV)"}
+
+dac:
+  bits: {value: 16, sweep: [12, 16], source: "PLAN §2.10 (12–16 bit); T16 §4.5"}
+  range_v: {value: [-0.5, 0.5], source: "T16 §4.5: Moku:Delta stand-in (Moku p.65 ±500 mV into 50 Ω)"}
+  output_impedance_ohm: {value: 50.0, source: "T16 §4.5: Moku:Delta stand-in (Moku p.7)"}
+
+pid:
+  update_hz: {value: null, source: "not a device fact (T16 §4.5): set per preset (Tustin needs it)"}
+  discretisation: {value: tustin, source: "T16 §4.3 (generic: bilinear transform); PLAN §2.10"}
+  structure: {value: parallel_pid, source: "T16 §4.3 canonical C(s) = K_p + K_i/(s + ω_IS) + K_d s/(1 + s/ω_DS) (+ K_i2/s²)"}
+  double_integrator: {value: true, source: "T16 §4.3 (optional double integrator)"}
+  error_sign: {value: "v - S", source: "conv §9 (canonical sign; a generic device has no own convention)"}
+  gain_sign_locked: {value: false, source: "T16 §4.3 (independent terms in the canonical form)"}
+  anti_windup: {value: null, source: "not a device fact: block option (D34)"}
+
+loop:
+  latency_s:
+    value: null
+    sweep: [1.0e-7, 2.0e-6]
+    source: "T16 §0-5, §4.5 Moku:Pro (τ_L 0.1–2 µs; Ref C stand-in 0.2–1 µs; V19 checks insensitivity over 0.1–2 µs); PLAN §2.10"

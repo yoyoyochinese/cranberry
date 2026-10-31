@@ -1,0 +1,88 @@
+# Device preset: Thorlabs DSC1 Compact Digital Servo Controller (D05, PLAN §2.10, WP-F5).
+#
+# Generic, device-agnostic parameters only (prompt §5.3). Every value is a leaf
+#   {value: <v>, source: "<manual + page | D-number | T-note | UNVERIFIED>"}   (+ optional sweep:, note:)
+# loaded by cranberry.hardware.devices.load_device. Values are SI and linear (no dB).
+# Modelling choices (filter order, anti-windup model, quantisation on/off, ...) are NOT here (D34):
+# they are block parameters set by presets.
+#
+# "DSC1 p.N" = printed page of the User Guide Rev. B (2025-11-03), DOC-103674
+# (refs/manuals/thorlabs-dsc1.pdf; PDF page = printed page + 5, T15 "頁の引き方").
+
+meta:
+  device: dsc1
+  title: Thorlabs DSC1 Compact Digital Servo Controller
+  document: Thorlabs DSC1 User Guide Rev. B, 2025-11-03, DOC-103674 (printed page numbers)
+
+adc:
+  channels: {value: 1, source: "DSC1 p.1 (one SMB input); T16 §4.5 note (1 channel per unit)"}
+  fs_hz: {value: 1.0e+6, source: "DSC1 p.1, p.2 (Input Sampling Frequency 1 MHz)"}
+  avg_samples: {value: 2, source: "DSC1 p.1 (averages every two samples, effective 500 kHz)"}
+  bits: {value: 16, source: "DSC1 p.2 (Nominal Input Sampling Resolution 16 Bit)"}
+  range_v: {value: [-4.0, 4.0], source: "DSC1 p.2 (Maximum Input Voltage ±4 V)"}
+  input_impedance_ohm: {value: 1.0e+6, source: "DSC1 p.2 (Input Termination 1 MΩ)"}
+  bandwidth_hz: {value: 1.2e+5, source: "DSC1 p.1 (input channel typical bandwidth 120 kHz); filter order not stated"}
+  noise_vrms: {value: 3.0e-4, source: "DSC1 p.2 (Input RMS Noise 0.3 mV, note c)"}
+  noise_band_hz: {value: [100.0, 2.5e+5], source: "DSC1 p.2 note c (integration bandwidth 100 Hz - 250 kHz)"}
+  noise_floor_avg_v2_per_hz: {value: 1.0e-12, source: "DSC1 p.2 (Average Noise Floor -120 dB V²/Hz)"}
+  noise_floor_peak_v2_per_hz: {value: 3.1622776601683795e-11, source: "DSC1 p.2 (Peak Noise Floor -105 dB V²/Hz)"}
+
+dac:
+  channels: {value: 1, source: "DSC1 p.1 (one output channel); T16 §4.5 note"}
+  update_hz: {value: 5.0e+5, source: "DSC1 p.2 (PID Update Frequency 500 kHz)"}
+  bits: {value: 12, source: "DSC1 p.2 (Nominal Output Resolution 12 Bit)"}
+  range_v: {value: [-4.0, 4.0], source: "DSC1 p.2 (Maximum Output Voltage ±4 V); D35 (limits set to -4..+4 V in Ref D)"}
+  output_impedance_ohm: {value: 220.0, source: "DSC1 p.2 (Output Impedance 220 Ω)"}
+  min_load_ohm: {value: 1.0e+5, source: "DSC1 p.2 note b (designed for high-Z > 100 kΩ; range scales by Rdev/(Rdev + 220 Ω))"}
+  bandwidth_hz: {value: 1.0e+5, source: "DSC1 p.1, p.2 note d (output low-pass filter, output bandwidth 100 kHz); filter order not stated"}
+
+pid:
+  update_hz: {value: 5.0e+5, source: "DSC1 p.2 (PID Update Frequency 500 kHz)"}
+  h_s: {value: 2.0e-6, source: "DSC1 p.20 (normalise to the sample rate with 2·10⁻⁶); p.2 (500 kHz update); T15 §2.7(b)"}
+  discretisation: {value: dsc1, source: "DSC1 p.19 (accumulator integral h·ΣK_i e, backward difference (e[n]-e[n-1])/h, no derivative filter); PLAN §2.10"}
+  structure: {value: parallel_pid, source: "DSC1 p.17-19 (u = G_p + G_i + G_d, independent P, I, D terms)"}
+  integrator: {value: bumpless, source: "DSC1 p.18 (K_i applied inside the integral; I disabled ⇒ K_i = 0)"}
+  derivative_filter: {value: none, source: "DSC1 p.19 (plain first difference)"}
+  error_sign: {value: "S - v", source: "DSC1 p.18 (e(t) = S − v(t)); conv §9 (convert inside the block)"}
+  gain_sign_locked: {value: true, source: "DSC1 p.19 (signs of P, I, D locked together)"}
+  gain_abs_range: {value: [1.0e-5, 1.0e+5], source: "DSC1 p.6 (P, I, D: positive or negative between 10⁻⁵ and 10⁵)"}
+  ki_entry:
+    value: per_sample
+    source: "DSC1 p.20 (multiply the integral term by 2·10⁻⁶) — correct per D53 (user-verified); p.12 'Ki in 1/s' reading not used"
+    note: "entered I = K_i[1/s] · h_s; alternative per_second (entered I = K_i) kept only for comparison (D34)"
+  kd_entry:
+    value: per_sample
+    source: "DSC1 p.20 (divide the derivative coefficient by 2·10⁻⁶) — correct per D53; p.12 'Kd in s' reading not used"
+    note: "entered D = K_d[s] / h_s; alternative seconds (entered D = K_d)"
+  setpoint_range_v: {value: [-4.0, 4.0], source: "DSC1 p.6 (S: ±4 V; outside the CV limits the CV is clipped)"}
+  offset_range_v: {value: [-4.0, 4.0], source: "DSC1 p.6 (O: ±4 V)"}
+  cv_limits_v: {value: [-4.0, 4.0], source: "DSC1 p.9 (CV limits settable on the settings screen); p.2 (±4 V output)"}
+  term_enable: {value: [p, i, d], source: "DSC1 p.6 (P, I, D buttons enable each gain stage)"}
+  anti_windup:
+    value: null
+    source: "UNVERIFIED: not documented (DSC1 p.6/p.9 only say the CV is clipped at the CV limits; T15 §2.11)"
+    note: "integrator behaviour at the CV limit is a block option (D34), not a device fact"
+
+ramp:
+  waveform: {value: sawtooth, source: "DSC1 p.7, p.20 (sawtooth from offset − amplitude to offset + amplitude)"}
+  amplitude_range_v: {value: [-4.0, 4.0], source: "DSC1 p.7"}
+  offset_range_v: {value: [-4.0, 4.0], source: "DSC1 p.7"}
+  period_range_s: {value: [0.01, 0.4], source: "DSC1 p.7 (ramp time 10–400 ms)"}
+
+peak_lock:
+  modulation_hz_range: {value: [100.0, 1.0e+5], source: "DSC1 p.2, p.8 (100 Hz – 100 kHz)"}
+  modulation_hz_step: {value: 100.0, source: "DSC1 p.2 (in 100 Hz steps)"}
+  integrator_unit: {value: "V/s", source: "DSC1 p.8 (K in V/s)"}
+
+loop:
+  phase_m180_hz_typ: {value: 6.0e+4, source: "DSC1 p.1, p.2 (input-to-output −180° typ. 60 kHz)"}
+  phase_m180_hz_min: {value: 5.8e+4, source: "DSC1 p.2 (> 58 kHz)"}
+  latency_s:
+    value: 5.7e-6
+    sweep: [5.7e-6, 8.3e-6]
+    source: "T16 §4.2, T15 §2.7(b) [AE fit of the −180° point]; PLAN §8.4 #4; D52 (reference 5.7 µs, sweep 5.7–8.3 µs)"
+    note: "5.7 µs pairs with 1st-order 120 kHz input + 100 kHz output poles; 8.3 µs = all of the lag as pure delay (no poles)"
+
+interface:
+  remote: {value: "USB 2.0; touchscreen, PC GUI and PC SDK", source: "DSC1 p.1, p.2 (System Requirements: USB 2.0)"}
+  trace_sample_s: {value: 2.0e-6, source: "DSC1 p.6 (each plotted point 2 µs apart)"}

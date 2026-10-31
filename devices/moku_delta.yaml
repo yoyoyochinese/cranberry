@@ -1,0 +1,102 @@
+# Device preset: Liquid Instruments Moku:Delta (PLAN §2.10, T16 §4.5, WP-F5).
+#
+# Generic, device-agnostic parameters only (prompt §5.3). Every value is a leaf
+#   {value: <v>, source: "<document + page | D-number | T-note | UNVERIFIED>"}   (+ optional sweep:, note:)
+# loaded by cranberry.hardware.devices.load_device. Values are SI and linear (dB from the sheet are
+# converted and the dB figure quoted in source). Modelling choices are not here (D34).
+#
+# "Moku p.N" = page of the Moku:Delta Specifications v26-0817 (refs/manuals/MokuDelta-Specifications.pdf;
+# printed page = PDF page).
+
+meta:
+  device: moku_delta
+  title: Liquid Instruments Moku:Delta (PID Controller instrument)
+  document: Moku:Delta Specifications v26-0817
+
+adc:
+  channels: {value: 8, source: "Moku p.6"}
+  fs_hz: {value: 5.0e+9, source: "Moku p.6 (5 GSa/s, 8 channels simultaneously)"}
+  bits: {value: [14, 20], source: "Moku p.6 (14 bits high bandwidth / 20 bits low bandwidth, blended ADC)"}
+  enob: {value: 10.8, source: "Moku p.6"}
+  range_vpp_options: {value: [0.1, 1.0, 10.0, 40.0], source: "Moku p.6, p.65 (100 mVpp, 1 Vpp, 10 Vpp; 40 Vpp only with 1 MΩ)"}
+  input_impedance_ohm_options: {value: [50.0, 1.0e+6], source: "Moku p.6, p.65"}
+  bandwidth_hz_50ohm: {value: 2.0e+9, source: "Moku p.6 (2 GHz into 50 Ω, measured)"}
+  bandwidth_hz_1mohm: {value: 1.0e+6, source: "Moku p.6 (1 MHz into 1 MΩ)"}
+  ac_corner_hz_50ohm: {value: 1.6e+4, source: "Moku p.6 (16 kHz into 50 Ω)"}
+  ac_corner_hz_1mohm: {value: 1.6, source: "Moku p.6 (1.6 Hz into 1 MΩ)"}
+  noise_v_per_rthz_100hz: {value: 1.0e-8, source: "Moku p.6 (10 nV/√Hz @ 100 Hz)"}
+
+dac:
+  channels: {value: 8, source: "Moku p.7"}
+  fs_hz: {value: 5.0e+9, source: "Moku p.7 (5 GSa/s per channel)"}
+  bits: {value: 14, source: "Moku p.7"}
+  range_vpp_options:
+    value: [1.0, 10.0]
+    source: "Moku p.7 (1 Vpp DC–200 MHz; 10 Vpp DC–100 MHz, into 50 Ω); p.79 (Multi-Instrument output ranges 1 Vpp, 10 Vpp)"
+  bandwidth_hz_1vpp: {value: 2.0e+8, source: "Moku p.7 (1 Vpp range flat DC–200 MHz)"}
+  bandwidth_hz_10vpp: {value: 1.0e+8, source: "Moku p.7, p.80 (10 Vpp range ≤ 100 MHz)"}
+  output_impedance_ohm: {value: 50.0, source: "Moku p.7"}
+  coupling: {value: dc, source: "Moku p.7"}
+
+pid:
+  channels: {value: 4, source: "Moku p.64, p.65"}
+  update_hz:
+    value: null
+    source: "UNVERIFIED: PID Controller sample rate not stated (Moku p.64–65); Laser Lock Box fast PID is 78 MHz (p.45)"
+  discretisation: {value: moku, source: "PLAN §2.10; T16 §4.3"}
+  parameterisation:
+    value: crossover
+    source: "Moku p.65 (P gain in dB, integrator/differentiator crossover frequencies); T16 §4.3: K_i = K_p·2πf_I, K_d = K_p/(2πf_D), reference gain 1 when P is off (LI knowledge base, UNVERIFIED)"
+  structure: {value: parallel_pid, source: "Moku p.65 (gain profiles P, I, I+, IS, D, DS)"}
+  double_integrator: {value: true, source: "Moku p.64, p.65 (I+, double integrator crossover)"}
+  error_sign:
+    value: "v - S"
+    source: "UNVERIFIED: the sheet gives input/output offsets but no setpoint or sign (Moku p.65); mapping takes e = v − S with S = −input offset"
+  gain_sign_locked: {value: true, source: "Moku p.65 (single signed proportional gain; I and D are crossovers relative to it, T16 §4.3)"}
+  input_matrix_range: {value: [-20.0, 20.0], source: "Moku p.65 (input control matrix coefficients −20 to +20)"}
+  kp_abs_range: {value: [1.0e-3, 1.0e+3], source: "Moku p.65 (proportional gain ±60 dB)"}
+  f_i_hz_range: {value: [3.125, 3.125e+5], source: "Moku p.65 (integrator crossover 3.125 Hz to 312.5 kHz)"}
+  f_i2_hz_min: {value: 3.125, source: "Moku p.65 (double integrator crossover 3.125 Hz to integrator crossover)"}
+  is_level_max: {value: 1.0e+3, source: "Moku p.65 (integral saturation between proportional gain and +60 dB)"}
+  f_is_hz_min: {value: 3.125, source: "Moku p.65 (integrator saturation crossover not lower than 3.125 Hz)"}
+  f_d_hz_range: {value: [31.25, 3.125e+6], source: "Moku p.65 (differentiator crossover 31.25 Hz to 3.125 MHz)"}
+  ds_level_max: {value: 1.0e+3, source: "Moku p.65 (differentiator saturation between proportional gain and +60 dB)"}
+  f_ds_hz_max: {value: 3.125e+6, source: "Moku p.65 (differentiator saturation crossover not higher than 3.125 MHz)"}
+  offset_range_v: {value: [-0.5, 0.5], source: "Moku p.65 (input/output offset ±500 mV)"}
+  offset_step_v: {value: 1.0e-4, source: "Moku p.65 (offset precision 100 µV)"}
+  output_limit_v:
+    value: [-0.5, 0.5]
+    source: "Moku p.65 (PID Controller output limit (AC + DC) ±500 mV into 50 Ω)"
+    note: "no output-gain setting is listed for the PID Controller (contrast Lock-in p.50: ±5 V with +20 dB; Laser Lock Box aux p.45: ±10 V with 20 dB)"
+  output_range_options:
+    value: [pm0p5v_50ohm, 10vpp_multi_instrument]
+    source: "pm0p5v_50ohm: Moku p.65. 10vpp_multi_instrument: Moku p.79 (Multi-Instrument output ranges 1 Vpp / 10 Vpp into 50 Ω) + p.80 (PID Controller is a slot instrument); whether the PID ±500 mV limit scales to ±5 V there is UNVERIFIED (D53: user recalls 10 Vpp works)"
+  anti_windup:
+    value: integrator_saturation
+    source: "Moku p.65 (IS: integrator gain saturation level); behaviour at the output limit UNVERIFIED"
+  controller_freq_range_hz: {value: [0.0, 4.0e+7], source: "Moku p.65 (DC to 40 MHz)"}
+  open_loop_bandwidth_hz: {value: 3.538e+7, source: "Moku p.64 (35.38 MHz)"}
+
+laser_lock_box:
+  fast_pid_fs_hz: {value: 7.8e+7, source: "Moku p.45 (fast controller 78 MHz)"}
+  fast_f_i_hz_range: {value: [3.125, 3.125e+5], source: "Moku p.45"}
+  fast_f_d_hz_range: {value: [31.25, 3.125e+6], source: "Moku p.45"}
+  slow_pid_fs_hz: {value: 1.22e+6, source: "Moku p.46 (slow controller 1.22 MHz)"}
+  slow_f_i_hz_range: {value: [0.04883, 4883.0], source: "Moku p.46 (48.83 mHz to 4.883 kHz)"}
+  slow_f_d_hz_range: {value: [0.4883, 48830.0], source: "Moku p.46 (488.3 mHz to 48.83 kHz)"}
+  integrator_gain_max: {value: 1.0e+4, source: "Moku p.45, p.46 (integrator/differentiator gain: proportional gain to +80 dB)"}
+  setpoint_range_v: {value: [-0.5, 0.5], source: "Moku p.45 (set point −500 mV to +500 mV, 100 µV)"}
+  scan_waveforms: {value: [positive_ramp, negative_ramp, triangle], source: "Moku p.45"}
+  scan_hz_range: {value: [1.0e-3, 1.0e+7], source: "Moku p.45 (1 mHz to 10 MHz)"}
+  scan_output_limit_v: {value: [-0.5, 0.5], source: "Moku p.45 (scan output limit ±500 mV into 50 Ω)"}
+
+loop:
+  max_bw_hz: {value: 4.0e+5, source: "Moku p.65 (maximum bandwidth 400 kHz with a phase delay of 30°)"}
+  phase_at_max_bw_deg: {value: 30.0, source: "Moku p.65"}
+  latency_s:
+    value: 2.1e-7
+    source: "Moku p.65 → T16 §4.2 [AE]: 30°/(360° · 400 kHz) = 0.208 µs, an upper bound (τ ≲ 0.21 µs)"
+    note: "upper bound, not a measured latency"
+
+interface:
+  remote: {value: "Moku API (Python) / Multi-Instrument Mode", source: "prompt §5.3 (later Moku Python API wrapper); Moku p.78–80"}
