@@ -2,9 +2,10 @@
 
 No parameter is changed: the measured PDB450C output (DSC1 input) is analysed with the frozen prediction's own
 log binning and peak detector (``run_prediction.log_bin`` / ``detect_peaks``) and set against the frozen
-``results/``. Measured files used: ``spectrum.csv`` (all rounds; Welch, Hann, 0.2 s, 50 % overlap → 14
-segments, consistent with ``waveform.csv`` to 1e-3) and ``waveform.csv`` (rounds 1, 8, 9). ``ch1.npz`` /
-``raw.npy`` are not used: they do not correlate with ``waveform.csv`` and do not follow the setpoint.
+``results/``. Measured files used: ``spectrum.csv`` (Welch, Hann, 0.2 s, 50 % overlap → 14 segments) and
+``raw.npy`` scaled by the metadata ``waveform_scaling`` (= ``waveform.csv`` to 1e-11 V) for the PDB output;
+``ch1.npz`` (yzero 0) for the DSC1 output (CV), identified by its coherence with the PDB output and its
+transfer function (the D53 PID; to be confirmed by the user).
 
     uv run --extra plot python predictions/refD/comparison/compare.py
 """
@@ -34,11 +35,42 @@ K_D_PRED = 2.86  # V/rad at the zero crossing in refD_nominal (PREDICTION.md §3
 def load_round(d):
     m = json.load(open(d + "metadata.json"))["round"]
     s = np.genfromtxt(d + "spectrum.csv", delimiter=",", names=True)
-    w = np.loadtxt(d + "waveform.csv", delimiter=",", skiprows=1)[:, 1] if Path(d + "waveform.csv").exists() else None
+    ws = m["waveform_scaling"]
+    w = (np.load(d + "raw.npy") - ws["yoff"]) * ws["ymult"] + ws["yzero"]
+    z = np.load(d + "ch1.npz")
+    cv = (z["raw"] - float(z["yoff"])) * float(z["ymult"]) + float(z["yzero"])
     st = m["observed_state"]
     return {"seq": m["sequence"], "setpoint_v": st["setpoint_v"], "gain_enabled": st["gain_enabled"],
             "pid": [st["p"], st["i"], st["d"]], "objective_v2": m["objective_v2"],
-            "f": s["frequency_hz"], "p": s["psd_v2_per_hz"], "w": w}
+            "f": s["frequency_hz"], "p": s["psd_v2_per_hz"], "w": w, "cv": cv}
+
+
+def dsc1_c(f):
+    """DSC1 discrete PID (DSC1 p.19, D53 gains, D82): C = K_p + K_i h/2 + K_i/s + K_d (1 − e^{−sh})/h."""
+    kp, i, d, h = 2.41e-4, 1.406e-3, 1.108e-2, 2.0e-6
+    s = 2j * np.pi * f
+    return kp + i / 2 + (i / h) / s + d * (1 - np.exp(-s * h))
+
+
+def cv_analysis(r):
+    """DSC1 output: scope numbers, PSD on the prediction's bins, and the CV / error transfer vs. −C (H1 and H2
+    estimators bracket the true gain when both channels carry uncorrelated noise)."""
+    from scipy.signal import csd, welch
+
+    v, c = r["w"], r["cv"]
+    f, pcc = welch(c, fs=1.0e6, nperseg=200000)
+    out = {"scope": rp.scope_features(c, 1.0e6), "f": f, "p": pcc}
+    if r["gain_enabled"]:
+        f2, pvc = csd(v, c, fs=1.0e6, nperseg=100000)
+        _, pvv = welch(v, fs=1.0e6, nperseg=100000)
+        _, pc2 = welch(c, fs=1.0e6, nperseg=100000)
+        m = (f2 >= 50.0) & (f2 <= 1.0e3)
+        cm = np.abs(dsc1_c(f2[m]))
+        out["gain_ratio_h1"] = float(np.median(np.abs(pvc[m] / pvv[m]) / cm))
+        out["gain_ratio_h2"] = float(np.median(np.abs(pc2[m] / np.conj(pvc[m])) / cm))
+        out["phase_deg_vs_minus_c"] = float(np.median(np.angle(pvc[m] / pvv[m] / -dsc1_c(f2[m]), deg=True)))
+        out["coherence_50_1k"] = float(np.median(np.abs(pvc[m]) ** 2 / (pvv[m] * pc2[m])))
+    return out
 
 
 def main():
@@ -72,8 +104,13 @@ def main():
         rec["band_rms_v"] = {f"{a:g}-{b:g}": rp.band_rms(r["f"], r["p"], a, b) for a, b in BANDS}
         rec["peaks"] = [{k: p[k] for k in ("f_hz", "excess_db", "fwhm_hz", "psd")} | {"rms_v": math.sqrt(p["power"])}
                         for p in peaks]
-        if r["w"] is not None:
-            rec["scope"] = rp.scope_features(r["w"], 1.0e6)
+        rec["scope"] = rp.scope_features(r["w"], 1.0e6)
+        cva = cv_analysis(r)
+        fbc, pbc, _ = rp.log_bin(cva.pop("f"), cva.pop("p"))
+        cva["psd_on_pred_bins"] = np.interp(fb_pred, fbc[np.isfinite(pbc)], pbc[np.isfinite(pbc)]).tolist()
+        cva["band_rms_v"] = {f"{a:g}-{b:g}": rp.band_rms(fb_pred, np.asarray(cva["psd_on_pred_bins"]), a, b)
+                             for a, b in BANDS[1:6]}
+        rec["dsc1_out"] = cva
         # in-loop phase-equivalent PSD (v.pdb / K_d) vs. the prediction's v.pdb / K_D_PRED, on the prediction's bins
         if locked:
             pm = np.interp(fb_pred, fb[np.isfinite(pb)], pb[np.isfinite(pb)]) / kd**2
