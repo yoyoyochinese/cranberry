@@ -777,6 +777,7 @@ pipeline:
                 u_in: ctrl.pid0f.u
                 e_in: v.adc0
                 true_in: lock.L0.err
+                slip_center_rad: 0.0     # stable point = the setpoint (coupler_sign +1, K_i > 0 for dv/du < 0): slips counted about X = π/2
                 out: ctrl.sup0.u
                 relock: fringe_hop
                 u_min_v: !expr "-offline.params.out_range_v * (1 - 2.0 ** (1 - offline.params.dac_bits))"
@@ -921,6 +922,7 @@ pipeline:
                 u_in: ctrl.pid1f.u
                 e_in: v.adc1
                 true_in: lock.L1.err
+                slip_center_rad: 0.0     # stable point = the setpoint (coupler_sign +1, K_i > 0 for dv/du < 0): slips counted about X = π/2
                 out: ctrl.sup1.u
                 relock: fringe_hop
                 u_min_v: !expr "-offline.params.out_range_v * (1 - 2.0 ** (1 - offline.params.dac_bits))"

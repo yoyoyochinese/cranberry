@@ -127,6 +127,12 @@ offline:
         kp: !expr "offline.params.dsc1_p"
         ki_per_s: !expr "offline.params.dsc1_i / offline.params.dsc1_h_s"
         kd_s: !expr "offline.params.dsc1_d * offline.params.dsc1_h_s"
+        # the DSC1's own discrete law (DSC1 p.19: h·ΣK_i e including e[n], (K_d/h)(e[n] − e[n−1])), not
+        # K_p + K_i/s + K_d s: at the D53 gains the continuous law has an I/D notch at √(K_i/K_d)/2π = 28 kHz
+        # (ζ = 0.03) that the device does not have (effective P there is K_p + K_i h, 3.9×); Phase 5 review
+        # reviews/phase5_refD_stability_mismatch.md
+        discretisation: dsc1
+        h_s: !expr "offline.params.dsc1_h_s"
         delay_s: !expr "offline.params.latency_s"
         poles_hz:
           - !expr "1.2e+5 if offline.params.in_out_poles else inf"
@@ -425,6 +431,9 @@ pipeline:
       u_in: v.dsc1.cv
       e_in: v.dsc1.adc
       true_in: lock.lockD.err
+      # slips are counted about the stable point the loop holds (conv §5, §9): +π/2 (δ = 0) when
+      # loop_sign × coupler_sign = +1, −π/2 (δ = π) when −1 (all 326 locked prediction runs follow this rule)
+      slip_center_rad: !expr "0.0 if offline.params.loop_sign * offline.params.coupler_sign > 0 else pi"
       out: v.dsc1.sup
       relock: none                       # DSC1 has no automatic re-acquisition (detection only)
       # the PID clips at exactly ±4 V; a 1 nV margin makes "at the CV limit" count as saturated
