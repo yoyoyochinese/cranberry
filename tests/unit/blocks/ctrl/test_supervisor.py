@@ -41,6 +41,8 @@ def const(name, out, value):
 def sup(relock, on=True, true_in="v.delta", **kw):
     p = {"u_in": "ctrl.pid.u", "e_in": "v.e", "true_in": true_in, "out": "ctrl.sup.u", "relock": relock,
          "u_min_v": -4.0, "u_max_v": 4.0, "t_sat_s": 0.0, "e_th": 0.3, "t_e_s": 2e-4, "toggles": {"relock": on}}
+    if true_in is not None:
+        p["slip_center_rad"] = 0.0  # loop() with ki < 0 holds δ = 0
     p.update({"reset_center": {"t_hop_s": 1e-3}, "fringe_hop": {"t_hop_s": 1e-3, "u_2pi_v": 2 * math.pi},
               "ramp_search": {"ramp_period_s": 0.02, "e_cap": 0.05, "slope_sign": 1.0}}.get(relock, {}))
     p.update(kw)
@@ -113,6 +115,30 @@ def test_fringe_slip_count_and_toggle_off_identity():
     assert int(st["lock.sup.n_loss"]) == 1  # saturation at the ±4 V range
     k_end = math.floor(float(st["v.delta"]) / (2 * math.pi) + 0.5)
     assert int(st["lock.sup.n_slip"]) == abs(k_end) >= 1
+
+
+def test_slips_counted_about_the_held_lock_point():
+    """Regression (Ref D prediction, reviews/phase5_refD_stability_mismatch.md): a loop holding the other
+    fringe slope (ki > 0: stable at δ = π, like refD at −π/2 when loop_sign × coupler_sign = −1) with a
+    disturbance that makes δ cross π back and forth. Centred on the held point (slip_center_rad = π) no
+    slip is counted; centred on the setpoint (the old fixed centre 0) every crossing counts as a slip."""
+    dither = {"block": "ramp", "name": "p0", "params": {"out": "v.phi0", "waveform": "triangle", "amplitude_v": 0.3,
+                                                        "period_s": 1.0e-3, "offset_v": 2.5,
+                                                        "toggles": {"enabled": True}}}
+    counts = {}
+    for c in (math.pi, 0.0):
+        blk, st, pr = loop(dither, sup("none", on=False, e_th=float("inf"), slip_center_rad=c), ki=2e3)
+        crossings, prev = 0, None
+        for _ in range(int(0.05 * FS) // 10):
+            run_reference(blk, st, pr, 10)
+            side = float(st["v.delta"]) > math.pi
+            crossings += prev is not None and side != prev
+            prev = side
+        assert math.cos(float(st["v.delta"])) < -0.9  # held at δ ≈ π
+        assert int(st["lock.sup.n_loss"]) == 0
+        counts[c] = int(st["lock.sup.n_slip"])
+    assert crossings > 20
+    assert counts[math.pi] == 0 and counts[0.0] > 20
 
 
 def test_requires_mode_params():

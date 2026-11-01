@@ -8,8 +8,14 @@ reset / hop):
 * lock loss (from state 1): the output u_in + offset lies outside [u_min_v, u_max_v] for ≥ t_sat_s,
   or |e_in| > e_th for ≥ t_e_s (``e_th = inf`` disables; t = 0 means "on the first sample").
   Counts ``n_loss``, stores the time of the first loss ``t_loss`` (−1 before).
-* fringe slips (``true_in``, the true phase error [rad], may be null): k = round(δ / 2π); every change
-  of k adds |Δk| to ``n_slip`` (T16 §3.6 item 2: counted on the unwrapped true phase).
+* fringe slips (``true_in``, the true phase error δ [rad] about the setpoint, may be null):
+  k = round((δ − slip_center_rad) / 2π), initialised from the first sample; every change of k adds |Δk|
+  to ``n_slip`` (T16 §3.6 item 2: counted on the unwrapped true phase). ``slip_center_rad`` is δ at the
+  stable lock point the loop holds (mod 2π), so the counting boundaries sit on the unstable fringe points
+  δ_c ± π. A DC side-fringe lock whose setpoint is +π/2 holds +π/2 (δ_c = 0) when the product of its sign
+  factors (refD: loop_sign × coupler_sign, conv §5) is +1 and −π/2 (δ_c = π) when it is −1; centring on
+  the setpoint for a loop held at −π/2 would count every noise excursion across δ = ±π as a slip
+  (Ref D prediction: 1e5–1e7 fake slips, reviews/phase5_refD_stability_mismatch.md).
 * re-acquisition (structural ``relock``; toggle ``relock`` False = detection only, out = u_in):
   ``none``; ``reset_center`` (offset = centre − u_in: the output jumps to the range centre and the loop
   re-acquires by itself); ``fringe_hop`` (offset −= n·u_2pi_v with n the integer bringing the output
@@ -20,7 +26,7 @@ reset / hop):
   (data to discard), then 1. Every re-acquisition counts ``n_relock``.
 
 Params: ``u_in``, ``e_in``, ``true_in`` (slot or null), ``out``, ``relock``; runtime ``u_min_v``,
-``u_max_v``, ``t_sat_s``, ``e_th``, ``t_e_s``; ``reset_center`` / ``fringe_hop`` add ``t_hop_s``,
+``u_max_v``, ``t_sat_s``, ``e_th``, ``t_e_s``, ``slip_center_rad`` (only with ``true_in``); ``reset_center`` / ``fringe_hop`` add ``t_hop_s``,
 ``fringe_hop`` adds ``u_2pi_v`` (915B: 2π/K_s = 0.968 V); ``ramp_search`` adds ``ramp_period_s``,
 ``e_cap``, ``slope_sign``. Slots: ``out`` (V); ``lock.<name>.state``, ``.n_loss``, ``.n_relock``,
 ``.n_slip`` (int); ``lock.<name>.t_loss`` (s); ``lock.<name>.x`` (internal).
@@ -44,7 +50,7 @@ __all__ = ["RELOCK_MODES", "make_lock_supervisor"]
 RELOCK_MODES: dict[str, int] = {"none": 0, "reset_center": 1, "fringe_hop": 2, "ramp_search": 3}
 _BASE = ("u_min_v", "u_max_v", "t_sat_s", "e_th", "t_e_s")
 _EXTRA = {0: (), 1: ("t_hop_s",), 2: ("t_hop_s", "u_2pi_v"), 3: ("ramp_period_s", "e_cap", "slope_sign")}
-_ALL = _BASE + ("t_hop_s", "u_2pi_v", "ramp_period_s", "e_cap", "slope_sign")
+_ALL = _BASE + ("t_hop_s", "u_2pi_v", "ramp_period_s", "e_cap", "slope_sign", "slip_center_rad")
 _TWO_PI = 2.0 * math.pi
 
 
@@ -53,7 +59,9 @@ def _step(S, I, P, i_t, i_u, i_e, i_true, i_out, x, st, nl, nr, ns, i_tl, po, h,
     e = S[i_e]
     umin, umax = P[po[0]], P[po[1]]
     if i_true >= 0:
-        k = math.floor(S[i_true] / _TWO_PI + 0.5)
+        k = math.floor((S[i_true] - P[po[10]]) / _TWO_PI + 0.5)
+        if S[x + 8] == 0.0:  # first sample: the starting fringe is not a slip
+            S[x + 6], S[x + 8] = k, 1.0
         dk = k - S[x + 6]
         if dk != 0.0:
             I[ns] += int(abs(dk))
@@ -124,7 +132,7 @@ class LockSupervisor(KitBlock):
         reads = ("t", params["u_in"], params["e_in"]) + (() if params["true_in"] is None else (params["true_in"],))
         self.lk = {k: f"lock.{name}.{k}" for k in ("state", "n_loss", "n_relock", "n_slip", "t_loss", "x")}
         super().__init__(params, name, reads=reads, writes=(params["out"], *self.lk.values()),
-                         runtime=_BASE + _EXTRA[mode])
+                         runtime=_BASE + _EXTRA[mode] + (() if params["true_in"] is None else ("slip_center_rad",)))
         self.mode = mode if self.toggles["relock"] else 0
         self.slot_units = {params["out"]: "V", params["u_in"]: "V"}
 
@@ -133,7 +141,7 @@ class LockSupervisor(KitBlock):
         return [(self.params["out"], (), np.float64, "V", 0, 0.0),
                 (lk["state"], (), np.int64, "1", 0, 1), (lk["n_loss"], (), np.int64, "1", 0, 0),
                 (lk["n_relock"], (), np.int64, "1", 0, 0), (lk["n_slip"], (), np.int64, "1", 0, 0),
-                (lk["t_loss"], (), np.float64, "s", 0, -1.0), (lk["x"], (8,), np.float64, "1", 0, 0.0)]
+                (lk["t_loss"], (), np.float64, "s", 0, -1.0), (lk["x"], (9,), np.float64, "1", 0, 0.0)]
 
     def make_args(self, layout):
         po = np.array([self.p(layout, k) if layout.has_param(self.param_name(k)) else -1 for k in _ALL], np.int64)

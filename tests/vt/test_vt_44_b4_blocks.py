@@ -103,7 +103,7 @@ def all_blocks_obj():
         pid("pid", "v.err", rate_div=2, disc="dsc1", aw="back_calculation", aw_tracking_s=2e-4, kp=-0.02,
             ki_per_s=-800.0, kd_s=-1e-8, omega_ds_rad_per_s=2e5, ki2_per_s2=-1e4),
         {"block": "lock_supervisor", "name": "sup", "params": {
-            "u_in": "ctrl.pid.u", "e_in": "v.err", "true_in": "psi.plant.x", "out": "ctrl.sup.u",
+            "u_in": "ctrl.pid.u", "e_in": "v.err", "true_in": "psi.plant.x", "slip_center_rad": 0.0, "out": "ctrl.sup.u",
             "relock": "fringe_hop", "u_min_v": -0.3, "u_max_v": 0.3, "t_sat_s": 0.0, "e_th": 0.5, "t_e_s": 1e-4,
             "t_hop_s": 2e-5, "u_2pi_v": 0.2, "toggles": {"relock": True}}},
         {"block": "dac", "name": "dac", "params": {"in": "ctrl.sup.u", "out": "v.dac", "device": "dsc1",

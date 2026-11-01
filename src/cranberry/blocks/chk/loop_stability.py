@@ -5,7 +5,43 @@ never stops, never prunes a sweep point).
 Continuous open loop, closed loop 1/(1 + L) (negative feedback):
 
     L(s) = k0 · C_1(s) · e^{−s·delay} · Π_p 1/(1 + s/(2π f_p)) · Π_m ω_m²/(s² + s ω_m/Q_m + ω_m²) · Σ(s)
-    C_k(s) = kp_k + ki_k/s + kd_k·s
+    C_k(s) = kp_k + ki_k/s + kd_k·s                                  (discretisation continuous)
+    C_k(s) = kp_k + ki_k·h/2 + ki_k/s + kd_k·(1 − e^{−s h})/h          (discretisation dsc1)
+
+**Controller discretisation** (optional ``discretisation``: ``continuous`` (absent) | ``dsc1``, the latter
+with ``h_s`` = h, the controller update period; per controller, so a stage may carry its own). ``dsc1`` is
+the DSC1 law (DSC1 p.19, ``pid`` discretisation ``dsc1``): integral h·Σ K_i e including e[n] and the
+backward difference (K_d/h)(e[n] − e[n−1]). Its integrator is h/(1 − z⁻¹) = h/2 + (h/2)coth(sh/2): the h/2
+is an extra proportional gain ki·h/2, and (h/2)coth(sh/2) is replaced by 1/s (relative error (ωh)²/12 of
+the I term; the exact form has poles at every multiple of 1/h that a continuous Nyquist test cannot
+take). The backward difference is kept exact (entire in s; it is kd·s·e^{−sh/2}·sinc, i.e. half a period
+of extra lag on the D path). ``delay_s`` stays the transport latency (ADC average, output hold): the
+controller's own discretisation is not a delay. **Why it matters (Ref D, D53 gains):** the continuous
+law has complex zeros at √(ki/kd)/2π = 28.3 kHz with ζ = kp/(2√(ki·kd)) = 0.03, a deep notch; the DSC1 has
+kp + ki·h (ζ_eff ≈ 0.12, 3.9 × kp) there, so the continuous check under-states |L| by up to ×6 at 25–31 kHz
+and mis-states the phase away from it (the I-dominated side gains lead, ≈ 9° at 14 kHz; the D-dominated
+side loses it, ≈ 30° at 52–57 kHz). With the continuous law
+the frozen Ref D prediction classified 6 of 128 LHS points opposite to its time loop (lhs_002, lhs_042
+"stable" but oscillating; lhs_024, 034, 044 at 52–57 kHz "unstable" but locking); with ``dsc1`` all five
+agree and the predicted closed-loop pole (growth rate, frequency) matches the noise-free time loop
+(reviews/phase5_refD_stability_mismatch.md). A controller of another discrete law is still checked with
+``continuous`` (Tustin / forward Euler are not modelled here; at MHz update rates the difference is small).
+
+**What the verdict means (modelling limits).** The check is linear and small-signal:
+* The plant gain ``k0`` is the fringe slope at the lock point (Ref D: γ_coh·|μ| ≈ 1, offsets neglected).
+* The sampled-data loop is treated as continuous: aliasing of the plant response around multiples of
+  1/h (and of the faster base rate) is neglected; for Ref D the exact multirate z-domain loop
+  (tests/integration/refD_support.py) agrees with the ``dsc1`` form within ≈ 2° and ≤ 7 % within ±5 % of the mode
+  (the ``dsc1`` form slightly over-states |L|, i.e. errs on the unstable side).
+* ``unstable`` means the lock point is linearly unstable, not that the phase must run away. In a fringe
+  lock the error sin(δ) has describing-function gain 2J₁(A)/A < 1 for an oscillation of amplitude A, so a
+  point with max |L| at −180° only slightly above 1 (≲ 1.05) settles into a bounded limit cycle of a few
+  tenths of a rad at the −180° frequency (Ref D: lhs_057, lhs_118, 10.7–11.45 kHz Q 10, std 0.25–0.29 rad,
+  also with noise off) that a loose "locked" criterion (std < 0.3 rad) counts as a lock. Larger max |L|
+  gives oscillations across the fringe (≈ 1.3 rad rms) or slips. Treat max |L| within ≈ ±10 % of 1 as
+  marginal: the outcome there also depends on the details above.
+* ``stable`` says nothing about large-signal effects (pull-in from a fringe top, saturation, the DAC
+  limit cycle of D65-3).
 
 Single loop (no ``stages``): Σ = 1. **Stacked (cascade / offload) loop** (Phase 5 M2C-02, Ref C's
 EOM → piezo mirror → stretcher, T16 §4.4): ``stages`` lists the controllers 2..N; controller k reads
@@ -34,7 +70,8 @@ Params (all required, D34): ``k0`` (plant gain from controller output to control
 sign makes L positive for negative feedback), ``kp``, ``ki_per_s``, ``kd_s``, ``delay_s``, ``poles_hz``
 (list, ``inf`` = absent), ``modes`` (list of {f_hz, q}), ``f_grid_hz`` [lo, hi, n] (log grid),
 ``toggles`` {enabled}: off ⇒ no check. Optional ``stages`` (absent = single loop, the M1 form): list of
-{kp, ki_per_s, kd_s, k_act, poles_hz, modes} (all keys required per stage).
+{kp, ki_per_s, kd_s, k_act, poles_hz, modes} (all keys required per stage). Optional ``discretisation``
+(+ ``h_s`` for ``dsc1``) at the top level and per stage (above).
 """
 
 from __future__ import annotations
@@ -55,10 +92,23 @@ KIND = "loop_stability_check"
 
 
 STAGE_KEYS = ("kp", "ki_per_s", "kd_s", "k_act", "poles_hz", "modes")
+DISCRETISATIONS = ("continuous", "dsc1")
 
 
 def _ctrl(s: np.ndarray, q: Mapping[str, Any]) -> np.ndarray:
-    return float(q["kp"]) + float(q["ki_per_s"]) / s + float(q["kd_s"]) * s
+    kp, ki, kd = float(q["kp"]), float(q["ki_per_s"]), float(q["kd_s"])
+    if q.get("discretisation", "continuous") == "dsc1":
+        h = float(q["h_s"])
+        return kp + ki * h / 2.0 + ki / s + kd * (1.0 - np.exp(-s * h)) / h
+    return kp + ki / s + kd * s
+
+
+def _check_discretisation(q: Mapping[str, Any], where: str) -> None:
+    d = q.get("discretisation", "continuous")
+    if d not in DISCRETISATIONS:
+        raise ValueError(f"block {where!r}: discretisation must be one of {DISCRETISATIONS}, got {d!r}")
+    if d == "dsc1":
+        require(q, "h_s", block=where)
 
 
 def _dynamics(s: np.ndarray, q: Mapping[str, Any]) -> np.ndarray:
@@ -118,8 +168,10 @@ class LoopStabilityCheck(BaseBlock):
         lo, hi, n = params["f_grid_hz"]
         if not (0 < float(lo) < float(hi) and int(n) >= 2):
             raise ValueError(f"block {name!r}: f_grid_hz must be [lo, hi, n] with 0 < lo < hi, n >= 2")
+        _check_discretisation(params, name)
         for i, st in enumerate(params.get("stages") or ()):
             require(st, *STAGE_KEYS, block=f"{name}.stages[{i}]")
+            _check_discretisation(st, f"{name}.stages[{i}]")
         self.chk_log = ChkLog()
         self.result: dict[str, Any] | None = None
         if self._toggles["enabled"]:
