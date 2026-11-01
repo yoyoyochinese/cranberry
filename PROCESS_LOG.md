@@ -109,3 +109,15 @@
 - 将来の構成の線幅の要求を確定（D78 の表）。
 - ユーザの判断: Ref D の共振の格子は全点を残し、不安定な点は別に記録（D75）。
 - 次: Ref D のブラインド予測を `blind/` を開かずに作って凍結し、ユーザの実測データを受け取ってから比較する（PLAN §6.5、D04）。
+
+### Ref D のブラインド予測の凍結（2026-11-01）
+- 新しい文脈の担当が `blind/` を開かずに予測を作成（`predictions/refD/`、commit 32732e8、dev への統合 affaeb8、タグ `refD-blind-freeze`）。パラメータの調整なし、ソース・プリセット・テストは無変更。全 439 run（名目点 8 seed × 量子化オン/オフ、OAT 71 点、LHS N = 128、(f_res, Q) 格子 4 × 4、f_sim × 2）、約 3 時間。
+- 結果ファイルの SHA-256:
+  - `results/design.json` `95e22be96cd5a73ad5318ba9e892afa003749a8582cf944f1bee1c36c397cba1`
+  - `results/runs.json` `39f614b366abf19f41a82a7652acd51cd60b8aed2dc2dfe4c6d143a297c7dd5e`
+  - `results/spectra.npz` `4377645061fbb64bcf345b3106f562c0e78997202777e31b47a6b891d29c8362`
+  - `results/stability_grid.json` `4605ca5818b16550a29b756542ff006fa1a54313fdfb8543e14ef6774d6c5b49`
+  - `results/summary.json` `6f62d13a2ea3614ca5aad17f7d13ed7591895864bb7cdf5b5e22bbab6492a10e`
+  - `run_prediction.py` `42eacbffbfdfcb5a11a6bd6d9c419f8b33c6a1afbe9a2be3a62056fc881ec8de`
+- 担当が報告した未解決の点（予測の値は変えない）: `lock.dsc1.sup.n_slip` が −π/2 の傾きで偽のスリップを数える。安定判定と時間ループが LHS の 6 点で食い違う（高 Q の 2 点は安定と判定されたが時間ループで振動、原因は未特定）。プリセットの掃引軸は 37 ではなく 32。
+- 次: ユーザの実測データを受け取ってから `blind/ref_d_targets.md` を開き、調整なしで比較する（PLAN §6.5）。
