@@ -1,0 +1,11 @@
+# Bench configuration (d) of D85-12 (axis 1, D84-2): the Ref D lab interferometer as measured — refD_nominal with the lab
+# acoustic phase noise (lab/acoustic) and the multimode 914 → 915B response (lab/multimode915b) at the D89 calibration
+# point (points/refD_lab_point.yaml: main mode 25.2 kHz Q 25, side modes 5.4 kHz Q 15 r +0.11, 10 kHz Q 30 r +0.07,
+# 40.3 kHz Q 100 r +0.15; acoustic scale 1, γ = 1). A single point: `python -m cranberry run`.
+# NOT blind (D89): the calibration used the Ref D measurement after the blind comparison; refD_nominal and the frozen
+# prediction (predictions/refD/) are unchanged. Gain margin at this point ≈ 3.3 dB at 5.41 kHz (D89-4).
+# The controller is the DSC1 itself (Ref D's own); refD's check already runs the dsc1 law (D82).
+extends: refD_nominal
+
+preset: refD_lab
+overlays: [lab/acoustic, lab/multimode915b, points/refD_lab_point.yaml]

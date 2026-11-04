@@ -18,6 +18,7 @@ on the stretcher (as coded / as a path-length stretcher) or on the TEC, and comp
 the formulas. Part 3 sizes the residual per port length and over the swept k_T, κ_τ and an assumed phase index n.
 Usage: uv run python reviews/scripts/p6_p4a_check.py
 """
+import dataclasses
 import math
 from pathlib import Path
 
@@ -115,4 +116,62 @@ for L in (63.0, 317.0, 1060.0, 1268.0, 2100.0):
     code = 2 * math.pi * 1e12 * 39e-15 * L
     lo, hi = (2 * math.pi * 1e12 * min(Rs) * L, 2 * math.pi * 1e12 * max(Rs) * L)
     print(f"  L = {L:6.0f} m: code (phase-only) {code:7.1f} rad/K; path-length {lo:+7.1f} … {hi:+7.1f} rad/K")
+# ---------------------------------------------------------------- part 4: probe/actuator_pathlength (D85-9, D86)
+
+
+def find(node, name):
+    """The BlockSpec ``name`` anywhere in a pipeline spec tree."""
+    if getattr(node, "name", None) == name and hasattr(node, "params"):
+        return node
+    for fld in dataclasses.fields(node):
+        for ch in (v if isinstance(v := getattr(node, fld.name), tuple) else (v,)):
+            if dataclasses.is_dataclass(ch) and not isinstance(ch, type) and (r := find(ch, name)) is not None:
+                return r
+    return None
+
+
+# The overlay writes the probe rows g·1 (stretcher), g·k_ε·L (strain), g·(k_T + 2πΔν·R)·L (dT, tec) with R an axis of its
+# own (bias_model R / R_prime) or the bad implicit κ_τ − f·k_T/ω0, and the fringe-hop step 2π/(g·K_pzt). Checks: resolved
+# coefficients; the ideal static lock through the path model leaves exactly −2πΔν·L·R per kelvin (stretcher), 0 (TEC),
+# 0 for strain; a hop moves the probe by 2π and the squeezed light by 2π/g (bias 2π(1/g − 1) ≈ −2π·f·Δν/ν0).
+print("\nprobe/actuator_pathlength: residual per kelvin on the squeezed light (port k, ideal static lock) [rad/K]")
+print(f"{'Δν':>10s} {'model':>18s} {'R [ps/(km K)]':>14s} {'g − 1':>10s} {'stretcher':>12s} {'−2πΔνLR':>12s} {'TEC':>8s}"
+      f" {'strain':>8s} {'hop bias':>10s}")
+for ov in ("freq_80MHz", "freq_7GHz", "freq_100GHz", "freq_1THz"):
+    base = config.load(ROOT / "presets/future/F_liu20_nominal.yaml",
+                       overlays=["probe/pol_same", f"probe/{ov}", "probe/actuator_pathlength"])
+    for model in ("R", "R_prime", "implicit_kT_kappa"):
+        spec = expand(base, {"offline.params.bias_model": [model]})[0].spec   # other axes at their first (nominal) value
+        p = spec.offline["params"]
+        c = {(k.driver, k.beam): v for k, v in as_topology(spec.topology).coef.items() if k.segment == "F1" and k.effect == "phase"}
+        dnu, L, g, R = p["probe_freq_offset_hz"], p["L_k_m"], p["pl_g"], p["R_bias_s_per_m_K"]
+        nu0 = C / p["lambda0_m"]
+        f = p["n_g"] / p["n_phase"] if model == "R" else 1.007
+        R_want = {"R": 3.0e-16, "R_prime": 5.6e-16}.get(model, p["kappa_tau_s_per_m_K"] - f * p["k_T_rad_per_m_K"] / (2 * math.pi * nu0))
+        assert math.isclose(R, R_want, rel_tol=1e-12) and math.isclose(g, 1 + f * dnu / nu0, rel_tol=1e-15)
+        assert c[("stretcher", "pr1")] == g and c[("stretcher", "sqz1")] == 1.0
+        assert math.isclose(c[("strain", "pr1")], g * c[("strain", "sqz1")], rel_tol=1e-12)
+        assert c[("tec", "pr1")] == c[("dT", "pr1")] and c[("tec", "sqz1")] == c[("dT", "sqz1")]
+        c_s, c_r = c[("dT", "sqz1")], c[("dT", "pr1")]
+        r_st, pr_st = run(c_s, c_r, 1.0, g, c_s, c_r, dnu, "stretcher")
+        r_tec, pr_tec = run(c_s, c_r, 1.0, g, c_s, c_r, dnu, "tec")
+        r_eps, pr_eps = run(c[("strain", "sqz1")], c[("strain", "pr1")], 1.0, g, 0.0, 0.0, dnu, "stretcher")
+        want = -2 * math.pi * dnu * L * R
+        for pr in (pr_st, pr_tec, pr_eps):
+            assert abs(pr) < 1e-9 * abs(c_r)
+        assert math.isclose(r_st, want, rel_tol=1e-6, abs_tol=1e-9 * abs(c_s))
+        assert abs(r_tec) < 1e-9 * abs(c_s) and abs(r_eps) < 1e-9 * abs(c[("strain", "sqz1")])
+        if model == "implicit_kT_kappa":   # = the code's freq_* stretcher with a path-length coefficient, to O(Δν/ν)
+            assert math.isclose(c_r, (p["k_T_rad_per_m_K"] + 2 * math.pi * dnu * p["kappa_tau_s_per_m_K"]) * L,
+                                rel_tol=2 * (dnu / nu0) ** 2 * 1e3 + 1e-12)
+        # fringe hop: the supervisor steps the stretcher by u_2pi·K_pzt = 2π/g [rad of the squeezed light]
+        u2pi_rad = find(spec.pipeline, "sup1").params["u_2pi_v"] * p["pzt_k_rad_per_v"]
+        assert math.isclose(u2pi_rad, 2 * math.pi / g, rel_tol=1e-12)
+        assert math.isclose(c[("stretcher", "pr1")] * u2pi_rad, 2 * math.pi, rel_tol=1e-15)   # the probe: one fringe
+        hop = c[("stretcher", "sqz1")] * u2pi_rad - 2 * math.pi
+        assert math.isclose(hop, p["hop_bias_rad"], rel_tol=1e-9)
+        assert math.isclose(hop, -2 * math.pi * f * dnu / nu0, rel_tol=2 * f * dnu / nu0 + 1e-12)   # Pittaluga 2πΔν/ν0 × f
+        print(f"{dnu:10.3g} {model:>18s} {R * 1e15:14.3f} {g - 1:10.3e} {r_st:12.4e} {want:12.4e} {r_tec:8.1e} {r_eps:8.1e}"
+              f" {hop:10.3e}")
+
 print("\nall checks passed")

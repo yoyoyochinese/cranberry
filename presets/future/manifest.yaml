@@ -42,6 +42,10 @@ overlays_all:
   - probe/detect_heterodyne
   - probe/detect_dither
   - probe/actuator_downstream
+  - probe/actuator_pathlength                      # Phase 6 WP6-X (D85-9, D86): no-op without a probe/freq_* overlay
+  - probe/bad_kT_kappa_independent                 # Phase 6 WP6-X (D86): bad config, meant after actuator_pathlength
+  - probe/two_tone                                 # Phase 6 WP6-X (P8, D85-15)
+  - probe/detect_heterodyne_refshift               # Phase 6 WP6-X item 4
   - largerange/pzt_only
   - largerange/spool_temp
   - largerange/fringe_hop
@@ -84,6 +88,11 @@ combinations:
   - {base: F_wg6, overlays: [path_build/MF, demux/pockels_chain, controller/moku_delta]}
   - {base: F_liu20, overlays: [demux/passive_loops, probe/detect_after_demux]}
   - {base: F_liu20, overlays: [source/single_mode, largerange/pzt_only, largerange/fringe_hop]}
+  - {base: F_liu20, overlays: [probe/pol_same, probe/freq_1THz, probe/actuator_pathlength, largerange/fringe_hop]}
+  - {base: F_liu20, overlays: [probe/freq_1THz, probe/actuator_pathlength, probe/bad_kT_kappa_independent]}
+  - {base: F_liu20, overlays: [probe/freq_1THz, probe/detect_heterodyne_refshift]}
+  - {base: F_liu20, overlays: [probe/detect_heterodyne_refshift, probe/freq_1THz]}
+  - {base: F_wg6, overlays: [demux/none, probe/two_tone]}
 
 # deliberately bad configurations (00_summary §2.5; each file states what it demonstrates)
 bad: [bad_all_fiber_NF, bad_ln_switch_tree, bad_mw_probe_samepol, bad_orth_pm_no_tec, bad_smf_orth, bad_bor_100MHz,

@@ -1,0 +1,34 @@
+# Bench axis (D85-12 (a), D85-1): table-shaped lab acoustic noise on the fibres of bench/refA_fiber (apply after it;
+# the `mech` leaf lives inside the seq that bench/refA_fiber puts in place of refA's `mech`). The lab/acoustic
+# equivalent for Ref A-type benches: the same measured table, split rule and axes.
+#
+# PROVENANCE: copied from presets/axes/lab/acoustic.yaml (calibrated on the Ref D measurement after the blind comparison,
+# D81, D85-1, D89-3; tests/integration/test_p6_bench.py checks the two tables stay equal). The table is the measured
+# two-arm phase PSD of Ref D's fibre interferometer on our lab table at L_ref = 13.2 m of fibre; outside 100 Hz–3 kHz
+# it is extrapolated (lab/acoustic header). Here it applies per segment of the block (PR 5 m, LO 5 m (+ L), SQ = L):
+# γ = 1: S_i = (L_i/13.2 m)·T, γ = 0: T/2 per segment (lab/acoustic split rule). Using a Ref D calibration for a Ref
+# A-type bench assumes the same table, fibre jackets and lab: an assumption, which acoustic_scale (0.1–10×) covers.
+offline:
+  params:
+    acoustic_scale: !sweep_log [0.1, 10.0, 5]   # amplitude axis, 1 = the Ref D calibration (D85-1)
+    acoustic_gamma: !choice [0.0, 1.0]          # 0: length-independent pickup, 1: ∝ L (lab/acoustic split rule)
+    acoustic_L_ref_m: 13.2                      # L_a1 + L_a2 at refD_nominal (lab/acoustic)
+    acoustic_arm_scale: !expr "acoustic_scale * (0.5 if acoustic_gamma == 0 else 1.0)"
+pipeline:
+  - name: mech
+    seq:
+      - name: mech
+        params:
+          mech_shape: table
+          gamma: !expr "offline.params.acoustic_gamma"
+          L_ref_m: !expr "offline.params.acoustic_L_ref_m"
+          psd_table:                            # [f_hz, S_rad2_hz] at L_ref (lab/acoustic; measured 100 Hz – 3 kHz)
+            - [10.0, !expr "offline.params.acoustic_arm_scale * 6.32e-4"]     # assumption: f^−1.5 below 100 Hz
+            - [100.0, !expr "offline.params.acoustic_arm_scale * 2.0e-5"]     # COMPARISON §3 (A)
+            - [300.0, !expr "offline.params.acoustic_arm_scale * 3.6e-6"]     # COMPARISON §3 (A)
+            - [1000.0, !expr "offline.params.acoustic_arm_scale * 6.7e-7"]    # COMPARISON §3 (A)
+            - [3000.0, !expr "offline.params.acoustic_arm_scale * 9.0e-8"]    # COMPARISON §3 (A)
+            - [30000.0, !expr "offline.params.acoustic_arm_scale * 9.0e-10"]  # assumption: f^−2 above 3 kHz
+          table_f_min_hz: 10.0
+          table_f_max_hz: 30000.0               # ≪ f_N = 10 MHz (refA f_sim 20 MHz)
+          table_per_decade: 4

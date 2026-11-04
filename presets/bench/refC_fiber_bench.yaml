@@ -1,0 +1,7 @@
+# Bench configuration (b) of D85-12 (axis 1, D84-2): Ref C-type CW OPO at refC_nominal with bench fibre lengths 1–100 m
+# and no conduit (presets/axes/bench/refC_fiber.yaml has what is added and why). Open axis: L_fiber_m (5, log): run with
+# `python -m cranberry sweep`. Controller variants: --overlay bench/dsc1_refC | bench/moku_delta_refC.
+extends: refC_nominal
+
+preset: refC_fiber_bench
+overlays: [bench/refC_fiber]

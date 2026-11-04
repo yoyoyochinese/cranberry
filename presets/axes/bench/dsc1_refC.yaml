@@ -1,0 +1,89 @@
+# Bench controller axis (D85-12): Ref C's three stacked PIDs (EOM → piezo mirror → stretcher) on Thorlabs DSC1 units.
+# The DSC1 has one input and one output (DSC1 p.1–2): a stack of three needs three units chained through their analogue
+# outputs (unit k reads unit k − 1's output), as controller/dsc1.yaml assumes for F_common's two stages. Applies to
+# refC / refC_nominal and + bench/refC_fiber. refC's own controller is fpga_generic (Moku:Pro stand-in, D25).
+#
+# Ref C's 1 MHz dither and its demodulation cannot run on the DSC1 (internal modulation 100 Hz–100 kHz, input band
+# 120 kHz; DSC1 p.2, p.8): the dither generator, envelope detector and demodulator stay external (refC's analogue
+# `qnl` / `dem` blocks in front of the ADC). With refC's EOM loop at 1.73 kHz (refC_nominal) the DSC1's speed is not
+# the limit (gain margin in chk.lockC_stability; tests/integration/test_p6_bench.py).
+#
+# What this overlay changes (refC's loop gains untouched):
+#   * adc: DSC1 ADC (16 bit, ±4 V; DSC1 p.2). avg_samples 1 (the 2-point average is inside τ_L).
+#   * pid1–pid3: DSC1 law (device dsc1, DSC1 p.19) at 500 kHz: rate_div = f_sim·h (h = 2 µs, DSC1 p.20); dac1–dac3: 12 bit,
+#     ±4 V, 220 Ω (DSC1 p.2), same update. The DSC1's ±4 V output gives the EOM ±π at U_π = 4 V (refC's ±0.5 V gave
+#     ±0.39 rad): eom_range_v = out_range_v = 4 (the mirror / stretcher ranges stay those of refC in rad at full scale).
+#   * dl1–dl3: τ_L = 8.3 µs (T15 §2.7(b) pure-delay form, dsc1.yaml loop.latency_s) − 1/f_sim (D55-1) − the modelled hold
+#     (rate_div − 1)/(2 f_sim) (D61-2). latency_s is fixed to 8.3 µs (refC's 0.25–2 µs choice is the FPGA's).
+#   * chk.lockC_stability: discretisation dsc1, h = 2 µs on every controller (D82 lesson, D89-5); refC's stage list is
+#     unkeyed, so it is restated with the same entries plus the discretisation.
+offline:
+  params:
+    latency_s: 8.3e-6               # DSC1 loop latency, pure-delay form (T15 §2.7(b), dsc1.yaml loop.latency_s)
+    dac_bits: 12                    # DSC1 p.2
+    eom_range_v: 4.0                # DSC1 ±4 V output (D35 CV limits) into the EOM drive
+    out_range_v: 4.0                # DSC1 ±4 V output for the mirror / stretcher channels
+    ctl_h_s: 2.0e-6                 # DSC1 update period (DSC1 p.20, p.2: 500 kHz)
+    ctl_rate_div: !expr "floor(run.f_sim_hz * ctl_h_s + 0.5)"   # 8 at refC's 4 MHz
+    ctl_hold_s: !expr "(ctl_rate_div - 1) / (2 * run.f_sim_hz)"  # modelled ZOH of the 500 kHz update (D61-2)
+  blocks:
+    - name: chk.lockC_stability
+      params:
+        discretisation: dsc1
+        h_s: !expr "offline.params.ctl_h_s"
+        stages: !replace
+          - kp: 0.0                      # pid2 → piezo mirror (refC.yaml, unchanged)
+            ki_per_s: !expr "2 * pi * offline.params.f_12_hz * (pi / offline.params.v_pi_v) / (offline.params.mirror_range_rad / offline.params.out_range_v)"
+            kd_s: 0.0
+            k_act: !expr "(offline.params.mirror_range_rad / offline.params.out_range_v) / (pi / offline.params.v_pi_v)"
+            poles_hz: []
+            modes: [{f_hz: !expr "offline.params.mirror_f_res_hz", q: !expr "offline.params.mirror_q"}]
+            discretisation: dsc1
+            h_s: !expr "offline.params.ctl_h_s"
+          - kp: 0.0                      # pid3 → fibre stretcher (refC.yaml, unchanged)
+            ki_per_s: !expr "2 * pi * offline.params.f_23_hz * (offline.params.mirror_range_rad / offline.params.stretcher_range_rad)"
+            kd_s: 0.0
+            k_act: !expr "(offline.params.stretcher_range_rad / offline.params.out_range_v) / (pi / offline.params.v_pi_v)"
+            poles_hz: []
+            modes: []
+            discretisation: dsc1
+            h_s: !expr "offline.params.ctl_h_s"
+pipeline:
+  - name: adc
+    params: {device: dsc1, bits: 16, range_v: [-4.0, 4.0]}
+  - name: lockC.stack
+    stack:
+      stages:
+        - name: pid1
+          rate_div: !expr "offline.params.ctl_rate_div"
+          params: {device: dsc1, discretisation: dsc1}
+        - name: pid2
+          rate_div: !expr "offline.params.ctl_rate_div"
+          params: {device: dsc1, discretisation: dsc1}
+        - name: stage3
+          seq:
+            - name: pid3
+              rate_div: !expr "offline.params.ctl_rate_div"
+              params: {device: dsc1, discretisation: dsc1}
+      actuators:
+        - name: act1
+          seq:
+            - name: dac1
+              rate_div: !expr "offline.params.ctl_rate_div"
+              params: {device: dsc1, r_out_ohm: 220.0}
+            - name: dl1
+              params: {tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz - offline.params.ctl_hold_s"}
+        - name: act2
+          seq:
+            - name: dac2
+              rate_div: !expr "offline.params.ctl_rate_div"
+              params: {device: dsc1, range_v: [-4.0, 4.0], r_out_ohm: 220.0}
+            - name: dl2
+              params: {tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz - offline.params.ctl_hold_s"}
+        - name: act3
+          seq:
+            - name: dac3
+              rate_div: !expr "offline.params.ctl_rate_div"
+              params: {device: dsc1, range_v: [-4.0, 4.0], r_out_ohm: 220.0}
+            - name: dl3
+              params: {tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz - offline.params.ctl_hold_s"}

@@ -1,0 +1,19 @@
+# The D89 calibration point of lab/acoustic + lab/multimode915b on refD_nominal (overlay; applied last by
+# presets/bench/refD_lab.yaml, so it pins the axes those overlays open — a file's own keys would be overwritten by its
+# own overlays, F_common_nominal header). NOT blind: fitted on the Ref D measurement after the blind comparison
+# (D81, D85-1, D89-4; reviews/scripts/p6_ab_check.py, docs/figures/phase6/refD_lab_calibration.png). D53 gains untouched.
+offline:
+  params:
+    acoustic_scale: 1.0          # the Ref D calibration itself (lab/acoustic)
+    acoustic_gamma: 1.0          # pickup ∝ fibre length (D89-3 照合 point)
+    f_res_hz: 2.52e+4            # main 915B mode (D89-4)
+    q_res: 25.0                  # D89-4 (time-loop fit; an analytic fit wants ≈ 93, lab/multimode915b header)
+    mm2_f_hz: 5.4e+3             # side mode near 5.3 kHz (D89-4)
+    mm2_q: 15.0
+    mm2_r: 0.11                  # the 5.3 kHz bump height is very sensitive to r (0.08 → 8, 0.10 → 21, ≥ 0.15 unstable, D89-4)
+    mm3_f_hz: 1.0e+4             # side mode near 10 kHz (D89-4)
+    mm3_q: 30.0
+    mm3_r: 0.07
+    mm4_f_hz: 4.03e+4            # side mode near 40 kHz (D89-4)
+    mm4_q: 100.0
+    mm4_r: 0.15

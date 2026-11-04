@@ -1,0 +1,72 @@
+# Probe axis (D85-9, D86; P4 (a), lit-svarc2023 §5): the port stretchers act as PATH-LENGTH actuators on a probe at a
+# different optical frequency, and the thermal bias of such a proxy is set by its own coefficient R. Apply AFTER a
+# probe/freq_* overlay (this file rewrites the same probe dT / tec coefficient ids; the later overlay wins); with
+# probe_freq_offset_hz = 0 every row reduces to the wildcard value (no-op).
+#
+# Physics (lit-svarc2023 §5.1, fact-p6-thermo-optic-moku §1; Δν = ν_r − ν_s = probe_freq_offset_hz, ν0 = c/λ0, ω0 = 2πν0):
+#   * a strain / stretcher changes the optical path, so its phase on the probe is g = g_r/g_s = 1 + f·Δν/ν0 times the
+#     squeezed light's, f = n_g/n + ω∂lnξ/∂ω. bias_model R_prime (and the bad implicit model) take f = 1.007 (with the
+#     strain-optic dispersion ω∂lnξ/∂ω, fact note §1 [AE]: the R′ choice of D86); bias_model R takes f = n_g/n (ξ
+#     dispersion neglected, lit-svarc2023 §5.1 (a)). Probe rows: stretcher g·1, strain g·k_ε·L (strain and stretcher
+#     scaled together, so acoustic noise still cancels exactly; lit-svarc2023 §5.2 point 5).
+#   * holding the probe with a path-length actuator leaves on the squeezed light δφ_s = −2πΔν·L·R·δT (first order;
+#     α cancels). R is an axis of its own (D86): the probe dT / tec rows are written as c_r = g·(k_T + 2πΔν·R)·L, which
+#     gives exactly c_s − c_r/g = −2πΔν·L·R per kelvin for the stretcher lock and 0 for the TEC (same coefficient as the
+#     environment, svarc §5.1 (c)). This REPLACES the implicit difference of the independently chosen k_T and κ_τ that
+#     probe/freq_* write ((k_T + 2πΔν·κ_τ)·L, i.e. R_implicit = κ_τ − f·k_T/ω0 ≈ +2.6 ps/(km·K) at the nominal 44 / 39,
+#     outside what the glass data allow, D86).
+#   * fringe_hop resets (largerange/fringe_hop): the supervisor jumps by the probe's 2π, u_2pi = 2π/(g·K_pzt), so the
+#     loop re-acquires the same probe fringe and the squeezed light moves by 2π/g: a bias of 2π(1/g − 1) ≈ −2π·f·Δν/ν0
+#     per hop (Pittaluga 2021's 2πΔν/ν0 reset bias, × f ≈ 1.007 for a stretcher; lit-pittaluga2021 §4.2(3)) in the hop
+#     direction; `hop_bias_rad` records it.
+#
+# Named BAD configuration (D86, recorded only): bias_model implicit_kT_kappa with k_T and κ_τ swept independently
+# (probe/bad_kT_kappa_independent.yaml adds the κ_τ axis): R then spans about 10× the glass-data range and changes sign
+# over the grid (lit-svarc2023 §5.3): physically inconsistent, kept for comparison (D34).
+# Check: reviews/scripts/p6_p4a_check.py part 4 (coefficients and an ideal static lock through the path model).
+offline:
+  params:
+    n_phase: 1.444                  # phase index n (not n_g): fused silica at 1550 nm [AE], lit-svarc2023 §5.2 / p6_p4a_check
+                                    # N_PHASE; UNVERIFIED for the fibre's effective index
+    bias_model: !choice [R, R_prime, implicit_kT_kappa]   # D86: R nominal, R′ alternative, implicit = bad (header)
+    R_s_per_m_K: !choice [3.0e-16, -5.0e-16, 0.0, 9.0e-16, 1.5e-15]   # D86 / fact §1: +0.3 ps/(km·K) nominal, −0.5…+1.5
+                                    # (sign undetermined); used when bias_model = R
+    R_prime_s_per_m_K: !choice [5.6e-16, 0.0, 1.2e-15]    # D86 / fact §1: R′ = +0.56 (0.0…+1.2); used when bias_model = R_prime
+    nu0_hz: !expr "299792458.0 / lambda0_m"
+    pl_f_disp: !expr "n_g / n_phase if bias_model == 'R' else 1.007"   # f of g = 1 + f·Δν/ν0 (header; fact §1 [AE])
+    pl_g: !expr "1.0 + pl_f_disp * probe_freq_offset_hz / nu0_hz"     # g_r/g_s of the probe beams
+    R_bias_s_per_m_K: !expr "R_s_per_m_K if bias_model == 'R' else (R_prime_s_per_m_K if bias_model == 'R_prime' else kappa_tau_s_per_m_K - pl_f_disp * k_T_rad_per_m_K / (2 * pi * nu0_hz))"
+    hop_bias_rad: !expr "2 * pi * (1.0 / pl_g - 1.0)"                 # squeezed-light shift per fringe hop (header)
+topology:
+  coef:
+    - {id: F0.stretcher.pr0.phase, segment: F0, driver: stretcher, beam: pr0, effect: phase, value: !expr "offline.params.pl_g"}
+    - {id: F1.stretcher.pr1.phase, segment: F1, driver: stretcher, beam: pr1, effect: phase, value: !expr "offline.params.pl_g"}
+    - {id: F0.strain.pr0.phase, segment: F0, driver: strain, beam: pr0, effect: phase,
+       value: !expr "offline.params.pl_g * offline.params.k_eps_rad_per_m * offline.params.L_0_m"}
+    - {id: F1.strain.pr1.phase, segment: F1, driver: strain, beam: pr1, effect: phase,
+       value: !expr "offline.params.pl_g * offline.params.k_eps_rad_per_m * offline.params.L_k_m"}
+    - {id: F0.dT.pr0.phase, segment: F0, driver: dT, beam: pr0, effect: phase,
+       value: !expr "offline.params.pl_g * (offline.params.k_T_rad_per_m_K + 2 * pi * offline.params.probe_freq_offset_hz * offline.params.R_bias_s_per_m_K) * offline.params.L_0_m"}
+    - {id: F0.tec.pr0.phase, segment: F0, driver: tec, beam: pr0, effect: phase,
+       value: !expr "offline.params.pl_g * (offline.params.k_T_rad_per_m_K + 2 * pi * offline.params.probe_freq_offset_hz * offline.params.R_bias_s_per_m_K) * offline.params.L_0_m"}
+    - {id: F1.dT.pr1.phase, segment: F1, driver: dT, beam: pr1, effect: phase,
+       value: !expr "offline.params.pl_g * (offline.params.k_T_rad_per_m_K + 2 * pi * offline.params.probe_freq_offset_hz * offline.params.R_bias_s_per_m_K) * offline.params.L_k_m"}
+    - {id: F1.tec.pr1.phase, segment: F1, driver: tec, beam: pr1, effect: phase,
+       value: !expr "offline.params.pl_g * (offline.params.k_T_rad_per_m_K + 2 * pi * offline.params.probe_freq_offset_hz * offline.params.R_bias_s_per_m_K) * offline.params.L_k_m"}
+pipeline:
+  - name: lock0.stack
+    stack:
+      stages:
+        - name: stage0f
+          seq:
+            - name: sup0
+              params:
+                u_2pi_v: !expr "2 * pi / (offline.params.pl_g * offline.params.pzt_k_rad_per_v)"   # the probe's 2π (header)
+  - name: lock1.stack
+    stack:
+      stages:
+        - name: stage1f
+          seq:
+            - name: sup1
+              params:
+                u_2pi_v: !expr "2 * pi / (offline.params.pl_g * offline.params.pzt_k_rad_per_v)"

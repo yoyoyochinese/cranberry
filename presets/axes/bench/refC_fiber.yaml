@@ -1,0 +1,37 @@
+# Bench axis (D84-2 axis 1, D85-12 (b)): Ref C-type CW OPO with bench fibre lengths. Base: refC / refC_nominal; refC is
+# unchanged (D34). Named runnable form: presets/bench/refC_fiber_bench.yaml.
+#
+# What refC already offers (checked): both 1 km SMF links are built from `L_fiber_m` (squeezed SQF_*, LO LOF_*, LO
+# longer by dL_m), the LO travels through its own matched fibre, the three-stage EOM → piezo mirror → stretcher lock,
+# fibre temperature (conduit + spools) and acoustics (conduit + spools) on both fibres, and the fibre link loss
+# `eta_fiber_link`. What is missing for a bench, and added here only:
+#   * L_fiber_m as a bench axis 1–100 m (log) instead of the fixed 1 km [Ref C §2].
+#   * no conduit: L_deployed_m = 0 (the whole fibre is spooled on the lab table, zone spool_*); the conduit thermal
+#     block is switched off and the conduit acoustic block is replaced by zero writers of the two (zero-length) strain
+#     drivers (segment_mech_noise cannot take L = 0).
+#   * eta_fiber_link scaled to the bench length: refC's 0.79/0.85 = 0.9294 [Ref C §3, Fig. 5 fit] contains in/out
+#     coupling AND 1 km at 0.2 dB/km [Ref C §2–§4]; the coupling part is 0.9294 / 10^(−0.02) = 0.973 [AE: split
+#     assumed multiplicative], times 10^(−0.2 dB/km · L/10).
+# Kept from refC (recorded): SMF (not PM) fibres, the spool acoustics and their Fig. 2-constrained low-frequency corner
+# mech_f_lo_hz (refC_nominal; a property of Ref C's link, an assumption for a bench), the laser (h0 axis; enters
+# through dL_m and the OPO detuning), the 1 MHz dither and the generic-FPGA controller (Moku:Pro stand-in; bench
+# controllers: bench/dsc1_refC.yaml, bench/moku_delta_refC.yaml). The table-shaped lab acoustics (lab/acoustic) is not
+# provided for refC: its spool block already carries refC's own axes (h_ref_spool, mech_f_c, mech_f_lo).
+#
+# Lab apparatus (D85-12): Ref C runs at 1550 nm with an unspecified laser, SHG 775 nm and a monolithic ppKTP OPO; our
+# bench has the DX1 (1548.8 nm, h0 = 2.55e4, D35) and no OPO / SHG. refC's h0 axis (64–1e4) does not reach the DX1;
+# with dL_m = 0 the laser enters only through the OPO detuning lag (≈ 0.14 ns, refC header) and stays small.
+offline:
+  params:
+    L_fiber_m: !sweep_log [1.0, 100.0, 5]      # D85-12 (b): bench fibre per link 1–100 m (refC: 1 km [Ref C §2])
+    L_deployed_m: 0.0                          # bench: no conduit (header)
+    eta_fiber_link: !expr "0.9294118 / 10 ** (-0.2 / 10) * 10 ** (-0.2e-3 * L_fiber_m / 10)"   # header [AE] split
+pipeline:
+  - name: env.thermal.conduit
+    params:
+      toggles: {drift: false}
+  - !replace                           # no conduit fibre (L = 0: segment_mech_noise divides by L): its strain drivers held at 0
+    name: env.mech.conduit
+    seq:
+      - {block: adder, name: env.mech.conduit.sq0, params: {ins: [t], gains: [0.0], out: drv.SQF_dep.strain, unit: "1"}}
+      - {block: adder, name: env.mech.conduit.lo0, params: {ins: [t], gains: [0.0], out: drv.LOF_dep.strain, unit: "1"}}

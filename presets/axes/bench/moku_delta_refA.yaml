@@ -1,0 +1,60 @@
+# Bench controller axis (D85-12): Ref A's two locks on a Liquid Instruments Moku:Delta PID Controller (4 PIDs, Moku
+# p.64–65; both locks on one instrument). Applies to refA and refA + bench/refA_fiber. presets/axes/controller/
+# moku_delta.yaml is the F_common version. refA's own controller (fpga_generic) already takes its ±0.5 V ranges from
+# the Moku:Delta (T16 §4.5), so this overlay changes only:
+#   * devices and DAC resolution: 14 bit (Moku p.7); ADC 16 bit equivalent ±0.5 V (as controller/moku_delta).
+#   * PID law Tustin at f_sim (the PID update rate is not stated, Moku p.64–65: UNVERIFIED; as controller/moku_delta).
+#   * loop latency τ_L = 0.21 µs (moku_delta.yaml loop.latency_s: Moku p.65 "400 kHz with a phase delay of 30°" →
+#     ≤ 0.21 µs, an upper bound [AE]) in place of refA's 1 µs (fpga_generic 0.1–2 µs), never below 1/f_sim (D55-1).
+#   * Stability checks chk.lock1_stability / chk.lock2_stability (continuous law: Tustin at h = 1/f_sim = 50 ns is within
+#     (ωh)²/12 of it, D89-5), delay τ_L + 0.5/f_sim (DAC hold, F_common's form), demodulator low pass as a pole.
+# The 2 MHz / 1 MHz demodulation could run inside the Moku (Lock-in Amplifier / Laser Lock Box, fact-p6-thermo-optic-moku
+# §2), but the PID Controller instrument has none (Moku p.64–65): refA's analogue demodulators stay in front of it.
+# Whether the Moku reaches a Ref A-type MHz lock bandwidth: the 0.21 µs latency alone puts −180° of a pure I loop near
+# 1/(4τ) ≈ 1.2 MHz; with refA's demodulator low passes (500 / 250 kHz) the checks find −180° at 0.52 / 0.39 MHz (gain
+# margin ≈ 31 dB at refA's 20 kHz design, [AE]), so the controller is not the limit, the demodulator is.
+offline:
+  params:
+    ctl_latency_s: !expr "max(2.1e-7, 1.0 / run.f_sim_hz)"   # Moku p.65 → T16 §4.2 [AE] upper bound; ≥ 1/f_sim (D55-1)
+  blocks:
+    - block: loop_stability_check
+      name: chk.lock1_stability
+      params:
+        k0: !expr "0.08 * 4.95 * 2 * pi / 3.5"            # refA pid1 plant gain (denominator of its ki)
+        kp: 0.0
+        ki_per_s: !expr "pipeline.pid1.params.ki_per_s"
+        kd_s: 0.0
+        delay_s: !expr "offline.params.ctl_latency_s + 0.5 / run.f_sim_hz"
+        poles_hz: [!expr "pipeline.dem1.params.lpf_hz"]
+        modes: []
+        f_grid_hz: [1.0, 1.0e+9, 200001]
+        toggles: {enabled: true}
+    - block: loop_stability_check
+      name: chk.lock2_stability
+      params:
+        k0: !expr "1.0e4 * 2 * 1.2338 * sqrt(0.0154 * 1.6e-9) * pi / 3.5"   # refA pid2 plant gain
+        kp: 0.0
+        ki_per_s: !expr "pipeline.pid2.params.ki_per_s"
+        kd_s: 0.0
+        delay_s: !expr "offline.params.ctl_latency_s + 0.5 / run.f_sim_hz"
+        poles_hz: [!expr "pipeline.dem2.params.lpf_hz"]
+        modes: []
+        f_grid_hz: [1.0, 1.0e+9, 200001]
+        toggles: {enabled: true}
+pipeline:
+  - name: adc1
+    params: {device: moku_delta, bits: 16, range_v: [-0.5, 0.5]}
+  - name: pid1
+    params: {device: moku_delta, discretisation: tustin}
+  - name: dac1
+    params: {device: moku_delta, bits: 14, range_v: [-0.5, 0.5]}
+  - name: dl1
+    params: {tau_s: !expr "offline.params.ctl_latency_s - 1.0 / run.f_sim_hz"}
+  - name: adc2
+    params: {device: moku_delta, bits: 16, range_v: [-0.5, 0.5]}
+  - name: pid2
+    params: {device: moku_delta, discretisation: tustin}
+  - name: dac2
+    params: {device: moku_delta, bits: 14, range_v: [-0.5, 0.5]}
+  - name: dl2
+    params: {tau_s: !expr "offline.params.ctl_latency_s - 1.0 / run.f_sim_hz"}
