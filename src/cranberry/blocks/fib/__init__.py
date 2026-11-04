@@ -15,6 +15,8 @@ Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 * ``gawbs_table``
 * ``brillouin_table``
 * ``stray_light_table``
+* ``window_stray_light`` (Phase 6, D85-4)
+* ``forward_ref_stray_table`` (Phase 6, D85-4)
 * ``path_mode_transfer``
 * ``mode_overlap_table``
 * ``timing_state``
