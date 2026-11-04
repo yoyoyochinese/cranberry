@@ -756,7 +756,7 @@
   4. `probe/actuator_pathlength`: プローブの stretcher・strain に g = 1 + f·Δν/ν0、dT・tec に g(k_T + 2πΔνR)L、偏りの選択（R・R′・悪い implicit）、ホップの偏り 2π(1/g − 1)。`probe/bad_kT_kappa_independent` は悪い構成（R が −2.3〜+6.0 ps/(km·K) に振れる）。
   5. `probe/two_tone`（P8）: ±δν、2δν = m·f_rep/(N_b + n_guard)（m 偶数）の格子、軸 r と ΔL_0 の残り。時間ループの偏りは −atan(r tan E) と 1 mrad 以内で一致、格子上では全ポート共通で指標 (ii) で打ち消す。直交偏光のプローブの群複屈折は E に入っていない（Open）。
   6. `probe/detect_heterodyne_refshift`: AOM を参照側に置き、`probe/freq_*` とどちらの順でも組み合わせられる。既存の `probe/detect_heterodyne` は不変。`probe/freq_*` で参照が 0 Hz のままの既存の不整合は記録だけ。
-- 結果（Ref A ＋ファイバ、fpga_generic、3 seed、Phase 5 レビュー `reviews/phase6_wp6i_x.md` で修正済み）: σ_total は 1 / 10 / 100 m でファイバ整合 9.3 / 9.3 / 9.4 mrad（定常、t ≥ 15 ms。最初の版の 100 m の 10.9 はロック引き込みの過渡を含んでいた）、自由空間 9.0 / 6.0 / 20.6 mrad（最適は 17.8 m、フィルタキャビティの遅延の補償）。DSC1 では 0.3–1.0 mrad 悪い（refA の 20 kHz 設計に対して。K23 の MHz 級のループには届かない）。DX1 の線幅では遅延の項が約 400 倍（フィルタキャビティの項 156 mrad）。LO の遅延を合わせるのではなく、squeezed の経路をフィルタキャビティの遅延の約 0.7 倍長くする（±10 ns）とレーザーの項は 97 mrad。フィルタキャビティの再設計が主な要求。
+- 結果（Ref A ＋ファイバ、fpga_generic、3 seed、Phase 5 レビュー `reviews/phase6_wp6i_x.md` で修正済み）: σ_total は 1 / 10 / 100 m でファイバ整合 9.34 / 9.35 / 9.38 mrad（定常、t ≥ 15 ms。最初の版の 100 m の 10.9 はロック引き込みの過渡を含んでいた）、自由空間 9.01 / 5.92 / 20.54 mrad（最適は 17.8 m、フィルタキャビティの遅延の補償）。DSC1 では 0.3–0.9 mrad 悪い（refA の 20 kHz 設計に対して。K23 の MHz 級のループには届かない）。DX1 の線幅では遅延の項が約 400 倍（フィルタキャビティの項 156 mrad）。LO の遅延を合わせるのではなく、squeezed の経路をフィルタキャビティの遅延の約 0.7 倍長くする（±10 ns）とレーザーの項は 97 mrad。フィルタキャビティの再設計が主な要求。
 - レビューで確定: D93-5 の数値はすべて再現。D94-1〜6 の物理は正しい。`probe/two_tone` は直交偏光のプローブの群複屈折 b_g = 1.36 ps/m（と温度係数）が E に入っておらず、F_liu20 の 7 GHz でポートごとに E が 2.4 rad ずれる。修正まで「格子上で全ポート共通」は同じ偏光のプローブでだけ成り立つ。
 - 日付: 2026-11-04 / Phase 6
 
@@ -784,6 +784,16 @@
   8. D89-4 の修正: 当てはめた点での r の感度（解析）は 0.06 → 3.2、0.08 → 5.0、0.10 → 8.7、0.11 → 12.4、0.12 → 19.0、0.15 → 235（安定のまま）。実測の 25 kHz の |S|² は K_d に単調でない（7.0、15.4、13.6、9.1）が、モデルは 7.2、6.1、5.7。当てはめたモードは「実測と矛盾しない一例」で、一意な当てはめではない。主モードの Q = 25 は DAC のリミットサイクルを仮定し、副モード Q 5・r 0.34 も同じく実測と矛盾しない。915B の伝達関数の掃引で決める。
   9. 組み合わせ: F_liu20 で 15 の上書き用の設定の順序付きの 210 対のうち、186 対が正しい物理で組み立てられ、24 対が両方の名前を挙げて止まる（ゲート × ゲート、検出方式どうし、検出方式 × ゲート）。検出方式 × ゲートは結合した上書きが要る（未作成）。
   10. 残り: two_pole の f_N より上の二重計上（D34 で残す、Ref D で ≲ 1.3 mrad）、検出方式 ＋ ゲートの結合した上書き。
+- 日付: 2026-11-04 / Phase 6
+
+### D97 WP6-I・WP6-X の Phase 5 レビューの修正（`reviews/phase6_wp6i_x.md`）
+- 決定:
+  1. 安定化時間: ベンチの統計は t ≥ 15 ms から（smoke とテストは seed 1/2/3 と既定の seed）。ランナーは `measure.validity` の各スロットについて、指標の `t_settle_s` より前の張り付きの割合を `RunResult.validity_settle`（`validity.<slot>.settle_frac`）に記録し、> 0 で ChkWarning `validity_settle`（valid は変えない）。`bench/refA_fiber` は `ctrl.pid2.u`（EOM）と `ctrl.pid2s.u`（LO ストレッチャ、範囲の使い切りの検査、X-5）を validity に持つ。設定時間なしで回すと 100 m の seed 2・3 は valid = False になる（正しい印）。
+  2. フィルタキャビティの遅延補償: 最適は τ_lo − τ_sq = −ln2·τ_FC（h0 によらない）、自由空間では L = 17.8 m。squeezed − LO の遅延の選択肢 `sq_lo_offset`（as_built／zero／fc_opt／fc_opt ∓ 10 ns、遅延線 SQ_dl／LO_dl）、掃引の軸は `bench/refA_sq_lo_offset`（基の点の seed を変えないため別の上書き）。DX1 では 410 mrad（自由空間 100 m）→ 157（zero）→ 97（fc_opt）。主な要求はフィルタキャビティの再設計。
+  3. `probe/two_tone`: 格子はプローブの軸の群屈折率 n_g − c·b_g（このモデルの n_g は遅い軸、τ_fast = τ_slow − b_g L）で作る（7 GHz で +1.94 MHz）。b_g（1.36 ps/m）と K_τ（−1.78e−15 s/(m·K)）は出典付きのパラメータ、速い軸の遅延は参照側の等価遅延（`BGref0/1`）として E に入れる。同偏光の変種 `probe/two_tone_copol`、修正前の格子は悪い構成（`tt_grid_probe_axis: false`）。F_liu20 で E_0 = E_2 = E_31 = 0（修正前の格子では E_2 = 1.40、ポート 2 の偏り −0.85 rad）。誤差の符号は +b。
+  4. `probe/actuator_pathlength` の偏りのモデルと値は 1 本の選択の軸 `bias_case`（9 点、45 点の重複をなくした）。
+  5. 同定: `loop_margins` は最悪の −180° の交差（全交差を列挙）、粗い補間（位相の段 > 20° か共振の山）に印と CHK `ident_margin_coarse`、`SimController.measure_loop_gain(refine_n=)` で追加掃引。励起振幅が DAC の 4 LSB 未満で CHK `ident_amplitude_lsb`。`p7_literal` の保持は `ident_hold_f_hz` = 0.5/(2πτ_th)（ζ = 0.71、有効条件 f_hold ≤ 1/(2πτ_th)、f_12 に結び付けた旧値は悪い選択肢）。Moku の g は帯域全体の複素の g(f) として較正（ループを開いて PID 入力のモニタ／FRA の出力）、FRA のモードは In/Out。g の誤差は (1+L̂)/L̂ = (g′/g)(1+L)/L（|L| ≲ 1 で 9–13 %、|L| = 7 で −16 %）。
+  6. 残り: `ident/wire_F` の rate_div を D91-1（`controller/dsc1` の 500 kHz）に合わせる（I-7、ヘッダに TODO）。LO ストレッチャの 2π のリセットはモデル化していない（検査のみ）。
 - 日付: 2026-11-04 / Phase 6
 
 ## Open
