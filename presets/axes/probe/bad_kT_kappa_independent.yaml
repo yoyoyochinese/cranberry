@@ -1,0 +1,10 @@
+# Probe axis, BAD configuration (D86, recorded for comparison only, D34): the path-length proxy bias taken from the
+# independently chosen thermal coefficients k_T and κ_τ, with κ_τ swept on top of F_common's k_T axis (40–48 rad/(m·K)).
+# Apply after probe/freq_* and probe/actuator_pathlength. The implied R = κ_τ − f·k_T/ω0 then spans about −2.3…+6.0
+# ps/(km·K) over the grid (sign change included; lit-svarc2023 §5.3, fact-p6-thermo-optic-moku §1: ≈ 10× the
+# glass-data range R ≈ +0.3 ± 0.6), because k_T and κ_τ come from different fibres / coatings whose coating-strain
+# term cancels in R but not in each coefficient. Physically inconsistent: use bias_model R or R_prime instead.
+offline:
+  params:
+    bias_model: implicit_kT_kappa
+    kappa_tau_s_per_m_K: !sweep [3.74e-14, 3.9e-14, 2]   # 37.4 ps/(km·K) at 1535 nm (Slavík 2015 Fig. 3) / 39 (T08 §2.3)

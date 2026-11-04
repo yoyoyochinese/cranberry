@@ -1,0 +1,11 @@
+# Bench axis (D85-12 lab-apparatus constraint): the Ref A configuration with OUR laser's frequency noise instead of the
+# Koheras stand-in. Applies to refA and to refA + bench/refA_fiber. Only the white FM of the seed changes:
+#   Cobrite DX1 SC: FWHM 80 kHz typ → h0 = Δν/π = 2.546e4 Hz²/Hz (D35, conv §7; the refD_nominal value)
+# vs refA's 200/π = 63.7 (Koheras 0.2 kHz, T05 §2.3 stand-in, UNVERIFIED). Nothing else is re-evaluated: the wavelength
+# (1548.8 vs 1545.32 nm, 0.2 % on k_ε / k_T / ℜ), the filter cavity Δν_FC (refA's 3.3 MHz is tuned to θ ≈ 9 mrad and
+# fixes only h0/Δν_FC, D65-5), the 772 nm pump chain and the squeezer stay Ref A's. A comparison overlay, not a model of
+# a buildable bench: it shows the laser terms (π·h0/Δν_FC and 2π²h0·δτ, refA header) at our linewidth.
+pipeline:
+  - name: koheras
+    params:
+      h0_hz2_per_hz: 2.546e+4      # DX1 SC 80 kHz typ / π (D35, D51-9)

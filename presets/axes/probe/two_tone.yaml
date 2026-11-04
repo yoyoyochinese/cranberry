@@ -1,0 +1,173 @@
+# Probe axis P8 (D85-15; Luo et al. 2025, lit-luo2025 §1.5, §3.2–§4.1): the Liu probe and its reference become two tones at
+# ±δν about the squeezed carrier with (nominally) equal powers. Existing beams pr_k / ref_k carry the +δν tone, new beams
+# pr_km / ref_km the −δν tone; two `liu_probe_interferometer` blocks (one per tone, same detector) and an `adder` form the
+# detector signal, so no new block (D85-15). Not combined with probe/freq_* (this file sets probe_freq_offset_hz) nor with
+# probe/actuator_pathlength / sep_* / pol_same / detect_* (they rewrite pr_k / liu_k only, not the −δν beams).
+#
+#   v_k = K+ cos(X̄ + E) + K− cos(X̄ − E),   X̄ = (X+ + X−)/2,  E = 2πδν(τ_pr − τ_ref)  (static, beam_assembler 2π f_off τ_b)
+#       = (K+ + K−)[cos X̄ cos E − r sin X̄ sin E],  r = (K+ − K−)/(K+ + K−)
+#   ⇒ the lock (v = 0) holds X̄ = π/2 − atan(r·tan E): bias b = −atan(r tan E) ≈ −r·δk·ΔL (lit-luo2025 §3.2, sign of this
+#   model), and the fringe amplitude is cos E (loop gain; it flips sign at |E| = π/2).
+#
+# * Locks: the true lock quantity is the tone average X̄ (locks L0 / L1 combo ½(pr + pr_m) − ½(ref + ref_m)), which the
+#   static ±E cancel from: lock.L_k.err = −b at the lock.
+# * Powers: probe tones P± = P̄(1 ± r)²/(2(1 + r²)) (P+ + P− = P̄), reference tones P_ref/2 each, so K± ∝ (1 ± r) and the
+#   summed slope at r = 0 equals the single-tone liu_k_v (the PID gains and chk.lock_stability stay valid; ×1/√(1 + r²)
+#   at r ≠ 0). Each block carries its tone's powers, so the shot noise 2eℜ(P_ref + P̄/D) is counted once; the electronic
+#   noise only in the + block.
+# * δν grid (default): 2δν = m·f_rep/(N_b + n_guard) with m even (m = 2·round(δν_target·(N_b + n_guard)/f_rep)): then
+#   δk·(L_k − L_0) = π·m·port_k and every port sees the same E as port 0 (lit-luo2025 §3.3). tt_on_grid: false uses
+#   δν_target itself (port k then has its own E: the grid condition shown by violating it).
+# * ΔL_0 trim: one common trim on the probe source fibre PRsrc (common point 1, shared by all probes; the reference trunk
+#   REF is not used because the LO delivery shares it) set so that port 0's E = tt_dL0_detune_rad (mod 2π):
+#   tt_trim_m ∈ [0, c/(δν n_g)) from the nominal group delays of pr0 / ref0 (n_g·L, as Topology.timing). The axis
+#   tt_dL0_detune_rad is the residual δk·ΔL_0 after trimming (0 = trimmed; Luo re-trimmed every 15–30 min).
+# * Thermal: probe tones carry (k_T ± 2πδν·κ_τ)·L on F_k (as probe/freq_*); the ±δν terms of the 1–20 m distribution
+#   fibres are not written (as probe/freq_*: mrad/K, and they cancel between the tones at r = 0).
+# * Stray light: one table at |δν| with the total P̄ (a flat GBS filter is symmetric about the carrier, so ±δν at P̄/2
+#   each give the same total).
+# * Not modelled: the GVD term ½(2πδν)²β2L (a constant absorbed in the set point, lit-luo2025 §3.2), the fast-axis group
+#   birefringence of an orthogonal probe in E (Topology.timing uses n_g·L only: b_g·L_k·2πδν ≈ 75 rad at 7 GHz and
+#   1.27 km would spoil the grid condition unless the probe runs on the slow axis: an open physics point).
+offline:
+  params:
+    tt_dnu_target_hz: !choice [7.0e+9, 6.75e+8, 8.0e+7]   # 7 GHz: FSR / FBG-filterable (D40, D50 Borealis +7 GHz); 675 MHz:
+                                                          # Luo [L p.4]; 80 MHz: AOM class (single tone suffices, lit-luo2025 §3.2)
+    tt_on_grid: !choice [true, false]                     # default grid (header) / δν_target as is
+    tt_m: !expr "2 * floor(tt_dnu_target_hz * (N_b + n_guard) / f_rep_hz + 0.5)"   # even m
+    tt_dnu_hz: !expr "tt_m * f_rep_hz / (2 * (N_b + n_guard)) if tt_on_grid else tt_dnu_target_hz"
+    tt_r: !sweep [0.0, 0.2, 3]                            # tone (fringe-amplitude) imbalance r (D85-15: 0–0.2)
+    tt_dL0_detune_rad: !choice [0.0, 0.3, 0.785]          # δk·ΔL_0 left after the trim (0 = trimmed; 0.785 ≈ π/4)
+    probe_freq_offset_hz: !expr "tt_dnu_hz"               # +δν: pr0 / pr1 (F_common beams) and the stray table
+    tt_p_pr_plus_w: !expr "p_pr_avg_w * (1 + tt_r)**2 / (2 * (1 + tt_r**2))"
+    tt_p_pr_minus_w: !expr "p_pr_avg_w * (1 - tt_r)**2 / (2 * (1 + tt_r**2))"
+    tt_p_ref_tone_w: !expr "p_ref_w / 2"
+    tt_x0: !expr "tt_dnu_hz * ((n_g * (L_prsrc_m + L_prs_m + L_0_m) + 1.0003 * L_d_m) - n_g * (L_ref_m + L_refk_m)) / 299792458.0"
+    tt_trim_m: !expr "(1.0 - (tt_x0 - floor(tt_x0)) + tt_dL0_detune_rad / (2 * pi)) * 299792458.0 / (tt_dnu_hz * n_g)"
+    tt_bias_rad: !expr "-arctan(tt_r * tan(tt_dL0_detune_rad))"   # expected lock bias on grid (header), port 0 and k
+topology:
+  segments:
+    - {id: PRsrc, L_m: !expr "offline.params.L_prsrc_m + offline.params.tt_trim_m"}   # common ΔL_0 trim (header)
+  beams:
+    - {id: pr0, power_w: !expr "offline.params.tt_p_pr_plus_w"}
+    - {id: pr1, power_w: !expr "offline.params.tt_p_pr_plus_w"}
+    - {id: ref0, freq_offset_hz: !expr "offline.params.tt_dnu_hz", power_w: !expr "offline.params.tt_p_ref_tone_w"}
+    - {id: ref1, freq_offset_hz: !expr "offline.params.tt_dnu_hz", power_w: !expr "offline.params.tt_p_ref_tone_w"}
+    - {id: pr0m, source: laser, freq_offset_hz: !expr "-offline.params.tt_dnu_hz", jones_in: [1, 0],
+       power_w: !expr "offline.params.tt_p_pr_minus_w", observer: det0,
+       path: [{segment: PRsrc, direction: 1}, {segment: PRS0, direction: 1}, {segment: F0, direction: -1, axis: fast},
+              {segment: D0, direction: -1}]}
+    - {id: pr1m, source: laser, freq_offset_hz: !expr "-offline.params.tt_dnu_hz", jones_in: [1, 0],
+       power_w: !expr "offline.params.tt_p_pr_minus_w", observer: det1,
+       path: [{segment: PRsrc, direction: 1}, {segment: PRS1, direction: 1}, {segment: F1, direction: -1, axis: fast},
+              {segment: D1, direction: -1}]}
+    - {id: ref0m, source: laser, freq_offset_hz: !expr "-offline.params.tt_dnu_hz", jones_in: [1, 0],
+       power_w: !expr "offline.params.tt_p_ref_tone_w", observer: det0,
+       path: [{segment: REF, direction: 1}, {segment: REF0, direction: 1}]}
+    - {id: ref1m, source: laser, freq_offset_hz: !expr "-offline.params.tt_dnu_hz", jones_in: [1, 0],
+       power_w: !expr "offline.params.tt_p_ref_tone_w", observer: det1,
+       path: [{segment: REF, direction: 1}, {segment: REF1, direction: 1}]}
+  locks:
+    - {id: L0, combo: {pr0: 0.5, pr0m: 0.5, ref0: -0.5, ref0m: -0.5}}
+    - {id: L1, combo: {pr1: 0.5, pr1m: 0.5, ref1: -0.5, ref1m: -0.5}}
+  coef:
+    - {id: F0.dT.pr0.phase, segment: F0, driver: dT, beam: pr0, effect: phase,
+       value: !expr "(offline.params.k_T_rad_per_m_K + 2 * pi * offline.params.tt_dnu_hz * offline.params.kappa_tau_s_per_m_K) * offline.params.L_0_m"}
+    - {id: F0.tec.pr0.phase, segment: F0, driver: tec, beam: pr0, effect: phase,
+       value: !expr "(offline.params.k_T_rad_per_m_K + 2 * pi * offline.params.tt_dnu_hz * offline.params.kappa_tau_s_per_m_K) * offline.params.L_0_m"}
+    - {id: F0.dT.pr0m.phase, segment: F0, driver: dT, beam: pr0m, effect: phase,
+       value: !expr "(offline.params.k_T_rad_per_m_K - 2 * pi * offline.params.tt_dnu_hz * offline.params.kappa_tau_s_per_m_K) * offline.params.L_0_m"}
+    - {id: F0.tec.pr0m.phase, segment: F0, driver: tec, beam: pr0m, effect: phase,
+       value: !expr "(offline.params.k_T_rad_per_m_K - 2 * pi * offline.params.tt_dnu_hz * offline.params.kappa_tau_s_per_m_K) * offline.params.L_0_m"}
+    - {id: F1.dT.pr1.phase, segment: F1, driver: dT, beam: pr1, effect: phase,
+       value: !expr "(offline.params.k_T_rad_per_m_K + 2 * pi * offline.params.tt_dnu_hz * offline.params.kappa_tau_s_per_m_K) * offline.params.L_k_m"}
+    - {id: F1.tec.pr1.phase, segment: F1, driver: tec, beam: pr1, effect: phase,
+       value: !expr "(offline.params.k_T_rad_per_m_K + 2 * pi * offline.params.tt_dnu_hz * offline.params.kappa_tau_s_per_m_K) * offline.params.L_k_m"}
+    - {id: F1.dT.pr1m.phase, segment: F1, driver: dT, beam: pr1m, effect: phase,
+       value: !expr "(offline.params.k_T_rad_per_m_K - 2 * pi * offline.params.tt_dnu_hz * offline.params.kappa_tau_s_per_m_K) * offline.params.L_k_m"}
+    - {id: F1.tec.pr1m.phase, segment: F1, driver: tec, beam: pr1m, effect: phase,
+       value: !expr "(offline.params.k_T_rad_per_m_K - 2 * pi * offline.params.tt_dnu_hz * offline.params.kappa_tau_s_per_m_K) * offline.params.L_k_m"}
+pipeline:
+  - !replace
+    name: liu0
+    seq:
+      - block: liu_probe_interferometer   # +δν tone
+        name: liu0
+        params:
+          mode: homodyne_dc
+          in_pr: beam.pr0.phi
+          in_ref: beam.ref0.phi
+          out: v.liu0p
+          p_pr_avg_w: !expr "offline.params.tt_p_pr_plus_w"
+          p_ref_w: !expr "offline.params.tt_p_ref_tone_w"
+          duty: !expr "offline.params.probe_duty"
+          visibility: !expr "offline.params.liu_visibility"
+          coupler_sign: 1.0
+          v_off_v: 0.0
+          responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+          gain_v_per_a: !expr "offline.params.liu_gain_v_per_a"
+          i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+          toggles: {shot_noise: true, electronic_noise: true, gating: true}
+      - block: liu_probe_interferometer   # −δν tone (same detector: electronic noise counted once)
+        name: liu0m
+        params:
+          mode: homodyne_dc
+          in_pr: beam.pr0m.phi
+          in_ref: beam.ref0m.phi
+          out: v.liu0m
+          p_pr_avg_w: !expr "offline.params.tt_p_pr_minus_w"
+          p_ref_w: !expr "offline.params.tt_p_ref_tone_w"
+          duty: !expr "offline.params.probe_duty"
+          visibility: !expr "offline.params.liu_visibility"
+          coupler_sign: 1.0
+          v_off_v: 0.0
+          responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+          gain_v_per_a: !expr "offline.params.liu_gain_v_per_a"
+          i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+          toggles: {shot_noise: true, electronic_noise: false, gating: true}
+      - {block: adder, name: liu0sum, params: {ins: [v.liu0p, v.liu0m], gains: [1.0, 1.0], out: v.liu0, unit: V}}
+  - !replace
+    name: liu1
+    seq:
+      - block: liu_probe_interferometer   # +δν tone
+        name: liu1
+        params:
+          mode: homodyne_dc
+          in_pr: beam.pr1.phi
+          in_ref: beam.ref1.phi
+          out: v.liu1p
+          p_pr_avg_w: !expr "offline.params.tt_p_pr_plus_w"
+          p_ref_w: !expr "offline.params.tt_p_ref_tone_w"
+          duty: !expr "offline.params.probe_duty"
+          visibility: !expr "offline.params.liu_visibility"
+          coupler_sign: 1.0
+          v_off_v: 0.0
+          responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+          gain_v_per_a: !expr "offline.params.liu_gain_v_per_a"
+          i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+          toggles: {shot_noise: true, electronic_noise: true, gating: true}
+      - block: liu_probe_interferometer   # −δν tone (same detector: electronic noise counted once)
+        name: liu1m
+        params:
+          mode: homodyne_dc
+          in_pr: beam.pr1m.phi
+          in_ref: beam.ref1m.phi
+          out: v.liu1m
+          p_pr_avg_w: !expr "offline.params.tt_p_pr_minus_w"
+          p_ref_w: !expr "offline.params.tt_p_ref_tone_w"
+          duty: !expr "offline.params.probe_duty"
+          visibility: !expr "offline.params.liu_visibility"
+          coupler_sign: 1.0
+          v_off_v: 0.0
+          responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+          gain_v_per_a: !expr "offline.params.liu_gain_v_per_a"
+          i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+          toggles: {shot_noise: true, electronic_noise: false, gating: true}
+      - {block: adder, name: liu1sum, params: {ins: [v.liu1p, v.liu1m], gains: [1.0, 1.0], out: v.liu1, unit: V}}
+measure:
+  decompose:
+    groups:                             # F_common's component 1 list + the −δν blocks' shot noise (same detector)
+      locked_path_residual: [env.thermal.F0.drift, env.thermal.F1.drift, env.mech.ports.mech, env.mech.fs_lock.mech,
+                             liu0.shot_noise, liu0.electronic_noise, liu1.shot_noise, liu1.electronic_noise,
+                             liu0m.shot_noise, liu1m.shot_noise,
+                             adc0.quantization, adc1.quantization, dac0f.quantization, dac1f.quantization]

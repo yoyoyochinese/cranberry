@@ -1,0 +1,28 @@
+# Bench configuration (c) of D85-12 (axis 1, D84-2): pulsed waveguide OPA (F_wg6_nominal: Ref A-type 45 mm PPLN stand-in,
+# 1 ps at 6 MHz, L-Liu counter-propagating probe + TEC, pulsed LO, pulse-resolved BHD) with NO demultiplexer
+# (demux/none) and one long port whose fibre length is a bench axis 1–100 m (log). Run with `python -m cranberry sweep`.
+#
+# The F_common skeleton keeps two ports: port 0 (L0_m = 2 m, F_common_nominal) is the short reference arm and topology
+# port 1 is THE bench port (its length L_k_m = L_port_m replaces F_common's demux-delay expression; D64: an axis may
+# replace an expression). Metric (i) of port 1 is the bench measurement (Δ = φ_LO,1 − θ_sq,1 at the BHD after the fibre,
+# LO through its own delay-matched fibre LO1); metric (ii) is port 1 against the 2 m port 0.
+# The port-k delay-line block (delay1: fibre attenuation, thermal timing) computes its length from the demux design
+# (port_k·(N_b + n_guard)·c/(f_rep n_g)); it is re-pointed to the bench length with port 0 and L0_m = L_k_m.
+# demux/none switches off the switch network (dmxsw) and the demux design losses (dmx); port_k (31) then only labels.
+#
+# Controller variants: --overlay controller/dsc1 | controller/moku_delta (the F_common overlays apply unchanged; DSC1:
+# chk.lock_stability uses the dsc1 law, D89-5). Lab acoustics: --overlay lab/acoustic_future.
+extends: F_wg6_nominal
+
+preset: pulsed_wg_1port
+overlays: [demux/none]
+
+offline:
+  params:
+    L_port_m: !sweep_log [1.0, 100.0, 5]   # D85-12 (c): bench fibre of the single port
+    L_k_m: !expr "L_port_m"                 # replaces the demux-delay expression of F_common (header)
+pipeline:
+  - name: delay1
+    params:
+      port: 0                               # length = L0_m (port_length_m with k = 0)
+      L0_m: !expr "offline.params.L_k_m"

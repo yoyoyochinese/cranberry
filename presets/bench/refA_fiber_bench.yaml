@@ -1,0 +1,9 @@
+# Bench configuration (a) of D85-12 (axis 1, D84-2): Ref A-type CW waveguide OPA + PM fibre 1–100 m to the BHD
+# (presets/axes/bench/refA_fiber.yaml has the physics and provenance). Open axes: L_sq_fiber_m (5, log), lo_route
+# (fiber_matched | free_space), eta_fiber_out (UNVERIFIED): run with `python -m cranberry sweep`.
+# Controller variants: --overlay bench/dsc1_refA (kept as a bad configuration, D34) | bench/moku_delta_refA.
+# Lab acoustics: --overlay bench/refA_fiber_acoustic. Our laser: --overlay bench/refA_laser_dx1.
+extends: refA
+
+preset: refA_fiber_bench
+overlays: [bench/refA_fiber]

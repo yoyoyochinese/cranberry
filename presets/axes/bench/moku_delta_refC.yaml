@@ -1,0 +1,44 @@
+# Bench controller axis (D85-12): Ref C's three stacked PIDs on a Liquid Instruments Moku:Delta PID Controller (4 PIDs,
+# 4 inputs / outputs, Moku p.64–65: the stack fits one instrument). Applies to refC / refC_nominal and + bench/refC_fiber.
+# refC's own controller (fpga_generic) is already the Moku:Delta stand-in for ranges (±0.5 V, T16 §4.5); Ref C itself used
+# a Moku:Pro (D25). This overlay changes only:
+#   * devices: moku_delta (ADC 16-bit equivalent ±0.5 V, DAC 14 bit: dac_bits 14, Moku p.6–7), PID law Tustin at f_sim
+#     (the PID update rate is not stated, Moku p.64–65: UNVERIFIED; as controller/moku_delta).
+#   * latency_s = 0.21 µs (moku_delta.yaml loop.latency_s, Moku p.65 → T16 §4.2 [AE] upper bound), never below 1/f_sim
+#     (D55-1): at refC's 4 MHz the loop-closure sample (0.25 µs) already exceeds it, so τ_L = 0.25 µs (refC's lowest
+#     latency choice).
+# The 1 MHz dither demodulation could run in the Moku (Lock-in Amplifier, fact-p6-thermo-optic-moku §2) but not inside
+# the PID Controller instrument (no demodulator, Moku p.64–65): refC's `dem` stays in front of the ADC. The ±0.5 V PID
+# output limit (DECISIONS Open, bad_moku_pid_05V) keeps the EOM at ±0.39 rad (eom_range_v axis of refC unchanged).
+# chk.lockC_stability stays continuous (Tustin, D89-5).
+offline:
+  params:
+    latency_s: !expr "max(2.1e-7, 1.0 / run.f_sim_hz)"   # Moku p.65 → T16 §4.2 [AE] upper bound; ≥ 1/f_sim (D55-1)
+    dac_bits: 14                    # Moku p.7
+pipeline:
+  - name: adc
+    params: {device: moku_delta, bits: 16, range_v: [-0.5, 0.5]}
+  - name: lockC.stack
+    stack:
+      stages:
+        - name: pid1
+          params: {device: moku_delta, discretisation: tustin}
+        - name: pid2
+          params: {device: moku_delta, discretisation: tustin}
+        - name: stage3
+          seq:
+            - name: pid3
+              params: {device: moku_delta, discretisation: tustin}
+      actuators:
+        - name: act1
+          seq:
+            - name: dac1
+              params: {device: moku_delta}
+        - name: act2
+          seq:
+            - name: dac2
+              params: {device: moku_delta}
+        - name: act3
+          seq:
+            - name: dac3
+              params: {device: moku_delta}
