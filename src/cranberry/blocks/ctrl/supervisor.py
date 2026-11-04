@@ -16,6 +16,10 @@ reset / hop):
   factors (refD: loop_sign × coupler_sign, conv §5) is +1 and −π/2 (δ_c = π) when it is −1; centring on
   the setpoint for a loop held at −π/2 would count every noise excursion across δ = ±π as a slip
   (Ref D prediction: 1e5–1e7 fake slips, reviews/phase5_refD_stability_mismatch.md).
+  Optional ``slip_center_slot`` (WP6-P, D85-6; absent or null = the constant centre, the old behaviour): a slot c(t)
+  [rad] added to the centre, δ_c(t) = slip_center_rad + c(t), for a set point that moves during the run (a
+  ``phase_program``'s ``ctrl.<name>.target<k>``: the held lock point follows the program, so do the counting
+  boundaries). Needs ``true_in``.
 * re-acquisition (structural ``relock``; toggle ``relock`` False = detection only, out = u_in):
   ``none``; ``reset_center`` (offset = centre − u_in: the output jumps to the range centre and the loop
   re-acquires by itself); ``fringe_hop`` (offset −= n·u_2pi_v with n the integer bringing the output
@@ -25,8 +29,8 @@ reset / hop):
   crossing of the correct slope, T16 §3.6 item 3). After reset / hop the state is 2 for ``t_hop_s``
   (data to discard), then 1. Every re-acquisition counts ``n_relock``.
 
-Params: ``u_in``, ``e_in``, ``true_in`` (slot or null), ``out``, ``relock``; runtime ``u_min_v``,
-``u_max_v``, ``t_sat_s``, ``e_th``, ``t_e_s``, ``slip_center_rad`` (only with ``true_in``); ``reset_center`` / ``fringe_hop`` add ``t_hop_s``,
+Params: ``u_in``, ``e_in``, ``true_in`` (slot or null), ``out``, ``relock``, optional ``slip_center_slot``;
+runtime ``u_min_v``, ``u_max_v``, ``t_sat_s``, ``e_th``, ``t_e_s``, ``slip_center_rad`` (only with ``true_in``); ``reset_center`` / ``fringe_hop`` add ``t_hop_s``,
 ``fringe_hop`` adds ``u_2pi_v`` (915B: 2π/K_s = 0.968 V); ``ramp_search`` adds ``ramp_period_s``,
 ``e_cap``, ``slope_sign``. Slots: ``out`` (V); ``lock.<name>.state``, ``.n_loss``, ``.n_relock``,
 ``.n_slip`` (int); ``lock.<name>.t_loss`` (s); ``lock.<name>.x`` (internal).
@@ -54,12 +58,13 @@ _ALL = _BASE + ("t_hop_s", "u_2pi_v", "ramp_period_s", "e_cap", "slope_sign", "s
 _TWO_PI = 2.0 * math.pi
 
 
-def _step(S, I, P, i_t, i_u, i_e, i_true, i_out, x, st, nl, nr, ns, i_tl, po, h, mode):  # noqa: N803
+def _step(S, I, P, i_t, i_u, i_e, i_true, i_sc, i_out, x, st, nl, nr, ns, i_tl, po, h, mode):  # noqa: N803
     u_in = S[i_u]
     e = S[i_e]
     umin, umax = P[po[0]], P[po[1]]
     if i_true >= 0:
-        k = math.floor((S[i_true] - P[po[10]]) / _TWO_PI + 0.5)
+        c = P[po[10]] + (S[i_sc] if i_sc >= 0 else 0.0)
+        k = math.floor((S[i_true] - c) / _TWO_PI + 0.5)
         if S[x + 8] == 0.0:  # first sample: the starting fringe is not a slip
             S[x + 6], S[x + 8] = k, 1.0
         dk = k - S[x + 6]
@@ -129,7 +134,11 @@ class LockSupervisor(KitBlock):
         if params["relock"] not in RELOCK_MODES:
             raise ValueError(f"block {name!r}: relock must be one of {sorted(RELOCK_MODES)}")
         mode = RELOCK_MODES[params["relock"]]
-        reads = ("t", params["u_in"], params["e_in"]) + (() if params["true_in"] is None else (params["true_in"],))
+        self.sc_slot = params.get("slip_center_slot")
+        if self.sc_slot is not None and params["true_in"] is None:
+            raise ValueError(f"block {name!r}: slip_center_slot needs true_in")
+        reads = ("t", params["u_in"], params["e_in"]) + (() if params["true_in"] is None else (params["true_in"],)) + (
+            () if self.sc_slot is None else (self.sc_slot,))
         self.lk = {k: f"lock.{name}.{k}" for k in ("state", "n_loss", "n_relock", "n_slip", "t_loss", "x")}
         super().__init__(params, name, reads=reads, writes=(params["out"], *self.lk.values()),
                          runtime=_BASE + _EXTRA[mode] + (() if params["true_in"] is None else ("slip_center_rad",)))
@@ -147,7 +156,8 @@ class LockSupervisor(KitBlock):
         po = np.array([self.p(layout, k) if layout.has_param(self.param_name(k)) else -1 for k in _ALL], np.int64)
         lk = self.lk
         return (self.o(layout, "t"), self.o(layout, self.params["u_in"]), self.o(layout, self.params["e_in"]),
-                self.o(layout, self.params["true_in"]), self.o(layout, self.params["out"]), self.o(layout, lk["x"]),
+                self.o(layout, self.params["true_in"]), self.o(layout, self.sc_slot), self.o(layout, self.params["out"]),
+                self.o(layout, lk["x"]),
                 self.o(layout, lk["state"]), self.o(layout, lk["n_loss"]), self.o(layout, lk["n_relock"]),
                 self.o(layout, lk["n_slip"]), self.o(layout, lk["t_loss"]), po, self.h, self.mode)
 

@@ -62,6 +62,8 @@ Measurement-stage hooks (WP-I1, D58-6; :func:`evaluate_measurements`, after the 
         pulse_sample:
           <entry>: {block, kernel, r_slots}   # r_slots: K items, each a number R (shot-noise units)
                                               # or {metric, quadrature_rad}
+        step_response:                   # WP6-P: per-switch step response of a phase_program (blocks.meas.step_response)
+          <entry>: {block}               # the slots it reads are added to measure.record (needs measure.record)
 
     ``metric`` names a metric with noise levels (``measure.metrics``), e.g. ``i.port0``;
     ``quadrature_rad`` is added to the measured angle Δ = Δ_set + δ − θ_off (0: the locked quadrature,
@@ -650,6 +652,7 @@ class Recorder(BaseBlock):
 MEASUREMENT_HOOKS: dict[str, tuple[str, ...]] = {
     "esa": ("esa_zero_span", "esa_swept_spectrum"),
     "pulse_sample": ("pulse_sample",),
+    "step_response": ("step_response",),
 }
 
 
@@ -852,6 +855,8 @@ def evaluate_measurements(
                 res[str(entry)] = _zero_span(blk, cfg, metrics, f_record_hz, rng, what, cos_sin2(str(cfg["metric"])))
             elif blk.kind == "esa_swept_spectrum":
                 res[str(entry)] = _swept(blk, cfg, blocks, metrics, loss_registry, rng, what)
+            elif blk.kind == "step_response":
+                res[str(entry)] = blk.evaluate(series, t_rec, blocks)
             else:
                 res[str(entry)] = _pulse(blk, cfg, blocks, metrics, rng, what)
         out[hook] = res
@@ -979,6 +984,11 @@ def run(
         slots += [s for b in probes for p in b.pairs if (s := b.slot(p.port)) not in slots]
         slots += list(dict.fromkeys(b.mask_slot for b in probes if b.mask_slot and b.mask_slot not in slots))  # WP6-G
         slots += [s for s in validity_slots if s not in slots]
+        named = {b.name: b for b in (*offline_blocks, *leaves)}
+        for c in ((rs.measure or {}).get("step_response") or {}).values():  # WP6-P: the slots the hook reads
+            blk = named.get(c.get("block")) if isinstance(c, Mapping) else None
+            if blk is not None and blk.kind == "step_response":
+                slots += [s for s in blk.required_slots(named) if s not in slots]
         if "antialias" not in rec_cfg and int(rec_cfg["decim"]) > 1:
             global _ALIAS_WARNED
             if not _ALIAS_WARNED:

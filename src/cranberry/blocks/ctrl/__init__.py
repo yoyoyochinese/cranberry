@@ -12,6 +12,8 @@ Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 * ``lock_supervisor`` (``supervisor.py``): lock-loss detection, fringe slips, re-acquisition
 * ``gated_hold`` (``gated_hold.py``, WP6-G): error passed only inside a gate window; zero / hold / noise_only outside,
   ``settle_s`` blanking after each gate edge
+* ``phase_program`` (``phase_program.py``, WP6-P): per-port program table of lock set points (step / slew-limited ramp,
+  DDS phase quantisation) into a demodulator's reference phase or a DC set point
 
 Shared plumbing (one step function for the reference and the kernel, driver slots, losses):
 ``_kit.py``. Contract: core.block (factory interface, reads/writes, losses(), bands(), toggles,
