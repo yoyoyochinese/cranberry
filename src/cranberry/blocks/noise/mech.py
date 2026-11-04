@@ -7,7 +7,21 @@ The phase PSD of segment i (reference axis, coefficient k_ε·L_i) is
     S_ψ,i(f) = (L_i/L_ref)^γ · [ h_ref f⁻² / ((1 + (f_lo/f)²)(1 + (f/f_c)²)) + Σ_k P_k(f) ]
 
 (f⁻² region with the f_c roll-off; flattened below f_lo where the thermal model takes over; P_k =
-band-pass peaks {f_hz, q, area_rad2}). It is written as strain: S_ε,i = S_ψ,i/(k_ε L_i)²
+band-pass peaks {f_hz, q, area_rad2}).
+
+**Shape** (optional structural ``mech_shape``: ``two_pole`` (absent) | ``table``, D85-1). ``table``
+replaces the bracketed f⁻² term by a measured shape T(f): ``psd_table`` = [[f_hz, S_rad2_hz], ...] at
+L_ref (f increasing), interpolated linearly in (log f, log S) and extended beyond the end rows with the
+end segments' power laws (:func:`~cranberry.blocks.noise._lgs.loglog_interp`). The time loop realises it
+as a sum of OU lowpass sections on the flicker corner grid (``table_f_min_hz`` … ``table_f_max_hz``,
+``table_per_decade`` corners per decade) with non-negative weights fitted to T (NNLS,
+:func:`~cranberry.blocks.noise._lgs.table_fit`); h_ref, f_c and f_lo are not used. **Tolerance:** the
+synthesised PSD follows T within ±10 % (0.4 dB) on [3·table_f_min, table_f_max/1.5] for tables whose
+local slope stays within [0, −2] and whose kinks are ≥ one corner spacing apart at ≥ 3 per decade (Ref
+D's ``lab/acoustic`` table: ≤ 6 %, tests/unit/blocks/noise/test_mech_table.py); it is flat below
+table_f_min and falls as f⁻² above table_f_max. The ledger rows (:meth:`bands`, above the block Nyquist
+frequency) use T itself, so keep table_f_max ≪ f_N and end the table with a f⁻² segment where the
+synthesis and the ledger then agree. It is written as strain: S_ε,i = S_ψ,i/(k_ε L_i)²
 (``k_eps_rad_per_m``; the topology coefficient should be k_ε,a·L). γ ∈ {1, 2} (length scaling) is a
 parameter, independent of the spatial placement.
 
@@ -20,7 +34,8 @@ parameter, independent of the spatial placement.
   subsegments (fraction κ = ``spatial_coherence[seg]`` of the segment-phase PSD; it carries the
   inter-segment correlation) and independent subsegment parts (PSD (1 − κ)·N·S each, so their average
   contributes (1 − κ)·S). κ = 0: distributed, 1: lumped. Scalar placements are lumped.
-* Toggles {mech, peaks, correlation}; mech and peaks draw from separate RNG sub-streams.
+* Toggles {mech, peaks, correlation}; mech and peaks draw from separate RNG sub-streams (``mech``
+  covers either shape).
 
 ``segment_thermodynamic`` (T08 §2.6, Dong 2016 Table I): Wanser thermal conduction (eq. 2.8) +
 Duan thermomechanical (eq. 2.9) phase noise, ∝ L, independent per subsegment. Time domain:
@@ -47,7 +62,8 @@ from typing import Any
 import numba
 import numpy as np
 
-from cranberry.blocks.noise._lgs import EMPTY_BANK, Bank, bank_step, bank_step_nb, cascade, flicker, lowpass, resonance, two_pole
+from cranberry.blocks.noise._lgs import (EMPTY_BANK, Bank, bank_step, bank_step_nb, cascade, flicker, loglog_interp, lowpass,
+                                         resonance, table_fit, two_pole)
 from cranberry.blocks.noise.laser import resonance_psd
 from cranberry.core.block import BaseBlock, Block, require
 from cranberry.core.rates import block_dt_s
@@ -61,6 +77,7 @@ __all__ = ["SegmentMechNoise", "SegmentThermodynamic", "GawbsPhaseJitter", "Decl
            "two_pole_psd"]
 
 _KB = 1.380649e-23
+MECH_SHAPES = ("two_pole", "table")
 
 
 def two_pole_psd(f, h: float, f_lo_hz: float, f_c_hz: float) -> np.ndarray:
@@ -193,7 +210,15 @@ class SegmentMechNoise(_BankBlock):
         name = name or self.KIND
         require(params, "L_ref_m", "gamma", "k_eps_rad_per_m", "toggles", block=name)
         tg = params["toggles"]
-        if tg.get("mech"):
+        self.shape = params.get("mech_shape", "two_pole")
+        if self.shape not in MECH_SHAPES:
+            raise ValueError(f"block {name!r}: mech_shape must be one of {MECH_SHAPES}, got {self.shape!r}")
+        if self.shape == "table":  # declared explicitly, so the table is required even with mech off
+            require(params, "psd_table", "table_f_min_hz", "table_f_max_hz", "table_per_decade", block=name)
+            self.table = loglog_interp(params["psd_table"])
+            if not 0.0 < float(params["table_f_min_hz"]) < float(params["table_f_max_hz"]):
+                raise ValueError(f"block {name!r}: need 0 < table_f_min_hz < table_f_max_hz")
+        elif tg.get("mech"):
             require(params, "h_ref_rad2_hz", "f_c_hz", "f_lo_hz", block=name)
         if tg.get("peaks"):
             require(params, "peaks", block=name)
@@ -218,7 +243,10 @@ class SegmentMechNoise(_BankBlock):
     def _units(self) -> dict[str, list]:
         p, tg = self.params, self.toggles
         units: dict[str, list] = {}
-        if tg["mech"]:
+        if tg["mech"] and self.shape == "table":
+            units["mech"] = table_fit(self.table, float(p["table_f_min_hz"]), float(p["table_f_max_hz"]),
+                                      int(p["table_per_decade"]))
+        elif tg["mech"]:
             units["mech"] = [two_pole(float(p["h_ref_rad2_hz"]), float(p["f_lo_hz"]), float(p["f_c_hz"]))]
         if tg["peaks"] and p["peaks"]:
             units["peaks"] = [resonance(float(k["f_hz"]), float(k["q"]), float(k["area_rad2"])) for k in p["peaks"]]
@@ -252,7 +280,9 @@ class SegmentMechNoise(_BankBlock):
 
         def psd(f):
             s = np.zeros_like(np.asarray(f, dtype=float))
-            if tg["mech"]:
+            if tg["mech"] and self.shape == "table":
+                s = s + self.table(f)
+            elif tg["mech"]:
                 s = s + two_pole_psd(f, float(p["h_ref_rad2_hz"]), float(p["f_lo_hz"]), float(p["f_c_hz"]))
             if tg["peaks"]:
                 for k in p["peaks"]:

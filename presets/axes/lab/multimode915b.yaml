@@ -1,0 +1,46 @@
+# Lab axis (Ref D base: refD / refD_nominal): multimode 914 → 915B response (D85-1). The future presets use
+# lab/multimode915b_future.
+#
+# PROVENANCE: calibrated on the Ref D measurement after the blind comparison (D81, D85-1). The measured loop
+# sensitivity |S|² (predictions/refD/comparison/COMPARISON.md §2, §3 (B)) has narrow servo peaks the single-mode
+# 915B model cannot make: 5.3–5.45 kHz (|S|² 13.6 at S = 0, FWHM ≈ 300 Hz, Q ≈ 18, falling with K_d: 9.2 / 7.0 /
+# 3.8 at S = ±0.5 / ±1.5 / +2 V), 9.7–10.1 kHz (≈ 3), 24.3–24.9 kHz (7–15, the main-mode servo bump, f_res ≈
+# 1.04 × the bump) and 39.5–40.4 kHz (≈ 4). Here the 915B is
+#
+#   H(s) = Σ_i r_i ω_i²/(s² + (ω_i/Q_i)s + ω_i²),  Σ r_i = 1 (DC gain kept: dopl_full_m stays the gain),
+#
+# the main mode (f_res_hz, q_res, r = 1 − Σ side r) plus three side modes near 5.3, 10 and 40 kHz. r_i < 0 puts an
+# anti-resonance just below mode i, r_i > 0 a resonance / anti-resonance pair. The same list feeds the stretcher
+# block and chk.lockD_stability (parallel sum there, loop_stability_check D85-1), so the check sees the time-loop
+# actuator. No mode value is a manufacturer fact: all are axes. The "fit" values in the comments are the point of
+# reviews/scripts/p6_ab_check.py at refD_nominal (plant gain K_d 2.86 V/rad, D53 gains untouched): the side modes
+# from the analytic |S|² (5.3 kHz height and its fall with K_d, 10 kHz), the main-mode Q and the 40 kHz mode from the
+# short time loop, where the 25 / 40 kHz bumps are mostly in-loop noise (DAC quantisation, D61-3) lifted by those
+# modes (analytic |S|² there is only 1.6–1.8): main 25.2 kHz Q 25 r 0.67; 5.4 kHz Q 15 r +0.11; 10 kHz Q 30
+# r +0.07; 40.3 kHz Q 100 r +0.15. A purely analytic fit wants the main Q ≈ 93 instead (time-loop bump then ≈ 80).
+offline:
+  params:
+    f_res_hz: !sweep [2.2e+4, 2.8e+4, 5]        # main mode around 25 kHz (bump at 24.3–24.9 kHz); replaces refD's 5–60 kHz axis
+    q_res: !sweep_log [10.0, 300.0, 4]          # main-mode Q (fit 25); replaces refD's 3–100 axis
+    mm2_f_hz: !sweep [5.2e+3, 5.5e+3, 4]        # side mode near 5.3 kHz (fit 5.4 kHz)
+    mm2_q: !sweep_log [8.0, 40.0, 3]            # Q ≈ 18 from the |S|² FWHM (fit 15)
+    mm2_r: !sweep [-0.15, 0.15, 7]              # signed residue (fit +0.11)
+    mm3_f_hz: !sweep [9.7e+3, 1.01e+4, 3]       # side mode near 10 kHz (fit 10.0 kHz)
+    mm3_q: !sweep_log [10.0, 100.0, 3]          # (fit 30)
+    mm3_r: !sweep [-0.1, 0.1, 5]                # (fit +0.07)
+    mm4_f_hz: !sweep [3.95e+4, 4.05e+4, 3]      # side mode near 40 kHz (fit 40.3 kHz)
+    mm4_q: !sweep_log [10.0, 300.0, 4]          # (fit 100)
+    mm4_r: !sweep [-0.3, 0.3, 7]                # (fit +0.15)
+    mm1_r: !expr "1.0 - mm2_r - mm3_r - mm4_r"  # main-mode residue: Σ r = 1
+  blocks:
+    - name: chk.lockD_stability                 # the same list: parallel sum (all modes carry r, D85-1)
+      params:
+        modes: &modes915b
+          - {f_hz: !expr "offline.params.f_res_hz", q: !expr "offline.params.q_res", r: !expr "offline.params.mm1_r"}
+          - {f_hz: !expr "offline.params.mm2_f_hz", q: !expr "offline.params.mm2_q", r: !expr "offline.params.mm2_r"}
+          - {f_hz: !expr "offline.params.mm3_f_hz", q: !expr "offline.params.mm3_q", r: !expr "offline.params.mm3_r"}
+          - {f_hz: !expr "offline.params.mm4_f_hz", q: !expr "offline.params.mm4_q", r: !expr "offline.params.mm4_r"}
+pipeline:
+  - name: stretcher915b
+    params:
+      modes: *modes915b                         # prewarp stays at f_res_hz (the main mode)

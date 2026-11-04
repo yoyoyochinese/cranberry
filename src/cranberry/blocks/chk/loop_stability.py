@@ -4,7 +4,9 @@ never stops, never prunes a sweep point).
 
 Continuous open loop, closed loop 1/(1 + L) (negative feedback):
 
-    L(s) = k0 · C_1(s) · e^{−s·delay} · Π_p 1/(1 + s/(2π f_p)) · Π_m ω_m²/(s² + s ω_m/Q_m + ω_m²) · Σ(s)
+    L(s) = k0 · C_1(s) · e^{−s·delay} · Π_p 1/(1 + s/(2π f_p)) · M(s) · Σ(s)
+    M(s) = Π_m ω_m²/(s² + s ω_m/Q_m + ω_m²)                 (modes {f_hz, q}: modes in series)
+    M(s) = Σ_m r_m ω_m²/(s² + s ω_m/Q_m + ω_m²)             (every mode has r: parallel sum, D85-1)
     C_k(s) = kp_k + ki_k/s + kd_k·s                                  (discretisation continuous)
     C_k(s) = kp_k + ki_k·h/2 + ki_k/s + kd_k·(1 − e^{−s h})/h          (discretisation dsc1)
 
@@ -43,10 +45,18 @@ agree and the predicted closed-loop pole (growth rate, frequency) matches the no
 * ``stable`` says nothing about large-signal effects (pull-in from a fringe top, saturation, the DAC
   limit cycle of D65-3).
 
+**Mode list** (``modes``, top level and per stage): if every entry carries ``r`` (and the list is not
+empty), M is the parallel sum, exactly the ``pzt_fiber_stretcher`` / ``pzt_mirror`` dynamics
+(:func:`cranberry.blocks.act.pzt.modes_ss`, T16 §3.1.2; r_m < 0 gives an anti-resonance, Σr = 1 keeps
+the DC gain), so a multimode actuator list can be copied unchanged from the actuator block into the
+check (``lab/multimode915b``). Otherwise (any entry without ``r``, the presets before D85) M is the
+product of the second-order sections (series filters). A single mode with r = 1 gives the same M either
+way; an empty list gives M = 1.
+
 Single loop (no ``stages``): Σ = 1. **Stacked (cascade / offload) loop** (Phase 5 M2C-02, Ref C's
 EOM → piezo mirror → stretcher, T16 §4.4): ``stages`` lists the controllers 2..N; controller k reads
 controller k − 1's output and drives actuator k, whose response relative to actuator 1 (whose gain is in
-``k0``) is A_k = k_act,k · Π_p 1/(1 + s/(2π f_p)) · Π_m (modes as above). The phases of all actuators add:
+``k0``) is A_k = k_act,k · Π_p 1/(1 + s/(2π f_p)) · M_k(s) (M of the stage's own mode list, as above). The phases of all actuators add:
 
     Σ(s) = 1 + Σ_{k=2..N} (Π_{j=2..k} C_j(s)) · A_k(s)
 
@@ -68,7 +78,7 @@ points may be dropped from a prediction band is not decided here (refD: open use
 
 Params (all required, D34): ``k0`` (plant gain from controller output to controller input, DC; its
 sign makes L positive for negative feedback), ``kp``, ``ki_per_s``, ``kd_s``, ``delay_s``, ``poles_hz``
-(list, ``inf`` = absent), ``modes`` (list of {f_hz, q}), ``f_grid_hz`` [lo, hi, n] (log grid),
+(list, ``inf`` = absent), ``modes`` (list of {f_hz, q} or {f_hz, q, r}, above), ``f_grid_hz`` [lo, hi, n] (log grid),
 ``toggles`` {enabled}: off ⇒ no check. Optional ``stages`` (absent = single loop, the M1 form): list of
 {kp, ki_per_s, kd_s, k_act, poles_hz, modes} (all keys required per stage). Optional ``discretisation``
 (+ ``h_s`` for ``dsc1``) at the top level and per stage (above).
@@ -116,9 +126,12 @@ def _dynamics(s: np.ndarray, q: Mapping[str, Any]) -> np.ndarray:
     for fp in q["poles_hz"]:
         if math.isfinite(float(fp)):
             out = out / (1.0 + s / (2.0 * np.pi * float(fp)))
-    for m in q["modes"]:
-        w = 2.0 * np.pi * float(m["f_hz"])
-        out = out * w * w / (s * s + s * w / float(m["q"]) + w * w)
+    modes = q["modes"]
+    res = [(2.0 * np.pi * float(m["f_hz"]), float(m["q"])) for m in modes]
+    if modes and all("r" in m for m in modes):  # parallel sum, as pzt_fiber_stretcher.modes_ss (D85-1)
+        return out * sum(float(m["r"]) * w * w / (s * s + s * w / qq + w * w) for m, (w, qq) in zip(modes, res))
+    for w, qq in res:
+        out = out * w * w / (s * s + s * w / qq + w * w)
     return out
 
 
