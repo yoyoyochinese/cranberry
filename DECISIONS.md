@@ -688,6 +688,14 @@
   5. `runner.optimize`: 制約は c ≤ 0 で可、目的は seed 平均、制約は最悪の seed。「ロック維持」と「サーボの山」（帯域内の max |S|² − 上限）。上限と帯域はプリセットか呼び出し側で与える（D34、既定値なし）。`controller_evaluator` は `ControllerInterface` だけを通るので実機にも使える。
 - 日付: 2026-11-04 / Phase 6
 
+### D88 Phase 6 のオフラインの迷光の表（WP6-S、D85-4・D85-11 の実装）
+- 決定:
+  1. `window_stray_light`: プローブを切った後の後方散乱の尾 W = 2n_gL_k/c を、プローブの包絡の箱平均（線形の立ち上がり、消光 ε_off）として、測定窓の中の GBS のスロットごとに評価（1 フレームに 1 スロット、D46）。窓の平均と最悪のスロット、CHK `stray_light_limit`（統計量 mean／max は軸）と `window_no_slot`。ゲートの日程は params（`stray/window_tail` の `win_*`）で受け、`gate_schedule` のファイルに依存しない。
+  2. `forward_ref_stray_table`: 変調器の漏れ、立ち上がり、振り分けのクロストーク、順方向の GAWBS・Raman、アフターパルスと回復中の不感。配置 `cal_frames`（主）と `guard_slot`（悪い構成、n_guard ≥ 1 が必要、CHK `forward_ref_guard_slot` が L_k の増加と D78 の Δν_max を報告）。上書き用の設定 `ref/aurora_calframe`・`ref/aurora_guardslot`。P_pk、ε_mod、t_ref、τ_edge、p_ap、τ_ap、回復時間は UNVERIFIED の軸（D85-14）。
+  3. 発見（レビュー前の暫定値）: P1 では配置によらず、切り出し変調器の連続の漏れ ε_mod·P_pk が支配的（1 µW・−50 dB で F_bor6 1.1、F_liu20 0.6 光子/モード）。OPO のプリセットでは ε_mod·P_pk ≲ 5e-15 W が要る。TES 級の回復時間でガードスロットに置くと全データスロットが不感。P2 の尾の窓平均の係数（D = 0.65、T = 1 ms）: F_wg100 0.046、F_wg6・F_bor6 0.015、F_liu20 0.018。
+  4. 残り: OPO のプリセットでは上書き用の設定がガウスの τ_mode の代用を使う（F_liu20 で 2.7 倍低い）。CHK をそこで使うにはモードの上書きが要る。両ブロックとも結果を使う前に新しい文脈の Phase 5 レビューを受ける。
+- 日付: 2026-11-04 / Phase 6
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）
