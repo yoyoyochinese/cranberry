@@ -1,0 +1,31 @@
+# Stray axis, F_bor6 only (Phase 5 WS-01): weight winstray1 (stray/window_tail) by the OPO's optimal mode, as F_bor6
+# does for stray1, instead of the τ_mode Gaussian stand-in. Apply AFTER stray/window_tail. The source spec is a copy of
+# F_bor6's &opo_source (an overlay cannot reach the preset's YAML anchor); tests/integration/test_phase6_opo_mode.py
+# keeps it equal to stray1's and winstray1's ungated value equal to stray1's.
+offline:
+  blocks:
+    - name: winstray1
+      params:
+        mode: !replace
+          source:
+            block: pulsed_opo_source
+            name: stray_src
+            params:
+              cavity_model: linewidth
+              fwhm_hz: !expr "offline.params.opo_fwhm_hz"
+              escape_efficiency: !expr "offline.params.opo_rho"
+              pump_fwhm_hz: !expr "offline.params.opo_pump_fwhm_hz"
+              pump_shape: rect
+              pump_duration_s: !expr "offline.params.pump_duration_s"
+              x_ss: !expr "offline.params.x_ss"
+              phi_opa0_rad: 0.0
+              delta_s_rad_s: 0.0
+              delta_p_rad_s: 0.0
+              discretization: van_loan
+              dt_kappa: 0.025
+              window_kappa: 12.0
+              segment: XTAL
+              rep_rate_hz: !expr "offline.params.f_rep_hz"
+              angle_table_x_ss: [!expr "offline.params.x_ss"]
+              angle_probe_d: 0.01
+              toggles: {pulsed: true, pump_resonant: true, detuning: false, include_initial_vacuum: true}

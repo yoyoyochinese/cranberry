@@ -30,16 +30,20 @@ H = 6.62607015e-34
 TMP = Path(tempfile.mkdtemp())
 PRESETS = ("F_wg6", "F_wg100", "F_bor6", "F_liu20")
 OPO = ("F_bor6", "F_liu20")
+# fix round (WS-02 / WS-08): the new axes fref_eps_gate and win_refl_r are pinned to their "none" values, so parts 1–6
+# evaluate the same configuration as the review did
 REF_POINT = dict(fref_p_peak_w=1.0e-6, fref_t_pulse_s=1.0e-9, fref_eps_mod=1.0e-5, fref_edge_tau_s=1.0e-9,
-                 det_p_afterpulse=1.0e-3, det_tau_afterpulse_s=1.0e-7, det_recovery_s=4.3e-8)
-WIN_POINT = dict(win_period_s=1.0e-3, win_duty_lock=0.65, win_edge_s=1.0e-7, win_eps_off=1.0e-5, win_limit_statistic="mean")
+                 det_p_afterpulse=1.0e-3, det_tau_afterpulse_s=1.0e-7, det_recovery_s=4.3e-8, fref_eps_gate=1.0)
+WIN_POINT = dict(win_period_s=1.0e-3, win_duty_lock=0.65, win_edge_s=1.0e-7, win_eps_off=1.0e-5, win_limit_statistic="mean",
+                 win_refl_r=0.0)
+OPO_OVL = {"F_bor6": "bor6", "F_liu20": "liu20"}
 WG_POINT = dict(tau_p_s=1.0e-12)  # F_wg100 pulse-width axis (00_summary nominal 1 ps)
 
 
-def spec_of(base, overlay, point, extra=None, pre=()):
+def spec_of(base, overlay, point, extra=None, pre=(), post=()):
     f = TMP / f"pt_{base}_{overlay.replace('/', '_')}.yaml"
     f.write_text(yaml.safe_dump({"offline": {"params": {**point, **(extra or {}), **(WG_POINT if base == "F_wg100" else {})}}}))
-    s = config.load(ROOT / f"presets/future/{base}_nominal.yaml", overlays=[*pre, overlay, str(f)])
+    s = config.load(ROOT / f"presets/future/{base}_nominal.yaml", overlays=[*pre, overlay, *post, str(f)])
     assert not config.sweep_markers(s), (base, config.sweep_markers(s))
     return s
 
@@ -119,9 +123,14 @@ for base in PRESETS:
         win[(base, T)] = (r, f0.mean(), fa.mean())
         print(f"{base:8s} {T * 1e6:5.0f}µs {p['L_m']:8.0f} {r['tail_s'] * 1e6:7.2f} {r['mean_factor']:8.4f} {f0.mean():9.4f} "
               f"{fa.mean():8.4f} {r['mean_factor'] / fa.mean():6.3f} {d883[base] if T == 1e-3 else '':>6}")
-        assert math.isclose(r["mean_factor"], f0.mean(), rel_tol=2e-3)     # block = attenuation-free box
-    assert abs(win[(base, 1e-3)][0]["mean_factor"] - d883[base]) < 0.0015    # D88-3 numbers reproduced
-assert 1.10 < win[("F_wg100", 1e-3)][0]["mean_factor"] / win[("F_wg100", 1e-3)][2] < 1.16    # box overestimates ~13 %
+        # fix round (WS-03): the block now carries the e^{−2αz} weight, so it matches the attenuated brute force (was:
+        # the attenuation-free box f0)
+        assert math.isclose(r["mean_factor"], fa.mean(), rel_tol=2e-3)
+    # D88-3's attenuation-free numbers are the box (f0) values; the block's (with attenuation) are 5–16 % lower
+    assert abs(win[(base, 1e-3)][1] - d883[base]) < 0.0015
+# fix round (WS-03): was 1.10 < box/attenuated < 1.16 (box overestimate ~13 % on F_wg100); now block = attenuated
+assert 0.998 < win[("F_wg100", 1e-3)][0]["mean_factor"] / win[("F_wg100", 1e-3)][2] < 1.002
+assert 1.10 < win[("F_wg100", 1e-3)][1] / win[("F_wg100", 1e-3)][2] < 1.16                 # the old box's overestimate
 
 # ------------------------------------------------------------------------------------------------ part 3
 print("\n== 3. OPO-mode limitation: stray1 photons per mode at the run's P̄ (window 'on' value), Gaussian vs OPO mode")
@@ -238,11 +247,12 @@ for m in mism:
     if m[3] in (0, 15, 31) and m[4] in (0, m[1] - 1):
         print(f"{m[0]:10s} {m[1]:3d} {m[2]:2d} {m[3]:4d} {m[4]:2d} {m[5]:>5s} {m[6]:10.3g} {m[7]:10.3g}")
 # every finite mismatch is the code being closer (conservative): cal_frames xt = the two end ports' worst case applied
-# to every port; guard_slot n_guard ≥ 2: xt− at N_b − j instead of N_b + n_guard − 1 − j.
+# to every port (documented as worst-port, WS-06).
 assert all(m[6] <= m[7] + 1e-9 for m in mism if np.isfinite(m[6]))
-assert any(m[0] == "guard_slot" and m[2] == 2 and m[5] == "xt−" for m in mism)
-# the only omitted events: guard_slot xt+ (the preceding port's guard pulse, one block further than the own pulse)
-assert all(m[0] == "guard_slot" and m[5] == "xt+" for m in mism if not np.isfinite(m[6]))
+# fix round (WS-06 / WS-05): guard_slot now matches the brute force exactly for every port and n_guard (was: xt− at
+# N_b − j for n_guard = 2, and xt+ omitted); the only mismatches left are the documented cal_frames worst-port positions
+assert not any(m[0] == "guard_slot" for m in mism)
+assert all(m[0] == "cal_frames" and m[5] in ("xt+", "xt−") for m in mism)
 # afterpulse undercount from omitted leaked pulses before the slot (guard_slot, every port's leaked guard pulse clicks
 # when ε_dmx·Φ_pk·t_ref·QE ≳ 1): Σ_m e^{−m B T_rep/τ_ap} relative to the own pulse alone
 for base, tr, B in (("F_liu20", 50e-9, 5), ("F_bor6", 1 / 6e6, 2)):
@@ -267,4 +277,41 @@ for base in PRESETS:
     print(f"{base:8s} {r['lk_factor']:9.3f} {r['dnu_max_hz']:10.3g} {r['dnu_max_without_ref_hz']:8.3g} "
           f"{r['blind_prob_mean']:17.3g} {out[1]['blind_prob_mean']:13.3g}")
     assert r["blind_prob_mean"] > 0.999                                    # D88-3: TES → every data slot blind
+# ------------------------------------------------------------------------------------------------ part 7 (fix round)
+print("\n== 7. Fix round: OPO-mode overlays (WS-01) and the calibration-frame slow gate ε_gate (WS-02)")
+print("-- P1 cal_frames leak, P_pk = 1 µW, ε_mod = −50 dB; OPO presets with ref/opo_mode_*, waveguide presets Gaussian")
+print(f"{'preset':8s} {'mode':>6s} " + " ".join(f"{'ε_gate=' + format(g, '.0e'):>13s}" for g in (1.0, 1e-3, 1e-5, 1e-9))
+      + f" {'εε·P max [W]':>12s}")
+for base in PRESETS:
+    post = (f"ref/opo_mode_{OPO_OVL[base]}",) if base in OPO else ()
+    vals = []
+    for g in (1.0, 1e-3, 1e-5, 1e-9):
+        s = spec_of(base, "ref/aurora_calframe", REF_POINT, {"fref_eps_gate": g}, post=post)
+        vals.append(blk(s, "frefstray1").check()["photons_per_mode_mean"])
+    lk = leak[base][2]                                                 # part 1: Φ_leak·τ_eff of the right mode
+    print(f"{base:8s} {'OPO' if base in OPO else 'gauss':>6s} " + " ".join(f"{v:13.3g}" for v in vals)
+          + f" {leak[base][4]:12.3g}")
+    assert math.isclose(vals[0], lk, rel_tol=0.05)                     # ε_gate = 1: the leak of the right mode dominates
+    assert vals[-1] < 1e-3 * vals[0]                                   # 90 dB gate: the leak is gone
+print("-- F_liu20 + probe/freq_80MHz + probe/power_1uW + stray/window_tail (T = 1 ms, D = 0.65), vs stray_n_mode_max;"
+      " CHK on the worst slot (statistic max)")
+print(f"{'mode':>6s} {'R_refl':>7s} {'on':>10s} {'mean':>10s} {'max':>10s} {'limit':>9s} {'CHK max':>7s}")
+for post, lab in (((), "gauss"), (("stray/opo_mode_liu20",), "OPO")):
+    for rr in (0.0, 1e-3):
+        s = spec_of("F_liu20", "stray/window_tail", {**WIN_POINT, "win_refl_r": rr, "win_limit_statistic": "max"},
+                    pre=("probe/freq_80MHz", "probe/power_1uW"), post=post)
+        b = blk(s, "winstray1")
+        r = b.check()
+        lim = s.offline["params"]["stray_n_mode_max"]
+        print(f"{lab:>6s} {rr:7.0e} {r['photons_per_mode_on']:10.3g} {r['photons_per_mode_mean']:10.3g} "
+              f"{r['photons_per_mode_max']:10.3g} {lim:9.2g} {'warn' if b.chk_log.events else 'pass':>7s}")
+        if lab == "OPO" and rr == 0.0:
+            on1 = stray_photons(blk(s, "stray1").params, blk(s, "stray1")._toggles, s.offline["params"]["p_pr_avg_w"])
+            assert math.isclose(r["photons_per_mode_on"], on1["photons_per_mode"], rel_tol=1e-9)   # = stray1 (WS-01)
+            # the review's "≈ 2e−3, 4× the limit" is the on value; the worst slot (just after switch-off) also exceeds
+            # it and the CHK fires; the window mean (×0.017) stays below
+            assert r["photons_per_mode_on"] > 3 * lim and r["photons_per_mode_max"] > lim and b.chk_log.events
+            assert r["photons_per_mode_mean"] < lim
+        if lab == "gauss" and rr == 0.0:
+            assert r["photons_per_mode_max"] < 1e-2 * lim and not b.chk_log.events             # the old false pass
 print("\nall self-checks passed")

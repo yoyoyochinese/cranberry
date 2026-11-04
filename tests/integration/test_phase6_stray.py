@@ -4,6 +4,7 @@ the full runner; the runner calls their ``check()`` (events in ``RunResult.event
 L_k and reports the D78 linewidth consequence; the window tail equals the analytic 2τ_k box."""
 
 import importlib.util
+import math
 from pathlib import Path
 
 import pytest
@@ -60,11 +61,14 @@ def test_window_tail_on_nominal(runs):
     w = 2 * p["n_g"] * p["L_k_m"] / fs.C_LIGHT
     assert r["tail_s"] == pytest.approx(w)
     t_meas, dt, e = 0.35e-4 - 1e-7, p["t_frame_s"], 1e-7
-    # GBS slot centres once per frame from the end of the ramp; h = 1 − τ/W (τ from the 50 % switch-off point)
+    # GBS slot centres once per frame from the end of the ramp; h = ∫_τ^W e^{−κs}ds / ∫_0^W e^{−κs}ds (τ from the 50 %
+    # switch-off point; κ = αc/n_g, the round-trip attenuation e^{−2αz}, WS-03). The linear ramp, symmetric about the
+    # 50 % point, drops out of h exactly only at κ = 0; with the weight it leaves ≈ κe²/(12W) ≈ 2e-6 per slot.
+    k = p["alpha_pm_db_per_km"] / 1000 * math.log(10) / 10 * fs.C_LIGHT / p["n_g"]
     tau = [e / 2 + (j + 0.5) * dt for j in range(int(t_meas // dt))]
-    h = sum(max(0.0, 1 - x / w) for x in tau) / len(tau)
+    h = sum(max(0.0, (math.exp(-k * x) - math.exp(-k * w)) / (1 - math.exp(-k * w))) for x in tau) / len(tau)
     assert r["n_slots"] == len(tau)
-    assert r["mean_factor"] == pytest.approx(1e-5 + (1 - 1e-5) * h, rel=1e-6)
+    assert r["mean_factor"] == pytest.approx(1e-5 + (1 - 1e-5) * h, rel=2e-5)
     # the window counts are the stray1 (stray_light_table) numbers at the run's P̄ times the window factor
     assert r["photons_per_mode_mean"] == pytest.approx(r["mean_factor"] * r["photons_per_mode_on"], rel=1e-9)
     assert r["photons_per_mode_on"] == pytest.approx(fs.stray_light(runs["win"])["photons_per_mode"], rel=1e-9)

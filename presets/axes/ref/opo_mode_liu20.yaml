@@ -1,0 +1,32 @@
+# Reference axis, F_liu20 only (Phase 5 WS-01): weight frefstray1 (ref/aurora_calframe or ref/aurora_guardslot) by the
+# OPO's optimal mode, as F_liu20 does for stray1, instead of the τ_mode Gaussian stand-in (2.7× high for the f_ref = 0
+# leak). Apply AFTER the ref/aurora_* overlay. The source spec is a copy of F_liu20's &opo_source (an overlay cannot
+# reach the preset's YAML anchor); tests/integration/test_phase6_opo_mode.py keeps it equal to stray1's.
+offline:
+  blocks:
+    - name: frefstray1
+      params:
+        mode: !replace
+          source:
+            block: pulsed_opo_source
+            name: stray_src
+            params:
+              cavity_model: fsr_finesse
+              fsr_hz: !expr "offline.params.opo_fsr_hz"
+              finesse: !expr "offline.params.opo_finesse"
+              escape_efficiency: !expr "offline.params.opo_rho"
+              pump_fwhm_hz: !expr "offline.params.opo_fsr_hz / offline.params.opo_pump_finesse"
+              pump_shape: rect
+              pump_duration_s: !expr "offline.params.pump_duration_s"
+              x_ss: !expr "offline.params.x_ss"
+              phi_opa0_rad: 0.0
+              delta_s_rad_s: 0.0
+              delta_p_rad_s: 0.0
+              discretization: van_loan
+              dt_kappa: 0.025
+              window_kappa: 12.0
+              segment: XTAL
+              rep_rate_hz: !expr "offline.params.f_rep_hz"
+              angle_table_x_ss: [!expr "offline.params.x_ss"]
+              angle_probe_d: 0.01
+              toggles: {pulsed: true, pump_resonant: true, detuning: false, include_initial_vacuum: true}
