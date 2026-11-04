@@ -25,7 +25,9 @@ pytestmark = [pytest.mark.numba, pytest.mark.integration]
 REFD_NOMINAL = "presets/reference/refD_nominal.yaml"
 MM = {"mm2_f_hz": 5.4e3, "mm2_q": 15.0, "mm2_r": 0.11, "mm3_f_hz": 1.0e4, "mm3_q": 30.0, "mm3_r": 0.07,
       "mm4_f_hz": 4.03e4, "mm4_q": 100.0, "mm4_r": 0.15}
-REFD_POINT = {"acoustic_scale": 1.0, "acoustic_gamma": 1.0, "f_res_hz": 2.52e4, "q_res": 25.0, **MM}
+# Phase 6 fix axes (B-1 slope, B-6 arm correlation, B-2 DAC dither) at their D89 values
+NEW_AXES = {"acoustic_hf_slope": 2.0, "acoustic_rho_arms": 0.0, "dac_output_noise_v": 0.0}
+REFD_POINT = {"acoustic_scale": 1.0, "acoustic_gamma": 1.0, "f_res_hz": 2.52e4, "q_res": 25.0, **MM, **NEW_AXES}
 
 
 def find(spec, name):
@@ -82,7 +84,8 @@ def test_future_overlays_build(overlays):
     a config's own offline.params, so fs.load(params=...) would not pin them), three reference-mode samples."""
     settle0 = [{"name": "mi", "params": {"t_settle_s": 0.0}}, {"name": "mii", "params": {"t_settle_s": 0.0}}]
     base = fs.load(fs.nominal("F_liu20"), run={"duration_s": 3.0e-6}, overlays=overlays, pipeline=settle0)
-    point = {"acoustic_scale": 1.0, "acoustic_gamma": 0.0, "pzt_f_res_hz": 2.52e4, "pzt_q": 25.0, **MM}
+    point = {"acoustic_scale": 1.0, "acoustic_gamma": 0.0, "pzt_f_res_hz": 2.52e4, "pzt_q": 25.0, **MM, **NEW_AXES,
+             "dsc1_latency_s": 5.7e-6}
     axes = {k: [v] for k, v in ((f"offline.params.{k}", v) for k, v in point.items()) if k in config.sweep_markers(base)}
     (pt,) = expand(base, axes)
     with warnings.catch_warnings():
@@ -114,22 +117,26 @@ def _check_ctrl(c, f):
 
 
 def test_dsc1_overlay_discretises_future_stability_check():
-    """D82 lesson on the future presets: with controller/dsc1 the fine-stage PIDs run the DSC1 law at h = 1/f_sim, so
-    chk.lock_stability uses discretisation dsc1 with that h; its controller then follows the time-loop block's
-    discrete law (I-term approximation (ωh)²/12), where the continuous law is off by the K_i·h/2 lead (ωh/2)."""
-    spec = fs.load(fs.nominal("F_liu20"), overlays=("controller/dsc1",))
+    """D82 lesson + D91-1 on the future presets: with controller/dsc1 the fine-stage PIDs run the DSC1 law at the
+    device's 500 kHz (rate_div 2, h = 2 µs), so chk.lock_stability uses discretisation dsc1 with that h; its controller
+    then follows the time-loop block's discrete law (I-term approximation (ωh)²/12), where the continuous law is off by
+    the K_i·h/2 lead (ωh/2)."""
+    base = fs.load(fs.nominal("F_liu20"), overlays=("controller/dsc1",))
+    (pt,) = expand(base, {"offline.params.dsc1_latency_s": [5.7e-6]})
+    spec = pt.spec
     c = chk(spec, "chk.lock_stability")
     f_sim = spec.run.f_sim_hz
-    assert c.params["discretisation"] == "dsc1" and c.params["h_s"] == pytest.approx(1.0 / f_sim)
-    pid = find(spec.pipeline, "pid0f").params
-    assert pid["device"] == "dsc1" and float(pid["ki_per_s"]) == pytest.approx(float(c.params["ki_per_s"]))
+    assert c.params["discretisation"] == "dsc1" and c.params["h_s"] == pytest.approx(2.0 / f_sim)
+    pid = find(spec.pipeline, "pid0f")
+    assert pid.params["device"] == "dsc1" and pid.params["discretisation"] == "dsc1" and pid.rate_div == 2
+    assert float(pid.params["ki_per_s"]) == pytest.approx(float(c.params["ki_per_s"]))
     f = np.geomspace(1e2, 3e4, 20)
-    want = _pid_response("dsc1", float(c.params["ki_per_s"]), f, f_sim)
-    np.testing.assert_allclose(_check_ctrl(c, f), want, rtol=5e-3)
+    want = _pid_response("dsc1", float(c.params["ki_per_s"]), f, f_sim / 2)
+    np.testing.assert_allclose(_check_ctrl(c, f), want, rtol=1.5e-2)  # (ωh)²/12 = 1.2 % at 30 kHz, h = 2 µs
     cont = chk(fs.load(fs.nominal("F_liu20")), "chk.lock_stability")
-    assert "discretisation" not in cont.params
+    assert cont.params.get("discretisation", "continuous") == "continuous"
     lead = np.angle(want[-1] / _check_ctrl(cont, f[-1:])[0])
-    assert lead == pytest.approx(np.pi * f[-1] / f_sim, rel=0.05)  # ωh/2 = 5.4° at 30 kHz the continuous check misses
+    assert lead == pytest.approx(np.pi * f[-1] * 2 / f_sim, rel=0.05)  # ωh/2 = 10.8° at 30 kHz (h = 2 µs)
 
 
 def test_moku_overlay_check_stays_continuous():

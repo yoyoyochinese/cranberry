@@ -8,6 +8,7 @@ import scipy.signal
 
 import cranberry.blocks.noise.testing as nt
 from cranberry.blocks.err.testing import record, rig
+from cranberry.core.pipeline import iter_leaves
 from cranberry.blocks.noise._lgs import loglog_interp, section_psd, table_fit
 
 pytestmark = pytest.mark.numba
@@ -22,6 +23,10 @@ def table_mech(segments=("a",), on=("mech",), **over):
          "table_per_decade": 4, "L_ref_m": L_REF}
     p.update(over)
     return nt.mech(TOPO, list(segments), on=on, **p)
+
+
+def _mech(root):
+    return next(b for b in iter_leaves(root) if b.kind == "segment_mech_noise")
 
 
 def test_loglog_interp():
@@ -46,15 +51,42 @@ def test_synthesis_matches_table_in_band(per_decade, tol):
     np.testing.assert_allclose(sum(section_psd(x, fh) for x in secs) / s(fh), 1.0, atol=0.06)
 
 
-def test_ledger_rows_are_the_table():
+def test_ledger_has_no_row_above_nyquist():
+    """B-1 (Phase 6 fix): the exactly sampled OU sections already carry the table's variance above f_N (aliased into
+    the band), so the table declares no ledger row there (it was counted twice)."""
     root, _, _ = rig([table_mech(segments=["a", "b"], spatial_coherence={"b": 0.3})], 1e5, external={})
-    decls = {d.targets: d for d in root.bands()}
     f = np.geomspace(5.0e4, 1e6, 7)
-    for seg, L in (("a", 5.0), ("b", 9.0)):
-        d = decls[(seg,)]
-        assert d.quantity == "strain" and d.f_lo_hz == 0.0 and d.f_hi_hz == pytest.approx(5.0e4)
-        np.testing.assert_allclose(d.psd_outside(f) * (nt.K_EPS * L) ** 2, (L / L_REF) * loglog_interp(REFD)(f),
-                                   rtol=1e-12)
+    for d in root.bands():
+        assert d.quantity == "strain" and d.f_hi_hz == pytest.approx(5.0e4)
+        np.testing.assert_array_equal(d.psd_outside(f), 0.0)
+
+
+def test_sampled_variance_contains_the_part_above_nyquist():
+    """The sampled OU sum's variance = ∫_0^∞ of its PSD (not only up to f_N): what the ledger used to add again."""
+    secs = table_fit(loglog_interp(REFD), 10.0, 3.0e4, 4)
+    f = np.geomspace(1e-3, 1e9, 200001)
+    total = np.trapezoid(sum(section_psd(x, f) for x in secs), f)
+    x = record([table_mech()], 1e5, 1 << 18, ["drv.a.strain"], seed=3, external={})["drv.a.strain"]
+    v = np.var(x * nt.K_EPS * 5.0 / np.sqrt(5.0 / L_REF))
+    assert v == pytest.approx(total, rel=0.15)
+
+
+def test_hf_pole_gives_f4_rolloff():
+    """table_hf_pole_hz (B-1): synthesis = T(f)/(1 + (f/f_p)²) — the table in band, f⁻⁴ above f_p."""
+    s = loglog_interp(REFD)
+    root, _, _ = rig([table_mech(table_hf_pole_hz=1.0e4)], 1e6, external={})
+    secs = _mech(root)._units()["mech"]
+    f = np.geomspace(30.0, 2.0e4, 300)
+    assert np.abs(sum(section_psd(x, f) for x in secs) * (1 + (f / 1e4) ** 2) / s(f) - 1.0).max() < 0.08
+    fh = np.array([1.0e5, 2.0e5])
+    ph = sum(section_psd(x, fh) for x in secs)
+    assert ph[1] / ph[0] == pytest.approx(2.0 ** -4, rel=0.05)
+    # inf / absent: the plain fit (the D89 behaviour)
+    r2, _, _ = rig([table_mech(table_hf_pole_hz=float("inf"))], 1e6, external={})
+    b2 = _mech(r2)
+    a = [x.C for x in b2._units()["mech"]]
+    b = [x.C for x in table_fit(loglog_interp(REFD), 10.0, 3.0e4, 4)]
+    assert all(np.array_equal(u, w) for u, w in zip(a, b))
 
 
 def test_time_loop_reproduces_table():
@@ -69,9 +101,9 @@ def test_time_loop_reproduces_table():
 
 def test_gamma_zero_is_length_independent():
     root, _, _ = rig([table_mech(segments=["a", "b"], gamma=0.0, spatial_coherence={"b": 1.0})], 1e5, external={})
-    f = np.array([6e4])
-    d = {x.targets: x.psd_outside(f)[0] for x in root.bands()}
-    assert d[("a",)] * (nt.K_EPS * 5.0) ** 2 == pytest.approx(d[("b",)] * (nt.K_EPS * 9.0) ** 2, rel=1e-12)
+    blk = _mech(root)
+    pa, pb = blk._amp(0) ** 2 * (nt.K_EPS * 5.0) ** 2, blk._amp(1) ** 2 * (nt.K_EPS * 9.0) ** 2
+    assert pa == pytest.approx(pb, rel=1e-12)
 
 
 def test_rng_substreams_deterministic():

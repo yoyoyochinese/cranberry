@@ -1,10 +1,11 @@
 # Probe axis: probe frequency offset Δν = 1e+11 Hz — 100 GHz (D40, T10 §3.3). The probe's thermal phase gains
 # 2πΔν·κ_τ·L per kelvin relative to the squeezed light (T10: 2πΔν·dτ_g/dT·L), written as beam-specific dT / tec
 # coefficients of the probes (they override the wildcard, path.coef); the stray-light table moves the probe off the
-# squeezed carrier.
+# squeezed carrier. The overlay sets the probe LINE (probe_line_offset_hz); probe_freq_offset_hz = line +
+# liu_f_shift_hz (probe/detect_heterodyne's beat), so the two compose (G-5).
 offline:
   params:
-    probe_freq_offset_hz: 1e+11
+    probe_line_offset_hz: 1e+11
 topology:
   coef:
     - {id: F0.dT.pr0.phase, segment: F0, driver: dT, beam: pr0, effect: phase,

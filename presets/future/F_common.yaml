@@ -297,7 +297,10 @@ offline:
     probe_duty: !sweep_log [1.0e-3, 1.0, 4]       # AOM gate duty (D40)
     probe_t_offset_s: 5.0e-9              # probe start relative to the squeezed slot [AE] (T10 test 7)
     eps_aom: 1.0e-5                       # AOM off-state leak (−50 dB) [AE] UNVERIFIED
-    probe_freq_offset_hz: 0.0             # same frequency (D40; overlays: 80 MHz, 7 GHz, 1 THz)
+    probe_line_offset_hz: 0.0             # probe laser line − squeezed carrier (D40; overlays probe/freq_*: 80 MHz, 7 GHz, 1 THz)
+    liu_f_shift_hz: 0.0                   # heterodyne AOM shift of the probe against its reference (probe/detect_heterodyne)
+    probe_freq_offset_hz: !expr "probe_line_offset_hz + liu_f_shift_hz"   # probe beam − squeezed carrier (path model,
+                                          # stray light); separate keys so freq_* and detect_heterodyne compose (G-5)
     p_ref_w: 1.0e-3                       # reference power at det_k (T14 §8.2)
     liu_responsivity_a_per_w: 1.0         # T14 §2.5 placeholder (η ℜ)
     liu_gain_v_per_a: 1.0e+3              # [AE] keeps K = 2ℜG√(P̄/D·P_ref) inside the ±0.5 V ADC at the nominal point
@@ -306,11 +309,41 @@ offline:
                                           # of the orthogonal probe and the mode matching at det_k) [AE range] (M6-10)
     liu_k_v: !expr "2 * liu_responsivity_a_per_w * liu_gain_v_per_a * sqrt(p_pr_avg_w / probe_duty * p_ref_w) * liu_visibility"
                                           # fringe amplitude K with gated detection (T14 §8.2): slope −K at X = π/2
-    # --- controller (fpga_generic; T16 §4.5; overlays controller/*) ---------------------------------------------------
-    latency_s: !choice [1.0e-6, 2.0e-6]   # τ_L (fpga_generic 0.1–2 µs, T16 §4.5); ≥ 1/f_sim (D55-1)
+    # --- controller (fpga_generic; T16 §4.5) ----------------------------------------------------------------------
+    # Phase 6 fix G-3 (reviews/phase6_wp6g_ab.md §5): every controller choice lives HERE. adc0/adc1, the in/out pole
+    # lpfs, pid*f / sup* / pid*s, dac*f, the delay lines, chk.lock_stability and the gate overlays' chk.gated_stability
+    # read these params; the controller/* overlays write only these params, so they compose with the gate / probe
+    # overlays in either order (each controller overlay restates the full set: the last one applied wins entirely).
+    ctrl_device: fpga_generic             # device preset of the ADC / PID / DAC blocks (devices/<name>.yaml)
+    adc_device: !expr "ctrl_device"
+    adc_bits: 16                          # fpga_generic ADC (devices/fpga_generic.yaml: 16 bit)
+    adc_range_v: 0.5                      # ADC input range ±adc_range_v (fpga_generic ±0.5 V)
+    adc_avg_samples: 1                    # ADC input average at f_sim (DSC1: 2-point)
+    pid_law: tustin                       # pid discretisation of pid*f / pid*s (fpga_generic: tustin; DSC1 p.19: dsc1)
+    chk_law: continuous                   # chk.lock_stability controller model (D82: dsc1 for the DSC1 law)
+    pid_rate_div: 1                       # fine PID / supervisor / DAC update f_sim / pid_rate_div (D91: DSC1 500 kHz)
+    pid_h_s: !expr "pid_rate_div / run.f_sim_hz"   # controller update period h
+    ctrl_in_pole_hz: .inf                 # input analogue bandwidth, 1st order (lpf in_bw*; .inf = none; DSC1 120 kHz)
+    ctrl_out_pole_hz: .inf                # output analogue bandwidth, 1st order (lpf out_bw*f; .inf = none; DSC1 100 kHz)
+    latency_s: !choice [1.0e-6, 2.0e-6]   # τ_L total loop latency (fpga_generic 0.1–2 µs, T16 §4.5); ≥ 1/f_sim (D55-1)
+    ctrl_latency_s: !expr "latency_s"     # τ_L of the L-Liu controller (read by the delay lines and both checks);
+                                          # controller/dsc1 points it at dsc1_latency_s, the other controller overlays
+                                          # back at latency_s (the generic τ_L axis, also used by the locks/ loops)
+    ctrl_hold_delay_s: !expr "(pid_rate_div - 1) / (2 * run.f_sim_hz)"   # hold of the rate_div PID / DAC (D68-2)
+    # delays inside τ_L that the time loop models explicitly (D61-2, D91-1: ADC average, rate_div hold); the delay
+    # lines dl*f carry τ_L − 1/f_sim − this, so τ_L is not counted twice
+    ctrl_explicit_delay_s: !expr "(adc_avg_samples - 1) / (2 * run.f_sim_hz) + ctrl_hold_delay_s"
+    # DAC ZOH half sample added by BOTH stability checks (G-8; D68-2). The tustin pzt of the time loop has none, so
+    # 0 reproduces the time loop exactly (D90-7); 0.5/f_sim is the physical DAC staircase on top of a τ_L measured to
+    # the output step (fpga_generic). DSC1: 0 (its τ_L fit already contains the 500 kHz ZOH, D61-2).
+    zoh_delay_s: !expr "0.5 / run.f_sim_hz"
     lock_extra_delay_s: 0.0               # loop delay not in latency_s seen by chk.lock_stability (probe/actuator_downstream:
                                           # τ_k; probe/detect_after_demux: the frame hold ≈ T_F/2)
+    lock_extra_pole_hz: .inf              # a 1st-order pole of the loop outside the controller seen by both checks (.inf = none;
+                                          # gate/chopper_wdm: its digital LPF)
     dac_bits: !choice [14, 16]            # fpga_generic 12–16 bit (00_summary §7.2)
+    ctrl_dac_bits: !expr "dac_bits"       # DAC bits of the L-Liu controller (controller/* set it; locks/ loops keep dac_bits)
+    dac_output_noise_v: 0.0               # DAC output noise / dither, per-sample std [V] (B-2 axis in lab/multimode915b*)
     out_range_v: 0.5                      # ±0.5 V (fpga_generic, Moku:Delta PID stand-in, T16 §4.5)
     f_u_hz: !sweep_log [1.0e+3, 3.0e+4, 3]   # fine (PZT) loop unity-gain frequency [AE] (T14 §8.2 "10 kHz")
     f_12_hz: !sweep_log [3.0e-3, 0.3, 3]  # PZT → TEC crossover (T16 §4.4 offload) [AE]; ≪ 1/(2π τ_th)
@@ -320,6 +353,10 @@ offline:
     pzt_f_res_hz: !sweep [5.0e+3, 6.0e+4, 3]    # stretcher resonance (915B 5–60 kHz, D51-11) UNVERIFIED
     pzt_q: !sweep_log [3.0, 100.0, 3]           # D51-11
     pzt_k_rad_per_v: !expr "pzt_range_rad / out_range_v"
+    # the stretcher mode list, read by pzt0 / pzt1, chk.lock_stability and chk.gated_stability (G-4: one place;
+    # lab/multimode915b_future replaces it). Every mode carries r: parallel sum Σ r ω²/(s² + sω/Q + ω²) (D89-1).
+    pzt_modes:
+      - {f_hz: !expr "offline.params.pzt_f_res_hz", q: !expr "offline.params.pzt_q", r: 1.0}
     tec_k_t_k_per_v: 4.0                  # TEC gain at ±0.5 V → ±2 K [AE] (T16 §3.4)
     tec_tau_th_s: !sweep_log [1.0, 100.0, 3]    # T16 §3.4, 00_summary §7.2 (1–100 s)
     tec_dt_max_k: !sweep [1.0, 10.0, 3]   # ±1–10 K (00_summary §7.2)
@@ -471,8 +508,9 @@ offline:
     # gets a `loop_unstable` CHK event, RunResult.valid = False, and is kept (never pruned). Over the axes
     # f_u × f_res × Q × latency 40 / 54 points are unstable (all of f_u = 30 kHz, 14 / 18 at 5.5 kHz, 8 / 18 at 1 kHz);
     # the TEC offload stage (f_12, τ_th) does not change the count (360 / 486 with those axes). Continuous model of the
-    # F_common stack: fine stage L = (2π f_u/s)·M(s)·e^{−sτ}, M = stretcher resonance, τ = latency_s (τ_s + 1/f_sim,
-    # D55-1) + 0.5/f_sim (DAC ZOH, D68-2) + lock_extra_delay_s; TEC stage C_2 = 2π f_12 k_pzt/(k_TEC s) with the TEC
+    # F_common stack: fine stage L = (2π f_u/s)·M(s)·e^{−sτ}·poles, M = stretcher modes (pzt_modes), τ = ctrl_latency_s
+    # (τ_s + 1/f_sim, D55-1) + zoh_delay_s (DAC ZOH 0.5/f_sim, D68-2; shared with chk.gated_stability, G-8) +
+    # lock_extra_delay_s, the controller law chk_law / h pid_h_s and its in/out poles from offline.params (G-3); TEC stage C_2 = 2π f_12 k_pzt/(k_TEC s) with the TEC
     # lag 1/(1 + sτ_th) and k_act = k_TEC/k_pzt (k_TEC = tec_k_t·k_T·L_k as the PID design; the fast-axis probe sees
     # (k_T + |K_T|)/k_T ≤ 1.08 × that, not modelled). Both ports have the same normalised loop, so one check covers
     # them. Only offline.params are read: pipeline toggles (largerange/pzt_only, resonance off) are not seen.
@@ -483,9 +521,12 @@ offline:
         kp: 0.0
         ki_per_s: !expr "2 * pi * offline.params.f_u_hz / (offline.params.liu_k_v * offline.params.pzt_k_rad_per_v)"
         kd_s: 0.0
-        delay_s: !expr "offline.params.latency_s + 0.5 / run.f_sim_hz + offline.params.lock_extra_delay_s"
-        poles_hz: []
-        modes: [{f_hz: !expr "offline.params.pzt_f_res_hz", q: !expr "offline.params.pzt_q"}]
+        discretisation: !expr "offline.params.chk_law"
+        h_s: !expr "offline.params.pid_h_s"
+        delay_s: !expr "offline.params.ctrl_latency_s + offline.params.zoh_delay_s + offline.params.lock_extra_delay_s"
+        poles_hz: [!expr "offline.params.ctrl_in_pole_hz", !expr "offline.params.ctrl_out_pole_hz",
+                   !expr "offline.params.lock_extra_pole_hz"]
+        modes: !expr "offline.params.pzt_modes"
         stages:
           - kp: 0.0
             ki_per_s: !expr "2 * pi * offline.params.f_12_hz * offline.params.pzt_k_rad_per_v / offline.params.tec_k_rad_per_v_k"
@@ -741,24 +782,33 @@ pipeline:
       gain_v_per_a: !expr "offline.params.liu_gain_v_per_a"
       i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
       toggles: {shot_noise: true, electronic_noise: true, gating: true}
+  - block: lpf                          # controller input bandwidth (identity unless ctrl_in_pole_hz < inf; B-7)
+    name: in_bw0
+    params: {in: v.liu0, out: v.in_bw0, unit: V, order: 1, method: bilinear,
+             f_c_hz: !expr "min(offline.params.ctrl_in_pole_hz, 0.25 * run.f_sim_hz)",
+             toggles: {enabled: !expr "offline.params.ctrl_in_pole_hz < inf"}}
   - block: adc
     name: adc0
     params:
-      in: v.liu0
+      in: v.in_bw0
       out: v.adc0
-      device: fpga_generic
+      device: !expr "offline.params.adc_device"
+      bits: !expr "offline.params.adc_bits"
+      range_v: [!expr "-offline.params.adc_range_v", !expr "offline.params.adc_range_v"]
       noise_vrms: 0.0
-      avg_samples: 1
+      avg_samples: !expr "offline.params.adc_avg_samples"
       toggles: {quantization: true, noise: false, saturation: true}   # D49: quantisation on
   - stack:
       stages:
         - seq:
             - block: pid                 # fine stage → stretcher (dv/du = −K·K_pzt < 0: K_i > 0)
               name: pid0f
+              rate_div: !expr "offline.params.pid_rate_div"
               params:
                 in: v.adc0
                 out: ctrl.pid0f.u
-                device: fpga_generic
+                device: !expr "offline.params.ctrl_device"
+                discretisation: !expr "offline.params.pid_law"
                 anti_windup: clamp
                 kp: 0.0
                 ki_per_s: !expr "2 * pi * offline.params.f_u_hz / (offline.params.liu_k_v * offline.params.pzt_k_rad_per_v)"
@@ -773,6 +823,7 @@ pipeline:
                 toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
             - block: lock_supervisor     # lock-loss detection; 2π reset (fringe_hop) via largerange/fringe_hop.yaml (D41)
               name: sup0
+              rate_div: !expr "offline.params.pid_rate_div"
               params:
                 u_in: ctrl.pid0f.u
                 e_in: v.adc0
@@ -780,8 +831,8 @@ pipeline:
                 slip_center_rad: 0.0     # stable point = the setpoint (coupler_sign +1, K_i > 0 for dv/du < 0): slips counted about X = π/2
                 out: ctrl.sup0.u
                 relock: fringe_hop
-                u_min_v: !expr "-offline.params.out_range_v * (1 - 2.0 ** (1 - offline.params.dac_bits))"
-                u_max_v: !expr "offline.params.out_range_v * (1 - 2.0 ** (1 - offline.params.dac_bits))"
+                u_min_v: !expr "-offline.params.out_range_v * (1 - 2.0 ** (1 - offline.params.ctrl_dac_bits))"
+                u_max_v: !expr "offline.params.out_range_v * (1 - 2.0 ** (1 - offline.params.ctrl_dac_bits))"
                 t_sat_s: 0.0
                 e_th: 1.0e+9
                 t_e_s: 0.0
@@ -795,7 +846,8 @@ pipeline:
           params:
             in: ctrl.sup0.u
             out: ctrl.pid0s.u
-            device: fpga_generic
+            device: !expr "offline.params.ctrl_device"
+            discretisation: !expr "offline.params.pid_law"
             anti_windup: clamp
             kp: 0.0
             ki_per_s: !expr "2 * pi * offline.params.f_12_hz * offline.params.pzt_k_rad_per_v / offline.params.tec_k_rad_per_v_0"
@@ -812,20 +864,26 @@ pipeline:
         - seq:
             - block: dac
               name: dac0f
+              rate_div: !expr "offline.params.pid_rate_div"
               params:
                 in: ctrl.sup0.u
                 out: v.dac0f
-                device: fpga_generic
-                bits: !expr "offline.params.dac_bits"
-                range_v: [-0.5, 0.5]     # = ±out_range_v (fpga_generic)
-                noise_vrms: 0.0
+                device: !expr "offline.params.ctrl_device"
+                bits: !expr "offline.params.ctrl_dac_bits"
+                range_v: [!expr "-offline.params.out_range_v", !expr "offline.params.out_range_v"]
+                noise_vrms: !expr "offline.params.dac_output_noise_v"
                 r_out_ohm: 50.0
                 r_load_ohm: .inf
-                toggles: {quantization: true, noise: false, saturation: true}
+                toggles: {quantization: true, noise: !expr "offline.params.dac_output_noise_v > 0", saturation: true}
+            - block: lpf                  # controller output bandwidth (identity unless ctrl_out_pole_hz < inf; B-7)
+              name: out_bw0f
+              params: {in: v.dac0f, out: v.out_bw0f, unit: V, order: 1, method: bilinear,
+                       f_c_hz: !expr "min(offline.params.ctrl_out_pole_hz, 0.25 * run.f_sim_hz)",
+                       toggles: {enabled: !expr "offline.params.ctrl_out_pole_hz < inf"}}
             - block: delay_buffer
               name: dl0f
-              params: {in: v.dac0f, out: delay.dl0f.out, method: linear,
-                       tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz"}   # D55-1
+              params: {in: v.out_bw0f, out: delay.dl0f.out, method: linear,   # D55-1, D61-2, D91-1
+                       tau_s: !expr "offline.params.ctrl_latency_s - 1.0 / run.f_sim_hz - offline.params.ctrl_explicit_delay_s"}
             - block: pzt_fiber_stretcher
               name: pzt0
               params:
@@ -833,7 +891,7 @@ pipeline:
                 gain_mode: direct
                 k_rad_per_v: !expr "offline.params.pzt_k_rad_per_v"
                 polarity: 1.0
-                modes: [{f_hz: !expr "offline.params.pzt_f_res_hz", q: !expr "offline.params.pzt_q", r: 1.0}]
+                modes: !expr "offline.params.pzt_modes"   # G-4: the one mode list (offline.params)
                 discretisation: tustin
                 prewarp_hz: !expr "offline.params.pzt_f_res_hz"
                 drive_min_v: !expr "-offline.params.out_range_v"
@@ -886,24 +944,33 @@ pipeline:
       gain_v_per_a: !expr "offline.params.liu_gain_v_per_a"
       i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
       toggles: {shot_noise: true, electronic_noise: true, gating: true}
+  - block: lpf                          # controller input bandwidth (identity unless ctrl_in_pole_hz < inf; B-7)
+    name: in_bw1
+    params: {in: v.liu1, out: v.in_bw1, unit: V, order: 1, method: bilinear,
+             f_c_hz: !expr "min(offline.params.ctrl_in_pole_hz, 0.25 * run.f_sim_hz)",
+             toggles: {enabled: !expr "offline.params.ctrl_in_pole_hz < inf"}}
   - block: adc
     name: adc1
     params:
-      in: v.liu1
+      in: v.in_bw1
       out: v.adc1
-      device: fpga_generic
+      device: !expr "offline.params.adc_device"
+      bits: !expr "offline.params.adc_bits"
+      range_v: [!expr "-offline.params.adc_range_v", !expr "offline.params.adc_range_v"]
       noise_vrms: 0.0
-      avg_samples: 1
+      avg_samples: !expr "offline.params.adc_avg_samples"
       toggles: {quantization: true, noise: false, saturation: true}
   - stack:
       stages:
         - seq:
             - block: pid
               name: pid1f
+              rate_div: !expr "offline.params.pid_rate_div"
               params:
                 in: v.adc1
                 out: ctrl.pid1f.u
-                device: fpga_generic
+                device: !expr "offline.params.ctrl_device"
+                discretisation: !expr "offline.params.pid_law"
                 anti_windup: clamp
                 kp: 0.0
                 ki_per_s: !expr "2 * pi * offline.params.f_u_hz / (offline.params.liu_k_v * offline.params.pzt_k_rad_per_v)"
@@ -918,6 +985,7 @@ pipeline:
                 toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
             - block: lock_supervisor
               name: sup1
+              rate_div: !expr "offline.params.pid_rate_div"
               params:
                 u_in: ctrl.pid1f.u
                 e_in: v.adc1
@@ -925,8 +993,8 @@ pipeline:
                 slip_center_rad: 0.0     # stable point = the setpoint (coupler_sign +1, K_i > 0 for dv/du < 0): slips counted about X = π/2
                 out: ctrl.sup1.u
                 relock: fringe_hop
-                u_min_v: !expr "-offline.params.out_range_v * (1 - 2.0 ** (1 - offline.params.dac_bits))"
-                u_max_v: !expr "offline.params.out_range_v * (1 - 2.0 ** (1 - offline.params.dac_bits))"
+                u_min_v: !expr "-offline.params.out_range_v * (1 - 2.0 ** (1 - offline.params.ctrl_dac_bits))"
+                u_max_v: !expr "offline.params.out_range_v * (1 - 2.0 ** (1 - offline.params.ctrl_dac_bits))"
                 t_sat_s: 0.0
                 e_th: 1.0e+9
                 t_e_s: 0.0
@@ -940,7 +1008,8 @@ pipeline:
           params:
             in: ctrl.sup1.u
             out: ctrl.pid1s.u
-            device: fpga_generic
+            device: !expr "offline.params.ctrl_device"
+            discretisation: !expr "offline.params.pid_law"
             anti_windup: clamp
             kp: 0.0
             ki_per_s: !expr "2 * pi * offline.params.f_12_hz * offline.params.pzt_k_rad_per_v / offline.params.tec_k_rad_per_v_k"
@@ -957,20 +1026,26 @@ pipeline:
         - seq:
             - block: dac
               name: dac1f
+              rate_div: !expr "offline.params.pid_rate_div"
               params:
                 in: ctrl.sup1.u
                 out: v.dac1f
-                device: fpga_generic
-                bits: !expr "offline.params.dac_bits"
-                range_v: [-0.5, 0.5]
-                noise_vrms: 0.0
+                device: !expr "offline.params.ctrl_device"
+                bits: !expr "offline.params.ctrl_dac_bits"
+                range_v: [!expr "-offline.params.out_range_v", !expr "offline.params.out_range_v"]
+                noise_vrms: !expr "offline.params.dac_output_noise_v"
                 r_out_ohm: 50.0
                 r_load_ohm: .inf
-                toggles: {quantization: true, noise: false, saturation: true}
+                toggles: {quantization: true, noise: !expr "offline.params.dac_output_noise_v > 0", saturation: true}
+            - block: lpf                  # controller output bandwidth (identity unless ctrl_out_pole_hz < inf; B-7)
+              name: out_bw1f
+              params: {in: v.dac1f, out: v.out_bw1f, unit: V, order: 1, method: bilinear,
+                       f_c_hz: !expr "min(offline.params.ctrl_out_pole_hz, 0.25 * run.f_sim_hz)",
+                       toggles: {enabled: !expr "offline.params.ctrl_out_pole_hz < inf"}}
             - block: delay_buffer
               name: dl1f
-              params: {in: v.dac1f, out: delay.dl1f.out, method: linear,
-                       tau_s: !expr "offline.params.latency_s - 1.0 / run.f_sim_hz"}
+              params: {in: v.out_bw1f, out: delay.dl1f.out, method: linear,   # D55-1, D61-2, D91-1
+                       tau_s: !expr "offline.params.ctrl_latency_s - 1.0 / run.f_sim_hz - offline.params.ctrl_explicit_delay_s"}
             - block: pzt_fiber_stretcher
               name: pzt1
               params:
@@ -978,7 +1053,7 @@ pipeline:
                 gain_mode: direct
                 k_rad_per_v: !expr "offline.params.pzt_k_rad_per_v"
                 polarity: 1.0
-                modes: [{f_hz: !expr "offline.params.pzt_f_res_hz", q: !expr "offline.params.pzt_q", r: 1.0}]
+                modes: !expr "offline.params.pzt_modes"   # G-4: the one mode list (offline.params)
                 discretisation: tustin
                 prewarp_hz: !expr "offline.params.pzt_f_res_hz"
                 drive_min_v: !expr "-offline.params.out_range_v"

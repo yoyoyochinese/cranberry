@@ -16,7 +16,11 @@ reference):
 discretised as the time loop runs it:
 
 * C_1 (the gated controller) is the ``pid`` law of ``pid_discretisation`` (``tustin`` | ``dsc1`` | ``forward_euler``,
-  ``blocks.ctrl.pid.first_order``; K_p, K_i, K_d, no ω_IS / ω_DS / K_i2), state [c[n−1], I, D];
+  ``blocks.ctrl.pid.first_order``; K_p, K_i, K_d, no ω_IS / ω_DS / K_i2), state [c[n−1], I, D]. With the optional
+  ``pid_rate_div`` r (default 1; D91: DSC1 at 500 kHz = r 2 at 1 MHz) it updates every r-th base sample with
+  h = r/f_sim and holds its output in between (the time loop's ``rate_div`` hold, so ``delay_s`` must not count the
+  hold (r − 1)/(2 f_sim)); the monodromy is then taken over lcm(N, r) samples and ρ is quoted per gate period
+  (ρ_period = ρ_lcm^{N/lcm});
 * the gate acts on C_1's input c (``gated_hold`` between the error signal and the controller): in the active part of
   the lock window c = e; outside it c = off_gain·e (``hold_mode: zero``; off_gain = 0 for ``gated_hold`` zero /
   noise_only, √leak for a probe gated by ``gate_schedule`` without a hold block) or c = the last active e
@@ -24,11 +28,19 @@ discretised as the time loop runs it:
   detector when ``gated_hold`` reads a delayed ``gate.<name>.lock``) and its first ⌈settle_s·f_sim⌉ samples are blanked
   (``gated_hold.settle_s``);
 * delay_s is the total loop delay of the time loop (D55-1, D61-2: tau_s + 1/f_sim + explicit delays; ≥ 1/f_sim), as
-  integer samples + the linear fractional interpolation of ``delay_buffer``. No half-sample ZOH term (that belongs to
-  the continuous approximation of ``loop_stability_check``);
-* G_1, C_j (j ≥ 2: K_p + K_i/s, K_d = 0) and A_k are Tustin-discretised element by element (a mode prewarped at its own
-  frequency, as ``pzt_fiber_stretcher``), so the stages run at the base rate (the TEC stage's own ``rate_div`` hold is
-  neglected: it is ≪ the gate period's effect in the presets).
+  integer samples + the linear fractional interpolation of ``delay_buffer`` (a 2-point ADC average is the same filter
+  as a half-sample linear interpolation). The presets add the same ZOH half sample ``zoh_delay_s`` as their
+  ``chk.lock_stability`` (G-8; 0 reproduces the tustin time loop exactly);
+* G_1, C_j (j ≥ 2: K_p + K_i/s, K_d = 0) and A_k are Tustin-discretised element by element at the base rate (the TEC
+  stage's own ``rate_div`` hold is neglected: it is ≪ the gate period's effect in the presets). A pole is prewarped at
+  its own frequency (as the ``lpf`` blocks, Butterworth bilinear); modes: the mode-list rule of ``loop_stability_check``
+  (D89-1, Phase 6 fix G-4) — every mode with ``r`` → the parallel sum Σ r ω²/(s² + sω/Q + ω²), discretised as one
+  system prewarped at the optional ``prewarp_hz`` (the ``pzt_fiber_stretcher``'s, e.g. the main mode; absent: every
+  mode at its own frequency, summed); otherwise the modes in series, each at its own frequency. The poles and modes
+  are lumped after the delay: exact for the LTI parts; across the gate edges only for poles fast against the windows
+  (the DSC1 120 / 100 kHz poles: τ ≈ 1.3–1.6 µs).
+* Chopper edges (G-9, documented, not modelled): ``gate_schedule``'s linear ramp of the probe power (√g in the fringe
+  amplitude) is taken as 0/1 here; for gate/chopper_wdm (2 µs edges, 167 µs period) that is ≈ 1 % of the period.
 
 With z[n+1] = A_on z[n] + B_on d[n] (controller active) or A_off, B_off (otherwise), e[n] = C z[n] + d[n] (e: the lock
 error, d: the free-running phase of the locked combination), the monodromy matrix over one period (N = round(T f_sim)
@@ -36,6 +48,11 @@ samples) is M = Π_n A_n. **Stable ⇔ ρ = max |eig M| < 1** (Floquet multiplie
 ``multipliers`` lists the four largest |eig M| (with a slow offload stage the largest is its slow mode, ρ ≈ 1 − 2πf_12 T,
 and the fast loop's gated multiplier is the next one). A
 window without an active sample gives ρ = 1 (the integrator is never corrected): reported as not stable.
+
+Window CHKs (Phase 6 fix G-2 / G-7, warnings that never invalidate by themselves): ``gate_window_short`` when the
+lock window, the controller's active part or the measurement window holds no base sample (the metrics of a
+measurement window without samples are then invalid: ``metric_no_sample``); ``gate_period_not_integer`` when
+T·f_sim is not an integer (the check solves the N = round(T f_sim) periodic loop, the time loop is quasi-periodic).
 
 Residual error (``disturbance`` given, stable points): the exact cyclostationary variance of e for a stationary d of
 one-sided PSD S(f) [rad²/Hz] (f < f_sim/2): for d = e^{i2πfnh} the periodic steady state is solved from M
@@ -59,7 +76,8 @@ the probe-off time needs **f_gate ≤ (1 − D_pr − D_det) / [2 (2 n_g L/c + t
 warning (not invalidating: it is a stray-light, not a stability, problem; the size is ``window_stray_light``'s).
 
 Params (all required, D34): ``loop_stability_check``'s ``k0``, ``kp``, ``ki_per_s``, ``kd_s``, ``delay_s``, ``poles_hz``,
-``modes`` ({f_hz, q}), ``f_grid_hz`` (ungated Nyquist reference), optional ``stages``; ``pid_discretisation``,
+``modes`` ({f_hz, q} or {f_hz, q, r}), ``f_grid_hz`` (ungated Nyquist reference), optional ``stages``,
+``prewarp_hz``, ``pid_rate_div``; ``pid_discretisation``,
 ``f_sim_hz``, ``period_s``, ``lock_fraction``, ``gate_delay_s``, ``settle_s``, ``hold_mode`` (``zero`` | ``hold``), ``off_gain``,
 ``meas_delay_s`` (measurement window start after the lock window end); toggles {enabled}. Optional (absent or null:
 YAML overlays cannot carry a null, it deletes the key): ``meas_duty`` (fraction of the period; absent = to the end of
@@ -131,13 +149,24 @@ def _tustin(sys_c, h, prewarp_hz=None):
     return _ss(ad, bd, cd, dd)
 
 
-def _dynamics_d(q: Mapping[str, Any], h: float):
-    """Discrete Π poles · Π modes (each element Tustin, a mode prewarped at its frequency)."""
+def _dynamics_d(q: Mapping[str, Any], h: float, prewarp_hz: float | None = None):
+    """Discrete Π poles · modes (module docstring: poles prewarped at their own frequency; modes: parallel sum when
+    every mode has r, prewarped at ``prewarp_hz`` or each at its own frequency, else in series)."""
     out = _ss()
-    poles = [float(p) for p in q["poles_hz"] if math.isfinite(float(p))]
-    if poles:
-        out = _series(out, _tustin(poles_ss(poles), h))
-    for m in q["modes"]:
+    for p in q["poles_hz"]:
+        if math.isfinite(float(p)):
+            out = _series(out, _tustin(poles_ss([float(p)]), h, float(p)))
+    modes = q["modes"]
+    if modes and all("r" in m for m in modes):  # parallel sum (loop_stability._dynamics, D89-1)
+        ms = [{"f_hz": m["f_hz"], "q": m["q"], "r": m["r"]} for m in modes]
+        if prewarp_hz is not None:
+            return _series(out, _tustin(modes_ss(ms), h, float(prewarp_hz)))
+        tot = None
+        for m in ms:
+            d = _tustin(modes_ss([m]), h, float(m["f_hz"]))
+            tot = d if tot is None else _sum(tot, d)
+        return _series(out, tot)
+    for m in modes:
         out = _series(out, _tustin(modes_ss([{"f_hz": m["f_hz"], "q": m["q"], "r": 1.0}]), h, float(m["f_hz"])))
     return out
 
@@ -161,15 +190,21 @@ def plant_d(p: Mapping[str, Any], h: float):
         chain = _series(chain, _stage_ctrl_d(st, h))
         path = _series(_series(chain, _ss(D=float(st["k_act"]))), _dynamics_d(st, h))
         inner = _sum(inner, path)
-    return _series(inner, _dynamics_d(p, h))
+    pw = p.get("prewarp_hz")
+    return _series(inner, _dynamics_d(p, h, None if pw is None else float(pw)))
 
 
 # --------------------------------------------------------------------------------------- the gated loop
 
 
 def gated_loop_model(p: Mapping[str, Any]) -> dict[str, Any]:
-    """Discrete loop matrices {A_on, B_on, A_off, B_off, C, D, h} (module docstring)."""
+    """Discrete loop matrices {A_on, B_on, A_off, B_off, C, D, h} (module docstring); with ``pid_rate_div`` r > 1 also
+    {A_on_hold, B_on_hold, A_off_hold, B_off_hold} (the samples between two PID updates) and ``r``."""
     h = 1.0 / float(p["f_sim_hz"])
+    r = int(p.get("pid_rate_div") or 1)
+    if r < 1:
+        raise ValueError(f"gated_loop_stability_check: pid_rate_div must be >= 1, got {p.get('pid_rate_div')!r}")
+    hc = r * h  # controller update period
     ap, bp, cp, dp = plant_d(p, h)
     npl = ap.shape[0]
     dsm = float(p["delay_s"]) / h
@@ -186,14 +221,14 @@ def gated_loop_model(p: Mapping[str, Any]) -> dict[str, Any]:
         w[k] = mu
     meth = DISCRETISATIONS[p["pid_discretisation"]]
     kp, ki, kd = float(p["kp"]), float(p["ki_per_s"]), float(p["kd_s"])
-    b0, b1, a1 = first_order(meth, 0.0, ki, 0.0, h)
+    b0, b1, a1 = first_order(meth, 0.0, ki, 0.0, hc)
     k0 = float(p["k0"])
     hold = p["hold_mode"] == "hold"
     g_off = float(p["off_gain"])
     i_h, i_c = npl, npl + nh  # u history, controller [c1, I, D, eh]
     m = npl + nh + 4
 
-    def step(z, d, on):
+    def step(z, d, on, upd=True):
         xp, uh = z[:npl], z[i_h:i_c]
         c1, ii, dd, eh = z[i_c:i_c + 4]
         ud = w @ uh
@@ -209,26 +244,45 @@ def gated_loop_model(p: Mapping[str, Any]) -> dict[str, Any]:
         if kd == 0.0:
             d_new = 0.0
         elif meth == 1:
-            d_new = -dd + kd * (2.0 / h) * (c - c1)
+            d_new = -dd + kd * (2.0 / hc) * (c - c1)
         else:
-            d_new = kd * (c - c1) / h
+            d_new = kd * (c - c1) / hc
         u = kp * c + i_new + d_new
         zn = np.empty(m)
         zn[:npl] = ap @ xp + bp[:, 0] * ud
-        zn[i_h] = u
         zn[i_h + 1:i_c] = uh[:-1]
-        zn[i_c:i_c + 4] = (c, i_new, d_new, eh_new)
+        if upd:
+            zn[i_h] = u
+            zn[i_c:i_c + 4] = (c, i_new, d_new, eh_new)
+        else:  # between two PID updates: output and controller state held (the gated_hold state still runs)
+            zn[i_h] = uh[0]
+            zn[i_c:i_c + 4] = (c1, ii, dd, eh_new)
         return zn, e
 
     eye = np.eye(m)
-    out: dict[str, Any] = {"h": h, "m": m}
+    out: dict[str, Any] = {"h": h, "m": m, "r": r}
     for tag, on in (("on", True), ("off", False)):
-        cols = [step(eye[:, j], 0.0, on) for j in range(m)]
-        out[f"A_{tag}"] = np.column_stack([c[0] for c in cols])
-        out[f"B_{tag}"] = step(np.zeros(m), 1.0, on)[0]
-        out["C"] = np.array([c[1] for c in cols])
+        for sfx, upd in (("", True), ("_hold", False)):
+            if r == 1 and not upd:
+                continue
+            cols = [step(eye[:, j], 0.0, on, upd) for j in range(m)]
+            out[f"A_{tag}{sfx}"] = np.column_stack([c[0] for c in cols])
+            out[f"B_{tag}{sfx}"] = step(np.zeros(m), 1.0, on, upd)[0]
+            out["C"] = np.array([c[1] for c in cols])
     out["D"] = 1.0
     return out
+
+
+def _keys(model: Mapping[str, Any], active: np.ndarray) -> list[str]:
+    """Per-sample matrix key ("on" / "off" [+ "_hold" between PID updates]) of a schedule of lcm length."""
+    r = model.get("r", 1)
+    return [("on" if a else "off") + ("" if r == 1 or k % r == 0 else "_hold") for k, a in enumerate(active)]
+
+
+def lcm_active(model: Mapping[str, Any], active: np.ndarray) -> np.ndarray:
+    """The schedule tiled to lcm(N, r) samples (the common period of the gate and the PID update)."""
+    n, r = active.size, model.get("r", 1)
+    return np.tile(active, math.lcm(n, r) // n) if n else active
 
 
 def schedule(p: Mapping[str, Any]) -> dict[str, Any]:
@@ -260,10 +314,17 @@ def _runs(active: np.ndarray) -> list[tuple[bool, int]]:
 
 
 def floquet(model: Mapping[str, Any], active: np.ndarray) -> np.ndarray:
-    """Monodromy matrix M = Π_n A_n over one period (sample 0 acts first)."""
+    """Monodromy matrix M = Π_n A_n over ``active`` (one period, or lcm(N, r) samples with a PID rate_div; sample 0
+    acts first and is a PID update)."""
     M = np.eye(model["m"])
-    for on, cnt in _runs(active):
-        M = np.linalg.matrix_power(model["A_on" if on else "A_off"], cnt) @ M
+    keys = _keys(model, active)
+    i = 0
+    while i < len(keys):
+        j = i
+        while j < len(keys) and keys[j] == keys[i]:
+            j += 1
+        M = np.linalg.matrix_power(model["A_" + keys[i]], j - i) @ M
+        i = j
     return M
 
 
@@ -271,11 +332,12 @@ def periodic_response(model: Mapping[str, Any], active: np.ndarray, M: np.ndarra
     """e_f[n] (shape (N, F)): periodic steady-state error for d[n] = e^{i2πf n h} (module docstring)."""
     h, n = model["h"], active.size
     w = 2.0 * np.pi * f * h
-    A = {True: model["A_on"], False: model["A_off"]}
-    B = {True: model["B_on"][:, None], False: model["B_off"][:, None]}
+    keys = _keys(model, active)
+    A = {k: model["A_" + k] for k in set(keys)}
+    B = {k: model["B_" + k][:, None] for k in set(keys)}
     x = np.zeros((model["m"], f.size), complex)
     for k in range(n):
-        x = A[bool(active[k])] @ x + B[bool(active[k])] * np.exp(1j * w * k)[None, :]
+        x = A[keys[k]] @ x + B[keys[k]] * np.exp(1j * w * k)[None, :]
     lhs = np.exp(1j * w * n)[:, None, None] * np.eye(model["m"])[None] - M[None]
     x = np.linalg.solve(lhs, x.T[:, :, None])[:, :, 0].T
     e = np.empty((n, f.size), complex)
@@ -283,7 +345,7 @@ def periodic_response(model: Mapping[str, Any], active: np.ndarray, M: np.ndarra
     for k in range(n):
         ph = np.exp(1j * w * k)
         e[k] = C @ x + model["D"] * ph
-        x = A[bool(active[k])] @ x + B[bool(active[k])] * ph[None, :]
+        x = A[keys[k]] @ x + B[keys[k]] * ph[None, :]
     return e
 
 
@@ -323,10 +385,16 @@ class GatedLoopStabilityCheck(BaseBlock):
         p = self.params
         model = gated_loop_model(p)
         sch = schedule(p)
+        if model["r"] > 1:  # one common period of the gate and the PID update (module docstring)
+            n0 = sch["N"]
+            sch = {**sch, **{k: np.tile(sch[k], math.lcm(n0, model["r"]) // n0) for k in ("active", "lock", "meas")}}
+            sch["N"] = sch["active"].size
         M = floquet(model, sch["active"])
-        mags = np.sort(np.abs(np.linalg.eigvals(M)))[::-1]
+        reps = sch["N"] // max(int(round(float(p["period_s"]) * float(p["f_sim_hz"]))), 1)
+        mags = np.sort(np.abs(np.linalg.eigvals(M)))[::-1] ** (1.0 / max(reps, 1))
         rho = float(mags[0])
         T = float(p["period_s"])
+        self._window_chks(p, sch, reps)
         lo, hi, n = p["f_grid_hz"]
         fg = np.geomspace(float(lo), float(hi), int(n))
         lg = open_loop(fg, p)
@@ -334,8 +402,8 @@ class GatedLoopStabilityCheck(BaseBlock):
         res: dict[str, Any] = {
             "stable": bool(rho < 1.0), "rho": rho, "growth_per_s": math.log(rho) / T if rho > 0 else -math.inf,
             "multipliers": [float(x) for x in mags[:4]],
-            "n_period": sch["N"], "n_lock": sch["N_lock"], "n_active": int(sch["active"].sum()),
-            "n_meas": int(sch["meas"].sum()), "rho_ungated_per_sample": float(np.max(np.abs(np.linalg.eigvals(model["A_on"])))),
+            "n_period": sch["N"] // max(reps, 1), "n_lock": sch["N_lock"],
+            "n_active": int(sch["active"].sum()) // max(reps, 1), "n_meas": int(sch["meas"].sum()) // max(reps, 1), "rho_ungated_per_sample": float(np.max(np.abs(np.linalg.eigvals(model["A_on"])))),
             "ungated_stable": bool(u_stable), "ungated_max_l_at_180": u_mx, "ungated_f_180_hz": u_f180,
         }
         if p.get("disturbance") is not None and res["stable"]:
@@ -356,6 +424,25 @@ class GatedLoopStabilityCheck(BaseBlock):
                                   "the probe's backscatter tail (2n_gL/c) reaches the detector window",
                                   gate_rate_hz=1.0 / T, f_max_hz=f_max, t_round_trip_s=t_rt)
         return res
+
+    def _window_chks(self, p, sch, reps) -> None:
+        """``gate_window_short`` / ``gate_period_not_integer`` (module docstring)."""
+        f = float(p["f_sim_hz"])
+        nT = float(p["period_s"]) * f
+        counts = {"lock": sch["N_lock"], "active": int(sch["active"].sum()) // max(reps, 1),
+                  "meas": int(sch["meas"].sum()) // max(reps, 1)}
+        short = [k for k, v in counts.items() if v < 1]
+        if short:
+            self.chk_log.warn("gate_window_short", self.name,
+                              f"gate window(s) {short} shorter than one sample at f_sim = {f:g} Hz (T = "
+                              f"{float(p['period_s']):.4g} s, lock fraction {float(p['lock_fraction']):.3g}): "
+                              f"samples per period {counts}; a measurement window without samples gives no metric "
+                              "(metric_no_sample, the point is kept and invalid)", **counts)
+        if abs(nT - round(nT)) > 1e-6:
+            self.chk_log.warn("gate_period_not_integer", self.name,
+                              f"T·f_sim = {nT:.6g} is not an integer: the check solves the N = {round(nT)} sample "
+                              "periodic loop; the time loop is quasi-periodic (window edges move by one sample)",
+                              samples_per_period=nT)
 
     def _variances(self, model, sch, M) -> dict[str, float]:
         p = self.params

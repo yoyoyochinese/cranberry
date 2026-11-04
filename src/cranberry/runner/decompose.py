@@ -36,7 +36,9 @@ Procedure (WP-F4; T04 §4)
       ``mask_slot`` (``gate.<name>.meas``) and the four components are evaluated inside the window. The decomposition's
       own ``mask_slot`` restricts the ``validity`` test to the same window (a saturation or lock-loss flag outside
       the GBS measurement window does not invalidate the window's components); it is recorded with the validity
-      slots.
+      slots under the recorder's mask rule (Phase 6 fix G-1, ``runner.run`` "Mask slots": a recorded sample counts
+      as inside only if every base sample behind it is), the same rule as the metrics' masked series. A mask with
+      no recorded sample inside makes the decomposition invalid ("validity cannot be tested"), never silently valid.
 
 Config (``RunSpec.measure.decompose``, or the keyword arguments)::
 
@@ -71,6 +73,9 @@ def validity_violations(result: RunResult, validity: Sequence[Mapping[str, Any]]
     the recorded samples with mask > 0.5 count (module docstring)."""
     out = []
     mask = None if mask_slot is None else np.asarray(result.series[mask_slot], dtype=float).ravel() > 0.5
+    if mask is not None and validity and not mask.any():  # G-1: never pass silently on an empty window
+        out.append(f"no recorded sample inside {mask_slot} (window shorter than the recorder decimation / anti-alias "
+                   "filter, or commensurate with decim): the validity cannot be tested")
     for v in validity:
         slot, lim = v["slot"], float(v["abs_max"])
         if slot in result.series:

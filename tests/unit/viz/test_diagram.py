@@ -27,7 +27,7 @@ def test_leaves_stages_and_groups(fwg6):
     assert by["env.mech.ports"].group == "noise" and by["path.lock"].group == "bookkeeping"
     assert by["mi"].group == "bookkeeping" and by["liu0"].stage == "detection"
     assert by["path.phase"].stage == "optics" and by["pzt0"].stage == "control"
-    assert by["sup0"].stack == "pipeline[22]" and by["tec1"].stack == "pipeline[25]"
+    assert by["sup0"].stack == "pipeline[23]" and by["tec1"].stack == "pipeline[27]"  # + the in_bw lpfs (G-3)
 
 
 def test_lock_drives_trace_detector_and_lock(refa, fwg6):
@@ -44,7 +44,7 @@ def test_lock_drives_trace_detector_and_lock(refa, fwg6):
 def test_signal_flow_collapse_expand_and_feedback(fwg6):
     dot = dg.signal_flow_dot(fwg6)
     assert '"grp:noise"' in dot and '"grp:bookkeeping"' in dot and '"b:env.mech.ports"' not in dot
-    assert 'cluster_stack_pipeline[22]' in dot and "cluster_offline" in dot
+    assert 'cluster_stack_pipeline[23]' in dot and "cluster_offline" in dot
     # the actuators write drv.F0.* read by segment_phase earlier in the pipeline: feedback edges
     assert '"b:pzt0" -> "b:path.phase"' in dot and "constraint=false" in dot
     full = dg.signal_flow_dot(fwg6, expand=["all"])

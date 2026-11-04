@@ -23,8 +23,23 @@ offline:
     acoustic_scale: !sweep_log [0.1, 10.0, 5]   # amplitude axis, 1 = the Ref D calibration (D85-1)
     acoustic_gamma: !choice [0.0, 1.0]          # 0: length-independent coil pickup, 1: ∝ L (split rule above)
     acoustic_L_ref_m: 13.2                      # L_a1 + L_a2 at refD_nominal (refD.yaml topology)
-    acoustic_arm_scale: !expr "acoustic_scale * (0.5 if acoustic_gamma == 0 else 1.0)"   # per-arm share of the sum
-    mech_rho_0: 0.0                             # split assumption: arms uncorrelated
+    # B-1 (Phase 6 fix): the table is MEASURED only on 100 Hz – 3 kHz. Above 3 kHz it is an assumption that sets most of
+    # the out-of-band variance once scaled up (γ = 1 future spools: ×80–240). Axes: the slope above a corner (f⁻² as
+    # before, or f⁻⁴ through a smooth first-order corner), the corner (10 kHz). Any result with acoustic_gamma = 1 is to be
+    # labelled "EXTRAPOLATED above 3 kHz" (acoustic_provenance is recorded in config.resolved.yaml).
+    acoustic_hf_slope: !choice [2.0, 4.0]       # PSD slope above the corner (assumption; 2 = the D89 table, 4 = the table
+                                                # × 1/(1 + (f/corner)²): segment_mech_noise table_hf_pole_hz)
+    acoustic_hf_corner_hz: 1.0e+4               # corner of the steeper slope (assumption)
+    acoustic_extrapolated_above_hz: 3000.0      # the measured table ends here (COMPARISON §3 (A))
+    acoustic_provenance: "Ref D table, calibrated after the blind comparison (D81, D85-1); EXTRAPOLATED above 3 kHz and below 100 Hz"
+    # B-6 (Phase 6 fix): arm-to-arm correlation of the pickup. The measured PSD is that of φ_lo − φ_pr, so with
+    # correlation ρ the per-arm PSD is larger: S_diff = S1 + S2 − 2ρ√(S1 S2) is kept at T by the factor
+    # 1/(1 − 2ρ√(s1 s2)/(s1 + s2)) (γ = 0: 1/(1 − ρ); γ = 1 at the calibration lengths 11.1 / 2.1 m: 1/(1 − 0.732ρ)).
+    # ρ = 0 (D89-3) is the lower bound of the per-arm level, not a measurement.
+    acoustic_rho_arms: !sweep [0.0, 0.8, 3]
+    acoustic_rho_comp: !expr "1.0 / (1.0 - acoustic_rho_arms * (1.0 if acoustic_gamma == 0 else 2.0 * sqrt(11.1 * 2.1) / 13.2))"
+    acoustic_arm_scale: !expr "acoustic_scale * (0.5 if acoustic_gamma == 0 else 1.0) * acoustic_rho_comp"   # per-arm share of the sum
+    mech_rho_0: !expr "acoustic_rho_arms"       # arm correlation (B-6; constant in f: f_rho_hz .inf below)
     h_ref_rad2_hz: 0.04                         # unused with mech_shape: table (refD_nominal value)
     mech_f_c_hz: 1000.0                         # unused with mech_shape: table (refD_nominal value)
     mech_gamma: 1.0                             # unused: env.mech reads acoustic_gamma here
@@ -40,7 +55,10 @@ pipeline:
         - [300.0, !expr "offline.params.acoustic_arm_scale * 3.6e-6"]     # COMPARISON §3 (A)
         - [1000.0, !expr "offline.params.acoustic_arm_scale * 6.7e-7"]    # COMPARISON §3 (A)
         - [3000.0, !expr "offline.params.acoustic_arm_scale * 9.0e-8"]    # COMPARISON §3 (A)
-        - [30000.0, !expr "offline.params.acoustic_arm_scale * 9.0e-10"]  # assumption: f^−2 above 3 kHz
+        - [30000.0, !expr "offline.params.acoustic_arm_scale * 9.0e-10"]  # assumption: f^−2 above 3 kHz (EXTRAPOLATED;
+                                                                          # × 1/(1 + (f/corner)²) with acoustic_hf_slope 4)
       table_f_min_hz: 10.0
       table_f_max_hz: 30000.0                   # ≪ f_N = 500 kHz; the table ends on f^−2 (mech.py tolerance note)
       table_per_decade: 4
+      table_hf_pole_hz: !expr "offline.params.acoustic_hf_corner_hz if offline.params.acoustic_hf_slope > 2 else inf"   # f⁻⁴ synthesis (B-1)
+      f_rho_hz: .inf                            # constant ρ, so the per-arm compensation is exact (B-6)

@@ -16,11 +16,12 @@
 # Metrics (i)/(ii) and the decomposition use the detector window only (mask gate.gw.meas); D_det = 25 % is also the
 # GBS frame utilisation (D46: GBS every frame), which this overlay does not rescale.
 #
-# probe/detect_heterodyne with a frequency overlay (checked for WP6-G): detect_heterodyne writes
-# probe_freq_offset_hz = liu_f_shift_hz, so with probe/freq_1THz the overlay applied LAST wins (the other's value is
-# silently replaced). P3's "1 THz WDM probe + 160 MHz heterodyne" needs a separate key for the beat frequency and a
-# reference ref_k at the probe's frequency (topology overlay); no block is missing. Composition with adc overlays as
-# in gate/borealis_window (adc0/adc1 become seqs here).
+# Composition (Phase 6 fix G-3/G-5): controller/* write only offline.params and compose in either order; the adc0/adc1
+# restated here read the controller params. probe/detect_heterodyne and probe/freq_1THz compose (separate keys
+# liu_f_shift_hz / probe_line_offset_hz; the heterodyne reference sits on the probe line). probe/detect_heterodyne /
+# detect_dither replace liu0/liu1 with seqs, so they cannot be combined with a gate overlay: config.load raises an
+# overlay conflict naming both (write a combined overlay for P3's heterodyne + chopper).
+#
 offline:
   params:
     gate_f_ch_hz: !sweep_log [1.0e+3, 1.0e+5, 9]   # chopper rate (P3: 4–10 kHz tested, 6 kHz best, p.142)
@@ -32,12 +33,11 @@ offline:
     gate_jitter_s: !sweep [0.0, 1.0e-6, 3]          # blade timing jitter (P3 p.142: noise at 8–10 kHz, no model) [AE]
     gate_leak: 0.0                                  # mechanical chopper: opaque (P3 p.140; an AOM/EOM: ≤ 60 dB)
     gate_lpf_hz: !expr "0.3 * gate_f_ch_hz"         # digital low pass below f_ch (P3 p.141: value not given) [AE]
+    lock_extra_pole_hz: !expr "gate_lpf_hz"         # the in-loop LPF lags the loop: both checks (G-3: via the param, so the
+                                                    # controller's own poles in the checks' poles_hz are kept)
     tau_pr0_s: !expr "(n_g * (L_prsrc_m + L_prs_m + L_0_m) + 1.0003 * L_d_m) / 299792458.0"   # chopper → det_0
     tau_prk_s: !expr "(n_g * (L_prsrc_m + L_prs_m + L_k_m) + 1.0003 * L_d_m) / 299792458.0"   # chopper → det_k
   blocks:
-    - name: chk.lock_stability                      # the in-loop LPF lags the loop (as liu_demod_lpf_hz would)
-      params:
-        poles_hz: [!expr "offline.params.gate_lpf_hz"]
     - block: gated_loop_stability_check
       name: chk.gated_stability
       params:
@@ -45,9 +45,13 @@ offline:
         kp: 0.0
         ki_per_s: !expr "2 * pi * offline.params.f_u_hz / (offline.params.liu_k_v * offline.params.pzt_k_rad_per_v)"
         kd_s: 0.0
-        delay_s: !expr "offline.params.latency_s + offline.params.lock_extra_delay_s"
-        poles_hz: [!expr "offline.params.gate_lpf_hz"]
-        modes: [{f_hz: !expr "offline.params.pzt_f_res_hz", q: !expr "offline.params.pzt_q"}]
+        # G-3/G-4/G-8/D91: controller law, update rate, poles, modes and ZOH from offline.params, as chk.lock_stability
+        # and the time loop; the PID rate_div hold is modelled explicitly, so it is not in delay_s
+        delay_s: !expr "offline.params.ctrl_latency_s - offline.params.ctrl_hold_delay_s + offline.params.zoh_delay_s + offline.params.lock_extra_delay_s"
+        poles_hz: [!expr "offline.params.ctrl_in_pole_hz", !expr "offline.params.ctrl_out_pole_hz",
+                   !expr "offline.params.lock_extra_pole_hz"]
+        modes: !expr "offline.params.pzt_modes"
+        prewarp_hz: !expr "offline.params.pzt_f_res_hz"   # as pzt0 / pzt1
         stages:
           - kp: 0.0
             ki_per_s: !expr "2 * pi * offline.params.f_12_hz * offline.params.pzt_k_rad_per_v / offline.params.tec_k_rad_per_v_k"
@@ -56,7 +60,8 @@ offline:
             poles_hz: [!expr "1 / (2 * pi * offline.params.tec_tau_th_s)"]
             modes: []
         f_grid_hz: [1.0e-6, 1.0e+8, 400001]
-        pid_discretisation: tustin
+        pid_discretisation: !expr "offline.params.pid_law"
+        pid_rate_div: !expr "offline.params.pid_rate_div"
         f_sim_hz: !expr "run.f_sim_hz"
         period_s: !expr "offline.params.gate_period_s"
         lock_fraction: !expr "offline.params.gate_lock_fraction"
@@ -108,11 +113,13 @@ pipeline:
       - block: adc
         name: adc0
         params:
-          in: v.liu0
+          in: v.in_bw0
           out: v.adc0
-          device: fpga_generic
+          device: !expr "offline.params.adc_device"            # controller choice from offline.params (G-3)
+          bits: !expr "offline.params.adc_bits"
+          range_v: [!expr "-offline.params.adc_range_v", !expr "offline.params.adc_range_v"]
           noise_vrms: 0.0
-          avg_samples: 1
+          avg_samples: !expr "offline.params.adc_avg_samples"
           toggles: {quantization: true, noise: false, saturation: true}
       - block: lpf
         name: glpf0
@@ -124,11 +131,13 @@ pipeline:
       - block: adc
         name: adc1
         params:
-          in: v.liu1
+          in: v.in_bw1
           out: v.adc1
-          device: fpga_generic
+          device: !expr "offline.params.adc_device"            # controller choice from offline.params (G-3)
+          bits: !expr "offline.params.adc_bits"
+          range_v: [!expr "-offline.params.adc_range_v", !expr "offline.params.adc_range_v"]
           noise_vrms: 0.0
-          avg_samples: 1
+          avg_samples: !expr "offline.params.adc_avg_samples"
           toggles: {quantization: true, noise: false, saturation: true}
       - block: lpf
         name: glpf1
