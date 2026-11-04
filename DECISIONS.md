@@ -770,6 +770,20 @@
 
 - D92–D95 の新しいブロックは、結果を使う前に新しい文脈の Phase 5 レビューを受ける（D85）。
 
+### D96 WP6-G・WP6-AB の Phase 5 レビューの修正と D91 の実装（`reviews/phase6_wp6g_ab.md`）
+- 決定:
+  1. F_* の制御器の選択は F_common の `offline.params` に集める（`ctrl_device`、`adc_*`、`pid_law`、`chk_law`、`pid_rate_div`、`pid_h_s`、`ctrl_in/out_pole_hz`、`ctrl_latency_s`、`ctrl_explicit_delay_s`、`zoh_delay_s`、`ctrl_dac_bits`、`lock_extra_pole_hz`）。`controller/*` はこの params だけを書き、全部を書き直すので最後に当てたものが勝つ。ストレッチャのモードは `offline.params.pzt_modes` の 1 か所。既存のプリセットはすべてビット単位で同じ（`tests/integration/test_preset_identity.py`、33 件）。
+  2. D91-1 の実装: `controller/dsc1` は Ref D で確かめた DSC1 のモデル（τ_L 5.7 µs ＋ 120/100 kHz の極、または極なしの 8.3 µs、`dsc1_latency_s` の選択）、PID・監視・DAC を 500 kHz（rate_div 2、h = 2 µs）、遅延線は τ_L − 1/f_sim −（ADC の平均 ＋ 保持）、`zoh_delay_s` 0。照合: F_liu20 ＋ dsc1 ＋ Borealis の窓で、27 点の格子の不安定 15 点が両方の判定で一致、測定窓の分散は時間ループと 2.3 % 以内。
+  3. `gated_loop_stability_check` に PID の `rate_div`（lcm のモノドロミー、ρ は周期あたり）、モードの和（D89-1 と同じ規則）、極ごとのプリワープ、CHK `gate_window_short`・`gate_period_not_integer`。両方の判定が同じ `zoh_delay_s` を足す。
+  4. `config.load` は上書き用の設定どうしの衝突（後の上書きが前の上書きの書いたものを捨てる、seq/stack にブロックのキーを混ぜる）で、両方の名前を挙げて ConfigError。意図した上書きは後の上書きに `overrides: [<ref>]` で宣言。スカラーの点の上書き（`gate/borealis_si` など）はそのまま許す。`!expr "<path>"` がリストや辞書を別名にできる。
+  5. プローブの線（`probe_line_offset_hz`、`freq_*` が書く）とヘテロダインのビート（`liu_f_shift_hz`）を別のキーにする。ヘテロダインでは ref_k をプローブの線の上に置く。P3 の「1 THz ＋ ヘテロダイン」は `probe/freq_1THz` ＋ `probe/detect_heterodyne`（`liu_f_shift_hz` 1.6e8）でどちらの順でも組める。
+  6. マスクのスロットは記録の各値の元の全標本の最小として記録する。CHK `mask_series`（警告）と `metric_no_sample`（無効にする）。空の窓での分解は無効。`runner.sweep` は失敗した点を `run_error` の結果として残す（D75）。
+  7. `mech_shape: table` は f_N より上の台帳の行を足さない（OU が担う）。任意の `table_hf_pole_hz`。実験室の軸 `acoustic_hf_slope` {2, 4}（角 10 kHz）、`acoustic_rho_arms`、`dac_output_noise_v`（UNVERIFIED）、副モードの範囲を広げる（`mm2_q` 3–40、`mm2_r` ±0.4）。γ = 1 の結果は「3 kHz より上は外挿」と表示する。
+  8. D89-4 の修正: 当てはめた点での r の感度（解析）は 0.06 → 3.2、0.08 → 5.0、0.10 → 8.7、0.11 → 12.4、0.12 → 19.0、0.15 → 235（安定のまま）。実測の 25 kHz の |S|² は K_d に単調でない（7.0、15.4、13.6、9.1）が、モデルは 7.2、6.1、5.7。当てはめたモードは「実測と矛盾しない一例」で、一意な当てはめではない。主モードの Q = 25 は DAC のリミットサイクルを仮定し、副モード Q 5・r 0.34 も同じく実測と矛盾しない。915B の伝達関数の掃引で決める。
+  9. 組み合わせ: F_liu20 で 15 の上書き用の設定の順序付きの 210 対のうち、186 対が正しい物理で組み立てられ、24 対が両方の名前を挙げて止まる（ゲート × ゲート、検出方式どうし、検出方式 × ゲート）。検出方式 × ゲートは結合した上書きが要る（未作成）。
+  10. 残り: two_pole の f_N より上の二重計上（D34 で残す、Ref D で ≲ 1.3 mrad）、検出方式 ＋ ゲートの結合した上書き。
+- 日付: 2026-11-04 / Phase 6
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）
