@@ -1,0 +1,114 @@
+{
+ "presets/bad/bad_all_fiber_NF.yaml": {
+  "run": "650bbdf68098a2b03f2ded874ec746698f8e0170f3172d265d4d5c78c485ace4",
+  "spec": "90df1132c4ce81006639e241f28c491fd9f8e2680167846ad0e29fb8cd5b6a1c"
+ },
+ "presets/bad/bad_bor_100MHz.yaml": {
+  "run": "0b275c97fa6207eb808c43dac455ec3b4c27b0f11663640da8849a26eaa9751c",
+  "spec": "b13e2ca1a2efc3e94f2cc74eac791fd55bcb81a443b5b1ee30b4e3c6072514ec"
+ },
+ "presets/bad/bad_copropagating_probe.yaml": {
+  "run": "94da45314a004a53f3dae0ecee5310f5ea714fb46b0079682a8f3f21d0f57a6c",
+  "spec": "daa8cbe76a161d2960926f111fc1466e8459c12aeefbcfebe0738996e7fa1634"
+ },
+ "presets/bad/bad_eom_on_squeezed.yaml": {
+  "run": "abfd64e987b58935d915d3367e5f217287ef339e5257c072c1b15c45b908d70a",
+  "spec": "1cd2781e3272d7e9d291d2c24f1df8635edbb529e10de2fdde2dfee96f5bd30d"
+ },
+ "presets/bad/bad_gauss_rect_lo.yaml": {
+  "run": "63b65df9364bb0e983b7e79de5bbb93948acff0bf2a4d158e9b62181b33a0a1a",
+  "spec": "de5f4e951ba0b0c4c72e6cb0a524ada85d016629e7342136d08cc4cd8afd35e3"
+ },
+ "presets/bad/bad_integrating_bhd.yaml": {
+  "run": "fee8678718f8c3bd6c495ea835995a33f49780d3a5f21bdddea14b7cf49cb8ae",
+  "spec": "43fd59697cd075596a1f35e81d3844545c57ed3b480450c710ac468eb884d51d"
+ },
+ "presets/bad/bad_liuPD_B.yaml": {
+  "run": "a90ad79562296839fc5e45825379cc0ce246605ac74f6b55f49910ec330acb5d",
+  "spec": "03330d4a97bb75ea21e3c4e478b8409b68e6ad5992a9030c1620910918bc62ed"
+ },
+ "presets/bad/bad_ln_switch_tree.yaml": {
+  "run": "c23f1517864ce7bf007f4fd8a777ba99d389f653cf7932293d349964ec0a7956",
+  "spec": "2bdfa54c8e7fb2703abbc64db4d517d8d975c9e1aed8f115c9a6090b0eb80d37"
+ },
+ "presets/bad/bad_long_pump_opo.yaml": {
+  "run": "0b409934553ea8594acd92cab0d9c4832eaf93e2f8cad285afaa88fa9e8e02bb",
+  "spec": "11adffa7362c13a843cce3a4c55c0d0356b0a963bb6d6f3b120da31f0a6ea63e"
+ },
+ "presets/bad/bad_moku_pid_05V.yaml": {
+  "run": "e6ffe7494acddbfb1b4beb0816a3c0f70a9a068697fce8009fbecc1af4151b99",
+  "spec": "d6d395e8ff879f7eb91b3cd78ec25b9fee69ce03c2b4deecf0c331fbbdc9c5b8"
+ },
+ "presets/bad/bad_mw_probe_samepol.yaml": {
+  "run": "a3d90eab0c6d165d3db2bde00454b844585fb009ccb422524444964e5d4345f9",
+  "spec": "d498763cd21b828e8dcec0233156657f82ec5e6dee6061c1b00daedf497ee076"
+ },
+ "presets/bad/bad_no_fsr_filter.yaml": {
+  "run": "6be9502f66fedc5483ecf8a5b703d4afc9fb8a87175ccc0a6fc78464de0ca059",
+  "spec": "27ad4c9e005d24f4b5bddf87ffe7d99c5d1959c5824c411f3b08a4cd857af39e"
+ },
+ "presets/bad/bad_orth_pm_no_tec.yaml": {
+  "run": "92fc81d8330c6fa57226b6bceb8ef2be0a5e7fe9c8496e48999c8dbe96b2a21b",
+  "spec": "9719cdf78803df6337b2bdf4e2dbca46d2e2482b537a888c1c483def734859b7"
+ },
+ "presets/bad/bad_refA_seed_in_gbs.yaml": {
+  "run": "f05fc7e1861eb3eb906b5acf5572d25f4f9f54ba82bacb7fd0aea1031171cfbe",
+  "spec": "a4b24af89414e28546fb48c36259d3b098e026f97960be20e2a02768ae0555fd"
+ },
+ "presets/bad/bad_smf_orth.yaml": {
+  "run": "f4084b616aa9d24b10fb3ff5c659cc774cbf02f1d23dc135864dbb8dcc7895ad",
+  "spec": "c693810246434237c68e30d53783f4a52373682f480ca7545b1d1b3dd091d002"
+ },
+ "presets/bad/bad_wdm_1THz_probe.yaml": {
+  "run": "24ae4ac73488c044de0c4c71c5f2baf0ab6164d0a459b643714eabb5d296abff",
+  "spec": "3af84c564a9c911658b411f89eea877886f211df695fa8c44bbcbc3d57892a2f"
+ },
+ "presets/future/F_bor6_nominal.yaml": {
+  "run": "7cdbc8b9d51e736753f8ed122ec556a1447d1ccfcdacd7c73910190ae1d39a41",
+  "spec": "5b6e2e220676dd6d4ca8904bad19259f02e5b71393a0b15f1e77725f62a9f254"
+ },
+ "presets/future/F_liu20_nominal.yaml": {
+  "run": "23f5c649331021b03deb822621aaf8c2a7664536b0eae92d9193a22621072253",
+  "spec": "d28aabf7452c3a7216b027e38ab6e9dc2aef810c11e64a4417e391d9da2fc1ff"
+ },
+ "presets/future/F_wg100_nominal.yaml": {
+  "run": "b735b2065d96de9b5580412e283dd667797602655460730dfbfb07ad1591cb44",
+  "spec": "e6e30012840cdc942728d37b484e72da7f883059723b3b98f083da6cc96c2036"
+ },
+ "presets/future/F_wg6_nominal.yaml": {
+  "run": "19bba4d325e96e175b2cd4131cc6020fb9723bdd9461448d0e8621eb62e7b52d",
+  "spec": "11b296f010c34c7fa6cede945b98be0ceac5565f21db94d676f4693b5c540996"
+ },
+ "presets/reference/refA.yaml": {
+  "run": "2ae62c4597d54b6ea2beb79086950e001f395dd2c70335406b2e95505c4fefc5",
+  "spec": "a80428e7781e11e710ca8274d2e2715bc0bb3681c970ed83467900a940894bf8"
+ },
+ "presets/reference/refA_tap.yaml": {
+  "run": "78ac8935f84ec6f65227c295316f0d7ce10abad50a184df412af94436459af40",
+  "spec": "07e5310149109fcf766ea3565fb4440cd4565571ef8dd891c02e82563d622c12"
+ },
+ "presets/reference/refB.yaml": {
+  "run": null,
+  "spec": "904d3a3aeb1999e248f6d3080f5fdbab421518017b9965fb5ad003dbcee31f05"
+ },
+ "presets/reference/refB_nominal.yaml": {
+  "run": "b68c53365060097b8557c5c1f4343470b5e96123788dc8698728b4dfb9fbe15a",
+  "spec": "bd62a7cec15898762a2fcda46b82fc375836e929c8bd4c4666708f0151e3b01a"
+ },
+ "presets/reference/refC.yaml": {
+  "run": null,
+  "spec": "5bdf557d1c4743656c51a5621f0d41daa2646eafc6d1e51ec2df66ac6a68bf62"
+ },
+ "presets/reference/refC_nominal.yaml": {
+  "run": "2e7dd46c68942027f6b31e171bf142c6df4878dd9b67616e4b6b7a0ac5c62ff9",
+  "spec": "b9e9623c34f6ab1228b6f5b84f2088057e8129497e19c2d111d768a0e3e1837f"
+ },
+ "presets/reference/refD.yaml": {
+  "run": null,
+  "spec": "f2946e5826e564aadb8dbc5de0c95d30580b89d55058c63a0089bff8582fd813"
+ },
+ "presets/reference/refD_nominal.yaml": {
+  "run": "8d113923eea028eb46cbf2f0e5ca1e780c47d39b4b7e5d8bef7d969ff67998e7",
+  "spec": "ad031d1bf7abe18843fa5086a809b1862f5f7e72e9cb330b4e102af05c60de16"
+ }
+}
