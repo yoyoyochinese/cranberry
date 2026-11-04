@@ -654,6 +654,26 @@
   4. 追加の参考文献: `refs/2026-11-04_extra_refs/`（P1–P7 の PDF と Luo et al., arXiv 2504.05660）。
 - 日付: 2026-11-04 / Phase 6
 
+### D85 Phase 6 手順 3 の新しいブロックと既存ブロックの変更（ユーザ回答、Q1–Q14 すべて推奨どおり）
+- 決定:
+  1. (A)(B): 新しい種類は作らない。`loop_stability_check` のモードを、全モードに重み `r` があれば和（アクチュエータの `modes_ss` と同じ式）、無ければ従来の積で扱う。`segment_mech_noise` に任意の `mech_shape: two_pole | table`（表の PSD、OU の和で実現）。上書き用の設定 `lab/acoustic`（Ref D の実測の形と振幅の軸、較正の出典を明記）と `lab/multimode915b`（副モード 5.3・10・40 kHz 付近の f・Q・r の軸）。
+  2. ゲート: 新しいブロック `gate_schedule`（周期・デューティ・位相・立ち上がり・ジッタのゲートの波形）、`gated_hold`（窓の外で zero／hold／noise_only）、`gated_loop_stability_check`（ゲートされたループの安定と保持中の誤差・エイリアシング、D75 の規則を保つ）。
+  3. 指標 (i)(ii)、分解、迷光に任意の `mask_slot`（後方互換）。
+  4. オフラインの迷光の表: `window_stray_light`（後方散乱の 2τ の尾、窓の中のスロット位置）、`forward_ref_stray_table`（順方向の参照パルス）。
+  5. `photon_counting_fringe`（ポアソン・飽和・ダークカウント・窓の積分と保持）。
+  6. P6: `phase_program`、`step_response`、`metric_ii` の `setpoint_slot`、`lock_supervisor` の時間で変わるスリップの中心。
+  7. P7: `excitation`、`loop_identification`、抽象制御インターフェースへの後方互換の追加（`engage`/`disengage(loop_id)`、`acquire(..., injections_on=)`、`measure_loop_gain`）。D55 で固めたインターフェースの拡張を承認。
+  8. 作らない（Open に記録）: `pol_controller`（P1 の SMF 変種だけ）、`dc_fringe_dual`（P4 (b) は π/2 で Ref D の平衡検出と同じ）。
+  9. 光路長アクチュエータの係数は上書き用の設定 `probe/actuator_pathlength`（位相屈折率 n と偏り係数 R を軸に）で入れる。R の値は次の回。
+  10. GBS のデューティ < 1 を設定の選択肢に（窓の周期 10 µs–10 ms、ロックの割合 0.1–0.9、デューティ 1 も残す）。Borealis の窓は SI の読み（ロック光 65 µs・squeezed 光 35 µs）。
+  11. P1 の参照パルスは較正フレームだけを主に、ガードスロットの変種は悪い構成として残す。スロット内の隙間の変種は作らない。
+  12. 軸 1 の候補: (a) Ref A 型の CW 導波路 OPA ＋ BHD の前のファイバ 1–100 m、(b) Ref C 型の CW OPO ＋ ファイバ、(c) パルスの導波路 OPA の振り分けなし 1 ポート（F_wg6 型）、(d) Ref D（(A)(B) 入り）。ロックは L-A・タップ（P7）・雑音ロック（Ref C）・Liu 型・P3・P8、制御器は DSC1 と Moku:Delta。実験室の制約の申告なし → 全部やる。
+  13. 道具: BoTorch を任意の追加依存（`opt`）、matplotlib を環境に入れる、graphviz（Homebrew）で構成図。
+  14. 欠けている補足資料（Aurora SI、Jiuzhang 2.0 SM、Pittaluga SI）は今は追加なし → UNVERIFIED のまま範囲を軸に。
+  15. P8（Luo et al. 2025、対称な 2 トーンの参照光）を候補に加える。新しいブロックは要らない（既存のプローブ・参照のビーム ＋ `liu_probe_interferometer` × 2 ＋ `adder`、間欠の変種は `gate_schedule`/`gated_hold`）。
+- 新しいブロックは結果を使う前に新しい文脈の Phase 5 レビューを受ける（`docs/phase6_prompt.md` 手順 3）。
+- 日付: 2026-11-04 / Phase 6
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）
@@ -669,3 +689,4 @@
 - `pump_path_phase_rad` を読む所がない（D70・M5-08、WP-I5 の統合で）
 - `measure.stray_light`・`measure.overlap` がオフラインの表を参照できるようにする（D74 の提案。`check()` の自動呼び出しは D80-2 で解決）
 - Ref D の実測データ（Phase 5 の終わりに受け取る、D04）
+- `pol_controller`（P1 を SMF で組む変種）と `dc_fringe_dual`（P4 (b) の出力ごとの損失のドリフト）は作っていない（D85-8）。
