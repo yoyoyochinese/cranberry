@@ -1,0 +1,74 @@
+# Identification point for refD / refD_nominal (Phase 6 P7 (B), D85-7): excitation at the error summing point inside
+# the DSC1, between the ADC and the PID, at the PID rate (500 kHz, rate_div 2). Needs a waveform overlay
+# (ident/in_lock_stepped or ident/in_lock_multisine).
+#
+#   v.dsc1.adc (e) ──(+ x)──► v.ident.ref (e + x) ──► dsc1.pid ──► … ──► 915B ──► fringe ──► v.dsc1.adc
+#
+# loop_identification (relation minus_l): L̂ = −resp/ref = −v.dsc1.adc / v.ident.ref, S = ref/x, T = −resp/x,
+# compared with chk.lockD_stability (the D82 dsc1 discretisation). The record is taken every 2 base samples (the PID
+# instants, rate_div 2): the loop seen there is linear time-invariant at 500 kHz (held input, sampled output), so L̂
+# is exact up to f_PID/2 = 250 kHz. lock_supervisor still reads the error without x (e_in: v.dsc1.adc).
+# The ADC block is restated unchanged (keyed !replace into a seq with the excitation; refD.yaml is the source).
+run:
+  duration_s: !expr "offline.params.ident_duration_s"
+offline:
+  params:
+    ident_f_lo_hz: 300.0              # below f_c ≈ 2 kHz (VT-13)
+    ident_f_hi_hz: 1.0e+5             # above the −180° point (≈ 60 kHz, D61-2) and the 915B mode (20 kHz)
+    ident_amplitude: 0.1              # V at the DSC1 input (√2 RMS) [AE; trade-off in the WP6-I report]
+    ident_amp_f_corner_hz: 2000.0     # amplitude ∝ f above ≈ f_c (excitation docstring): keeps −T·x above the loop noise
+    ident_t_start_s: 0.02             # lock settled (VT-13 settle 0.02 s)
+  blocks:
+    - block: loop_identification
+      name: ident
+      params:
+        excitation: ident.exc
+        x: ctrl.ident.exc.x
+        reference: v.ident.ref
+        response: v.dsc1.adc
+        relation: minus_l
+        model: chk.lockD_stability
+        model_stages: all
+        coherence_min: !expr "offline.params.ident_coherence_min"
+        n_blocks: !expr "offline.params.ident_n_blocks"
+pipeline:
+  - !replace
+    name: dsc1.adc
+    seq:
+      - block: adc
+        name: dsc1.adc
+        params:
+          in: v.dsc1.in
+          out: v.dsc1.adc
+          device: dsc1
+          noise_vrms: !expr "offline.params.adc_noise_vrms"
+          toggles: {quantization: true, noise: true, saturation: true}
+      - block: excitation
+        name: ident.exc
+        rate_div: 2                   # DSC1 PID rate (the injection is inside the digital controller)
+        params:
+          in: v.dsc1.adc
+          out: v.ident.ref
+          unit: V
+          waveform: !expr "offline.params.ident_waveform"
+          f_start_hz: !expr "offline.params.ident_f_lo_hz"
+          f_stop_hz: !expr "offline.params.ident_f_hi_hz"
+          n_freqs: !expr "offline.params.ident_n_freqs"
+          spacing: log
+          dwell_s: !expr "offline.params.ident_dwell_s"
+          period_s: !expr "offline.params.ident_period_s"
+          settle_s: !expr "offline.params.ident_settle_s"
+          amp_f_corner_hz: !expr "offline.params.ident_amp_f_corner_hz"
+          amplitude: !expr "offline.params.ident_amplitude"
+          t_start_s: !expr "offline.params.ident_t_start_s"
+          toggles: {enabled: true}
+  - name: dsc1.pid
+    params: {in: v.ident.ref}
+measure:
+  convergence:
+    keep_rate: [dsc1.adc, dsc1.pid, dsc1.sup, dsc1.dac, ident.exc]
+  record:
+    decim: 2                          # the PID instants (see header); slots of the identification are added by the runner
+    antialias: none
+  loop_identification:
+    lockD: {block: ident}

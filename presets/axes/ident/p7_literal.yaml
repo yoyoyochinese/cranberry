@@ -1,0 +1,94 @@
+# P7 literal (Kashiwazaki et al. 2023 p.4; notes/lit-kashiwazaki2023.md §0-4, §5.1 (A)) for the F_* presets, port 0
+# (D85-7): the fast loop's controller is replaced by the analyser while the slow loop holds the lock. Needs a waveform
+# overlay (ident/in_lock_stepped or ident/in_lock_multisine).
+#
+#   v.adc0 ─► pid0f (feedback OFF: u = 0) ─► sup0 ─► (0 + x) ─► ctrl.ident.u0 ─► dac0f ─► … ─► PZT ─┐
+#   v.adc0 ─► pid0s (REWIRED: reads the error) ─► TEC ───────────────────────────────────────────────┤
+#   v.adc0 ◄─────────────────────────────────── Liu fringe ◄────────────────────────────────────────┘
+#
+# Rewiring (the reason for this overlay): in F_common the TEC stage reads the fast stage's output (offload, T16 §4.4),
+# so opening the fast stage would also starve the slow one. Here pid0s reads the error v.adc0 directly, with the
+# integral gain re-designed for a hold loop of unity gain at ident_hold_f_hz through the TEC path
+# (K_i = 2π f_hold / (liu_k_v · tec_k_rad_per_v_0), same sign as pid0f: both actuators raise the phase for a
+# positive drive). The paper does not say where its slow PID took its input after box C replaced the fast PID
+# (lit note §6, UNVERIFIED); this is one consistent reading.
+#
+# loop_identification (relation plant): P̂ = v.adc0 / x is the fast plant (DAC, latency, PZT mode, Liu fringe, ADC)
+# times 1/(1 + L_hold) (≈ 1 above the hold band); L̂ = −P̂·C₁ with C₁ the fast controller of chk.lock_stability, and
+# the comparison is with that check's fast path alone (model_stages first).
+#
+# Operating point: F locks start from X = 0 and the fast loop acquires X = +π/2 (F_common header, dX/du = +k_pzt).
+# With pid0f open its output is its offset O (pid docstring), so O = (π/2)/k_pzt keeps the bias the fast loop
+# held, as the analyser's output offset would on the bench; without it the fringe sits at its extremum (zero slope).
+#
+# Physics caveat (kept as a configuration, D34): the TEC hold (lag tec_tau_th_s, update every tec_rate_div samples)
+# can only hold well below 1 Hz: the operating point is held by the bias alone over a sweep, so a drift larger than in
+# F_wg6_nominal over 0.65 s (where L̂ still matched within ≈ 4 %) moves the fringe slope and biases P̂; compare runs with
+# and without the noise sources, and lengthen the sweep with care. In the paper the slow stage
+# was a fibre stretcher (an I loop of unstated bandwidth).
+run:
+  duration_s: !expr "offline.params.ident_duration_s"
+offline:
+  params:
+    ident_f_lo_hz: 200.0
+    ident_f_hi_hz: 5.0e+4
+    ident_amplitude: !expr "0.02 / offline.params.pzt_k_rad_per_v"   # 20 mrad of PZT phase per volt of x [AE]
+    ident_amp_f_corner_hz: .inf
+    ident_t_start_s: 0.02
+    ident_hold_f_hz: !expr "offline.params.f_12_hz"   # unity gain of the TEC hold loop (nominal: the offload crossover)
+  blocks:
+    - block: loop_identification
+      name: ident
+      params:
+        excitation: ident.exc
+        x: ctrl.ident.exc.x
+        response: v.adc0
+        relation: plant
+        controller: model             # C₁ of chk.lock_stability (the fast stage's design law)
+        model: chk.lock_stability
+        model_stages: first
+        coherence_min: !expr "offline.params.ident_coherence_min"
+        n_blocks: !expr "offline.params.ident_n_blocks"
+pipeline:
+  - name: lock0.stack
+    stack:
+      stages:
+        - name: stage0f
+          seq:
+            - name: pid0f
+              params:
+                toggles: {feedback: false}   # the analyser replaces the fast controller
+                offset_v: !expr "pi / 2 / offline.params.pzt_k_rad_per_v"   # its output keeps the bias the fast loop held (X = +π/2)
+            - block: excitation        # appended after sup0 (keyed merge)
+              name: ident.exc
+              params:
+                in: ctrl.sup0.u
+                out: ctrl.ident.u0
+                unit: V
+                waveform: !expr "offline.params.ident_waveform"
+                f_start_hz: !expr "offline.params.ident_f_lo_hz"
+                f_stop_hz: !expr "offline.params.ident_f_hi_hz"
+                n_freqs: !expr "offline.params.ident_n_freqs"
+                spacing: log
+                dwell_s: !expr "offline.params.ident_dwell_s"
+                period_s: !expr "offline.params.ident_period_s"
+                settle_s: !expr "offline.params.ident_settle_s"
+                amp_f_corner_hz: !expr "offline.params.ident_amp_f_corner_hz"
+                amplitude: !expr "offline.params.ident_amplitude"
+                t_start_s: !expr "offline.params.ident_t_start_s"
+                toggles: {enabled: true}
+        - name: pid0s
+          params:
+            in: v.adc0
+            ki_per_s: !expr "2 * pi * offline.params.ident_hold_f_hz / (offline.params.liu_k_v * offline.params.tec_k_rad_per_v_0)"
+      actuators:
+        - name: act0f
+          seq:
+            - name: dac0f
+              params: {in: ctrl.ident.u0}
+measure:
+  record:
+    decim: 2
+    antialias: none
+  loop_identification:
+    lock0: {block: ident}

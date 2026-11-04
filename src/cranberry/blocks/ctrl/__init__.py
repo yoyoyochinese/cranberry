@@ -9,6 +9,7 @@ Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 * ``adc``, ``dac`` (``digital.py``): quantisation, range, averaging, noise, output divider
 * ``iir``, ``lpf``, ``hpf``, ``band_split`` (``filters.py``): biquad cascades
 * ``adder``, ``ramp``, ``sine_injection`` (``signals.py``)
+* ``excitation`` (``excitation.py``): stepped sine / multisine / chirp / PRBS / white, in-lock identification (D85-7)
 * ``lock_supervisor`` (``supervisor.py``): lock-loss detection, fringe slips, re-acquisition
 * ``gated_hold`` (``gated_hold.py``, WP6-G): error passed only inside a gate window; zero / hold / noise_only outside,
   ``settle_s`` blanking after each gate edge
