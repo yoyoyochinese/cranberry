@@ -3,7 +3,9 @@
 Facts used (``notes/fact-p6-thermo-optic-moku.md`` §2, ``refs/manuals/MokuDelta-Specifications.pdf`` v26-0817):
 
 * The Frequency Response Analyzer (FRA) runs in Multi-instrument Mode (MiM, p79–80) next to the PID Controller;
-  its In/In1 modes are on p30. The FRA sweep is a stepped sine (settling + averaging per point), i.e. the
+  its measurement modes are on p30: In/Out (dB), In/In1 (dB) and In (dBm). H = e/x (the FRA input over its own
+  output) is the **In/Out** mode. The same page documents a Normalization (reference sweep) that divides out the
+  cable / front-end response of the FRA path; it does not see the control-matrix path (g below). The FRA sweep is a stepped sine (settling + averaging per point), i.e. the
   ``stepped_sine`` of ``blocks.ctrl.excitation``.
 * MiM wiring cannot add two sources into one destination. The sum e + x is formed **inside the PID Controller**
   by its 4-input control matrix (coefficients −20…+20, p64–65): row of the loop's output = 1·In_err + g·In_exc,
@@ -11,9 +13,18 @@ Facts used (``notes/fact-p6-thermo-optic-moku.md`` §2, ``refs/manuals/MokuDelta
 * The Laser Lock Box documents no injection point (p43–44): the loop must run in the PID Controller for this
   procedure.
 * **UNVERIFIED: the unit of the control-matrix coefficient in the API** (the Liquid Instruments API documents a
-  2-channel form in dB, the PDF a linear coefficient). g enters the reduction below directly (1 dB = 12 %), so g
-  must be confirmed on the bench (e.g. set 1, apply a DC offset on In_exc with the loop open, read the PID input
-  monitor) before L̂ is trusted.
+  2-channel form in dB, the PDF a linear coefficient; a dB / linear mix-up gives errors of 10–20× in g).
+
+Calibration of g (Phase 5 review I-1). g is the complex response from the FRA output to the PID input through the
+MiM route and the control matrix, not only the matrix coefficient. It must be calibrated **as a complex function of
+frequency across the whole identification band**: g(f) = (PID input monitor)/(FRA output) with the loop OPEN (PID
+output disabled or the actuator disconnected), with the same FRA settings, and passed to
+:func:`reduce_summing_point` as an array on the identification frequencies (a DC check alone is not enough). The
+error of an assumed g′ against the true g follows from (1 + L̂)/L̂ = (g′/g)(1 + L)/L, so it is not a fixed 12 % per
+dB: for |L| ≲ 1 a 1 dB error in |g| gives ≈ 9–13 % in |L̂|, it grows with |L| (refD model, +1 dB: −16 % at |L| = 7,
+f_u +9 %, PM −7°, GM −0.8 dB), and for |L| → ∞ L̂ tends to 1/(g′/g − 1) (8.2 for +1 dB) instead of growing with L,
+so the low-frequency high-gain points are the most affected. A pure route delay of 10–100 ns is negligible
+(≤ 0.1 %) below 100 kHz but belongs to g(f) at higher frequencies (reviews/scripts/p6_wp6i_x_checks.py part 1).
 
 Signal flow and reduction (summing point, the ``minus_l`` relation of ``meas.loop_identification``)::
 
@@ -22,7 +33,7 @@ Signal flow and reduction (summing point, the ``minus_l`` relation of ``meas.loo
                                 FRA output x ───────────────┘   (MiM route into the PID's second matrix input)
 
 The sum e + g·x is internal to the PID, so it cannot be recorded; the FRA measures H = e/x in its In/Out
-normalisation (In1 mode: the input over the FRA output). With e = −L(e + g x):
+mode (the input over the FRA output, spec p30). With e = −L(e + g x):
 
     L̂ = −H / (g + H),   S = (g + H)/g = 1/(1 + L̂),   T = −H/g = L̂/(1 + L̂)          (:func:`reduce_summing_point`)
 
@@ -52,10 +63,14 @@ MATRIX_RANGE: tuple[float, float] = (-20.0, 20.0)
 GAIN_UNIT_STATUS = "UNVERIFIED: dB (API docs) vs linear (PDF p64-65); confirm on the bench"
 
 
-def reduce_summing_point(h_e_over_x: Any, g: float) -> dict[str, np.ndarray]:
-    """L̂, S, T from the FRA ratio H = e/x with control-matrix gain ``g`` (module docstring)."""
+def reduce_summing_point(h_e_over_x: Any, g: Any) -> dict[str, np.ndarray]:
+    """L̂, S, T from the FRA ratio H = e/x with the injection gain ``g``: a scalar or, as calibrated (module
+    docstring), a complex array g(f) on the same frequencies as ``h_e_over_x``."""
     h = np.asarray(h_e_over_x, dtype=complex)
-    if g == 0:
+    g = np.asarray(g, dtype=complex)
+    if g.ndim and g.shape != h.shape:
+        raise ValueError(f"g(f) must have the shape of H {h.shape}, got {g.shape}")
+    if np.any(g == 0):
         raise ValueError("control-matrix gain g must be non-zero")
     return {"l_hat": -h / (g + h), "s_hat": (g + h) / g, "t_hat": -h / g}
 
@@ -95,10 +110,12 @@ class MokuDeltaController(ControllerInterface):
                                ("FRA.Out1", "PID.In2"), ("PID.Out1", self.channels[output])]},
             "pid_control_matrix": {"row": "PID.Out1", "coefficients": {"In1": 1.0, "In2": self.matrix_gain},
                                    "gain_unit": GAIN_UNIT_STATUS},
-            "fra": {"mode": "In1 (input / output normalisation)", "start_hz": float(f[0]), "stop_hz": float(f[-1]),
+            "fra": {"mode": "In/Out", "normalization": "optional reference sweep of the FRA path (spec p30)",
+"start_hz": float(f[0]), "stop_hz": float(f[-1]),
                     "points": int(f.size), "spacing": "log", "amplitude_vpp": 2.0 * float(amplitude),
                     "settling_s": float(settle_s), "averaging_s": float(dwell_s - settle_s)},
-            "reduction": "L = -H/(g + H), S = (g + H)/g, T = -H/g with H = e/x (reduce_summing_point)",
+            "g_calibration": "complex g(f) = PID input monitor / FRA output, loop open, same sweep (module docstring)",
+            "reduction": "L = -H/(g + H), S = (g + H)/g, T = -H/g with H = e/x (reduce_summing_point, g(f) array)",
         }
 
     # ------------------------------------------------------------ ControllerInterface (no device I/O)

@@ -53,7 +53,9 @@ update instants, e.g. 2 for the DSC1 PID at rate_div 2). Settings: ``settle_s`` 
 (default 0), ``dwell_s`` (stepped_sine), ``period_s`` + ``n_periods`` (multisine, chirp), ``prbs_order`` +
 ``bit_s`` + ``n_periods`` (prbs), ``duration_s`` + ``nperseg_s`` (white), ``n_freqs`` (with ``band_hz``
 instead of ``freqs_hz``), ``amp_f_corner_hz`` (default inf: flat), ``n_blocks`` (default 4),
-``coherence_min`` (default 0). The run duration follows from the schedule (t_start + steps × dwell, or
+``coherence_min`` (default 0), ``margin_dphase_max_deg`` (default 20°) and ``refine_n`` (default 0: off;
+stepped_sine: re-sweep each interval whose margin is flagged coarse with refine_n points and merge, Phase 5
+review I-3). The run duration follows from the schedule (t_start + steps × dwell, or
 t_start + settle rounded up to whole periods + n_periods periods). Analysis: ``identify`` of
 ``meas.loop_identification`` (L̂, S, T, coherence, margins; with ``model`` also the model comparison).
 """
@@ -413,7 +415,7 @@ class SimController(ControllerInterface):
         import math
 
         from cranberry.blocks.ctrl.excitation import excitation_schedule
-        from cranberry.blocks.meas.loop_identification import identify
+        from cranberry.blocks.meas.loop_identification import COARSE_DPHASE_DEG, identify
 
         self._require_configured()
         if point is None:
@@ -425,7 +427,8 @@ class SimController(ControllerInterface):
             raise KeyError(f"unknown excitation point {point!r}; configured {sorted(self._excitations)}")
         ex = self._excitations[point]
         known = {"settle_s", "t_start_s", "dwell_s", "period_s", "n_periods", "prbs_order", "bit_s", "duration_s",
-                 "nperseg_s", "n_freqs", "amp_f_corner_hz", "n_blocks", "coherence_min"}
+                 "nperseg_s", "n_freqs", "amp_f_corner_hz", "n_blocks", "coherence_min", "refine_n",
+                 "margin_dphase_max_deg"}
         unknown = sorted(set(settings) - known)
         if unknown:
             raise TypeError(f"measure_loop_gain: unknown setting(s) {unknown}; known {sorted(known)}")
@@ -478,11 +481,44 @@ class SimController(ControllerInterface):
                        controller=ex["controller"], model_params=model,
                        model_stages="all" if ex["relation"] == "minus_l" else "first",
                        coherence_min=float(settings.get("coherence_min", 0.0)),
-                       n_blocks=int(settings.get("n_blocks", 4)), band_hz=band_hz, nperseg_s=settings.get("nperseg_s"))
+                       n_blocks=int(settings.get("n_blocks", 4)), band_hz=band_hz, nperseg_s=settings.get("nperseg_s"),
+                       dphase_max_deg=float(settings.get("margin_dphase_max_deg", COARSE_DPHASE_DEG)))
         out.update(loop_id=loop_id, point=point, amplitude=float(amplitude), duration_s=duration)
         self._ops.append({"op": "measure_loop_gain", "loop": loop_id, "point": point, "method": method,
                           "amplitude": float(amplitude), "duration_s": duration,
                           "freqs_hz": [float(f) for f in np.atleast_1d(out["f_hz"])]})
+        refine_n = int(settings.get("refine_n", 0))
+        if refine_n and method == "stepped_sine" and (out["f_u_coarse"] or out["f_180_coarse"]):
+            out = self._refine_margins(out, loop_id, method, amplitude, point, refine_n, model, ex, settings)
+        return out
+
+    def _refine_margins(self, out, loop_id, method, amplitude, point, refine_n, model, ex, settings):
+        """Phase 5 review I-3: re-sweep each interval flagged coarse (f_u, worst f_180) with ``refine_n`` log points
+        from the point below it to the point above it, merge with the coarse points and recompute the margins
+        (``refined`` holds the merged L̂). One refinement pass (no recursion)."""
+        from cranberry.blocks.meas.loop_identification import COARSE_DPHASE_DEG, measured_margins
+
+        f0 = np.asarray(out["f_hz"], float)
+        sub = {k: v for k, v in settings.items() if k not in ("refine_n", "n_freqs")}
+        f_all, l_all, c_all = [f0], [np.asarray(out["l_hat"])], [np.asarray(out["coherence"])]
+        for key in ("f_u", "f_180"):
+            if not out[f"{key}_coarse"]:
+                continue
+            j = int(np.searchsorted(f0, out[f"{key}_hz"]))
+            lo, hi = f0[max(j - 2, 0)], f0[min(j + 1, f0.size - 1)]
+            fine = self.measure_loop_gain(loop_id, method, np.geomspace(lo, hi, refine_n), amplitude=amplitude,
+                                          point=point, **sub)
+            f_all.append(np.asarray(fine["f_hz"], float))
+            l_all.append(np.asarray(fine["l_hat"]))
+            c_all.append(np.asarray(fine["coherence"]))
+        f, idx = np.unique(np.concatenate(f_all), return_index=True)
+        lh, c = np.concatenate(l_all)[idx], np.concatenate(c_all)[idx]
+        margins, ph, _, _ = measured_margins(f, lh, c, float(settings.get("coherence_min", 0.0)), model,
+                                             "all" if ex["relation"] == "minus_l" else "first",
+                                             float(settings.get("margin_dphase_max_deg", COARSE_DPHASE_DEG)))
+        coarse = {k: out[k] for k in margins}
+        out = {**out, **margins, "coarse_margins": coarse,
+               "refined": {"f_hz": f, "l_hat": lh, "coherence": c, "l_phase_deg": ph}}
         return out
 
     @staticmethod

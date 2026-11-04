@@ -2,11 +2,14 @@
 # output, DSC1 p.1–2). Applies to refA and refA + bench/refA_fiber. presets/axes/controller/dsc1.yaml is the F_common
 # version (its block names differ); refA's own controller is fpga_generic (the paper's "hand-made PID servo").
 #
-# KEPT AS A BAD CONFIGURATION (D34): the DSC1 is far too slow for a Ref A-type OPA lock. Ref A's family runs the
-# probe–squeezer lock with a 2 MHz demodulation and EOM actuators whose loop phase reaches −180° at ≈ 2–4 MHz [K23 p.4,
-# lit-kashiwazaki2023 §0-4]; the DSC1 updates at 500 kHz with a 120 kHz input band and an 8.3 µs loop latency, so −180°
-# of a pure I loop sits at 1/(4τ) ≈ 30 kHz and the unity-gain frequency is capped at a few 10 kHz. refA's 20 kHz unity
-# gain ([AE] in refA) is at the edge: chk.lock1/lock2_stability report the margin (tests/integration/test_p6_bench.py).
+# KEPT AS A BAD CONFIGURATION (D34) relative to Ref A's family: the DSC1 is too slow for the MHz-class OPA locks of
+# K23, which run the probe–squeezer lock with a 2 MHz demodulation and EOM actuators whose loop phase reaches −180° at
+# ≈ 2–4 MHz [K23 p.4, lit-kashiwazaki2023 §0-4]; the DSC1 updates at 500 kHz with a 120 kHz input band and an 8.3 µs
+# loop latency, so −180° of a pure I loop sits at 1/(4τ) ≈ 30 kHz and the unity-gain frequency is capped at a few
+# 10 kHz. refA's own model has no MHz loop: its 20 kHz unity gain ([AE] in refA) is at the edge (GM ≈ 4 dB at
+# 31–33 kHz, chk.lock1/lock2_stability, tests/integration/test_p6_bench.py), and in steady state (t ≥ 15 ms, after
+# the acquisition transient) the DSC1 costs only 0.3–1.0 mrad of σ_total on refA_fiber_bench (Phase 5 review X-6;
+# reviews/scripts/p6_bench_smoke.py bench/dsc1_refA). The "too slow" verdict holds for a K23-class loop design.
 # The demodulation (2 f_sh = 2 MHz, f_sh = 1 MHz) cannot run on the DSC1 (its input band is 120 kHz): refA's analogue
 # demodulator blocks dem1 / dem2 stay in front of it, as an external mixer + low pass would.
 #

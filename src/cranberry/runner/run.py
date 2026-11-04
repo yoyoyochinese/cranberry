@@ -126,12 +126,19 @@ recorded samples from the largest metric ``t_settle_s`` on with |slot| ≥ abs_m
 estimated from every ``decim``-th recorded value; float slots carry the ``antialias`` filter, int slots
 are point-sampled). ``RunResult.summary()`` reports it as ``validity.<slot>.frac``, ``results.npz`` as
 the same key, and ``RunResult.valid`` is False when any fraction is > 0 (the metric then
-describes a clamped loop, not the linear one).
+describes a clamped loop, not the linear one). The clamp fraction BEFORE the settle time (lock acquisition,
+excluded from the metric) is recorded too (Phase 5 WP6-X X-1 addition): ``RunResult.validity_settle[slot]``,
+``validity.<slot>.settle_frac`` in the summary and ``results.npz``, and a :class:`ChkWarning`
+(``validity_settle``) when it is > 0. It does not change ``valid`` (the settled metric is the linear one), but it
+tells that the acquisition needed the actuator's full range (e.g. Ref A + 100 m fibre, where the EOM of lock 2
+saturates for ≈ 10 ms until the stretcher offload takes the fibre excursion: a longer fibre or a slower offload
+would not recover).
 """
 
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -141,6 +148,7 @@ import numba
 import numpy as np
 
 from cranberry.core.block import BaseBlock, BlockSpec
+from cranberry.core.checks import ChkWarning
 from cranberry.core.rates import max_steps_in
 
 if TYPE_CHECKING:
@@ -236,6 +244,7 @@ class RunResult:
     offline: OfflineStage | None = None
     measurements: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     validity: Mapping[str, float] = field(default_factory=dict)
+    validity_settle: Mapping[str, float] = field(default_factory=dict)
 
     @property
     def valid(self) -> bool:
@@ -250,6 +259,7 @@ class RunResult:
         plus ``<slot>.mean`` / ``<slot>.std`` / ``<slot>.rms`` of every recorded real scalar series and
         ``validity.<slot>.frac`` (clamp fraction of each ``measure.validity`` slot)."""
         out: dict[str, float] = {f"validity.{k}.frac": float(v) for k, v in self.validity.items()}
+        out.update({f"validity.{k}.settle_frac": float(v) for k, v in self.validity_settle.items()})
         for name, x in self.series.items():
             x = np.asarray(x)
             if x.ndim == 1 and x.size and np.isrealobj(x):
@@ -919,7 +929,9 @@ def _write_results(run_dir: Path, result: RunResult) -> None:
 
     parts: dict[str, Any] = {"results": {**result.series, "t_s": result.t_s,
                                          **_measurement_arrays(result.measurements),
-                                         **{f"validity.{k}.frac": np.float64(v) for k, v in result.validity.items()}}}
+                                         **{f"validity.{k}.frac": np.float64(v) for k, v in result.validity.items()},
+                                         **{f"validity.{k}.settle_frac": np.float64(v)
+                                            for k, v in result.validity_settle.items()}}}
     # Hooks for later WPs: they fill RunResult (or pass the objects here) and the parts follow.
     if result.metrics is not None:  # WP-F4: metrics (i)/(ii), PSDs
         parts["metrics"] = result.metrics
@@ -1021,8 +1033,6 @@ def run(
         if "antialias" not in rec_cfg and int(rec_cfg["decim"]) > 1:
             global _ALIAS_WARNED
             if not _ALIAS_WARNED:
-                import warnings
-
                 _ALIAS_WARNED = True
                 warnings.warn("measure.record decimates (decim > 1) without 'antialias': point sampling, content "
                               "above f_sim/(2 decim) aliases into the recorded PSD; set antialias: none | boxcar | fir "
@@ -1094,10 +1104,18 @@ def run(
                                              f_record_hz=f_rec, seed=settings.seed, series=series, t_s=t_s,
                                              f_sim_hz=settings.f_sim_hz)
     t_valid = max((b.t_settle_s for b in probes), default=0.0)
-    validity_frac = {}
+    validity_frac, validity_settle = {}, {}
     for v in validity:
-        x = np.abs(np.asarray(series[str(v["slot"])], dtype=float))[t_s >= t_valid]
+        x_all = np.abs(np.asarray(series[str(v["slot"])], dtype=float))
+        x, x_pre = x_all[t_s >= t_valid], x_all[t_s < t_valid]
         validity_frac[str(v["slot"])] = float(np.mean(x >= float(v["abs_max"]))) if x.size else 0.0
+        if t_valid > 0.0:   # X-1: clamped during the acquisition window the metric skips (module docstring)
+            pre = float(np.mean(x_pre >= float(v["abs_max"]))) if x_pre.size else 0.0
+            validity_settle[str(v["slot"])] = pre
+            if pre > 0.0:
+                warnings.warn(f"[validity_settle] {v['slot']}: at its limit {float(v['abs_max']):.4g} for "
+                              f"{100 * pre:.1f} % of t < t_settle = {t_valid:.4g} s (lock acquisition used the "
+                              f"full actuator range; the metric starts after it)", ChkWarning, stacklevel=2)
     result = RunResult(
         spec=rs,
         run_dir=run_dir,
@@ -1111,6 +1129,7 @@ def run(
         offline=offline,
         measurements=measurements,
         validity=validity_frac,
+        validity_settle=validity_settle,
         # CHK events of the offline checks (e.g. loop_stability_check, M2C-02): warned, never pruned (D34)
         events=[e for b in offline_blocks if isinstance(getattr(b, "chk_log", None), ChkLog) for e in b.chk_log.to_json()],
     )

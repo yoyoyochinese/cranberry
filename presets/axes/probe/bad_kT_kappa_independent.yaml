@@ -6,5 +6,5 @@
 # term cancels in R but not in each coefficient. Physically inconsistent: use bias_model R or R_prime instead.
 offline:
   params:
-    bias_model: implicit_kT_kappa
+    bias_case: implicit             # bias_model implicit_kT_kappa (actuator_pathlength single choice axis, X-9)
     kappa_tau_s_per_m_K: !sweep [3.74e-14, 3.9e-14, 2]   # 37.4 ps/(km·K) at 1535 nm (Slavík 2015 Fig. 3) / 39 (T08 §2.3)
