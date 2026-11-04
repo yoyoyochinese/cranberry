@@ -219,17 +219,32 @@ def sweep(
     sweep's input document (``config_input``, e.g. ``config.read_input(path)``; None → ``spec.unresolved`` if
     present, else the sweep spec),
     plus the caller's ``invocation`` context (CLI argv, overrides).
+
+    Per-point errors (D75; Phase 6 fix G-2): a point whose run raises is kept as an invalid ``RunResult`` (its spec,
+    no series / metrics, one ``run_error`` event with the exception; ``valid`` False) and the sweep continues.
     """
-    from cranberry.runner.run import run
+    from cranberry.runner.run import RunResult, run
 
     pts = expand(spec, axes)
+
+    def one(p: SweepPoint, **kw: Any) -> RunResult:
+        # D75 (Phase 6 fix G-2): one bad point never aborts the sweep. An exception becomes an invalid result that
+        # keeps the point's spec and coordinates and records the error as a `run_error` event (INVALIDATING_CHK).
+        try:
+            return run(p.spec, **kw)
+        except Exception as e:  # noqa: BLE001 — recorded, the sweep continues
+            ev = {"code": "run_error", "source": "runner.sweep", "message": f"{type(e).__name__}: {e}",
+                  "context": {"sweep_point": dict(p.values), "exception": type(e).__name__}}
+            warnings.warn(f"[run_error] sweep point {dict(p.values)}: {type(e).__name__}: {e}", stacklevel=3)
+            return RunResult(spec=p.spec, run_dir=None, t_s=np.zeros(0), events=[ev])
+
     if record_root is None:
-        return [run(p.spec) for p in pts]
+        return [one(p) for p in pts]
     # keep the expressions in config.input.yaml when the spec still carries its input tree (D64)
     inp = config_input if config_input is not None else (getattr(spec, "unresolved", None) or spec)
     base = {**dict(invocation or {}), "seed_mode": spec.run.seed_mode, "n_points": len(pts),
             "axes": {k: list(v) for k, v in (axes or {}).items()}}
     return [
-        run(p.spec, record_root=record_root, config_input=inp, invocation={**base, "sweep_point": dict(p.values)})
+        one(p, record_root=record_root, config_input=inp, invocation={**base, "sweep_point": dict(p.values)})
         for p in pts
     ]

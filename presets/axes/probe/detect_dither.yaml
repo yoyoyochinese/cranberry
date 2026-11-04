@@ -87,9 +87,9 @@ pipeline:
           v_off_v: 0.0
           lpf_hz: !expr "offline.params.liu_demod_lpf_hz"
           toggles: {rf_rate_mode: false, demod_offset: false, rf_reference_phase_noise: false}
-  - name: adc0
+  - name: in_bw0                     # the controller input (F_common in_bw0 → adc0, G-3)
     params: {in: dem.dem0.i}
-  - name: adc1
+  - name: in_bw1                     # the controller input (F_common in_bw1 → adc1, G-3)
     params: {in: dem.dem1.i}
   - name: mi
     params: {setpoint_rad: 0.0}

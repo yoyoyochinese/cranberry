@@ -1,52 +1,30 @@
-# Controller axis: Thorlabs DSC1 (devices/dsc1.yaml; ±4 V output limit, 16-bit DAC; D05, D35). Latency of the DSC1
-# loop ≈ 5.7 µs (00_summary §2.1).
+# Controller axis: Thorlabs DSC1 (devices/dsc1.yaml; D05, D35), the model validated on Ref D (D61-2, D82, D91):
+#   * ADC 16 bit ±4 V with the 2-point average, DAC 12 bit ±4 V (CV limit ±4 V, D35);
+#   * PID law dsc1 (backward-Euler integral including e[n], backward difference; DSC1 p.19) with pid0f / pid1f, sup*
+#     and dac*f at the device's 500 kHz (D91-1: rate_div 2 at f_sim = 1 MHz, h = 2 µs); chk.lock_stability uses
+#     discretisation dsc1 with that h (D82 lesson). The TEC stage pid*s runs the dsc1 law at its own 10 ms rate
+#     (its extra K_i·h/2 is ωh/2 ≤ 1 % of the I term at f_12 ≤ 0.3 Hz; chk keeps it continuous);
+#   * B-7: τ_L and the input / output poles are a PAIR (refD.yaml, T15 §2.7(b)): 5.7 µs WITH the 120 kHz input and
+#     100 kHz output first-order poles, or 8.3 µs pure delay without them — the dsc1_latency_s choice switches both.
+#   * D91-1 / D61-2 delay accounting: τ_L already contains the ADC average and the 500 kHz ZOH, so the time loop's delay
+#     lines carry τ_L − 1/f_sim − ctrl_explicit_delay_s (ADC average (2−1)/(2 f_sim) + hold (r−1)/(2 f_sim) = 1 µs at
+#     1 MHz) and the checks add no ZOH half sample (zoh_delay_s 0). Both checks see total delay τ_L, the poles, the law.
+# The adc average and rate_div are counted in base samples of f_sim = 1 MHz (DSC1 1 MHz ADC, 500 kHz update).
+# G-3: writes only offline.params (full controller set), composes with gate/* and probe/* in either order.
 offline:
   params:
+    ctrl_device: dsc1
+    adc_bits: 16                   # DSC1 p.2
+    adc_range_v: 4.0               # DSC1 p.2 (±4 V)
+    adc_avg_samples: 2             # DSC1 p.1 (averages every two 1 MHz samples)
+    pid_law: dsc1                  # DSC1 p.19
+    chk_law: dsc1                  # D82
+    pid_update_hz: 5.0e+5          # DSC1 p.2 (PID update 500 kHz)
+    pid_rate_div: !expr "max(1, floor(run.f_sim_hz / pid_update_hz + 0.5))"   # 2 at 1 MHz (D91-1)
+    dsc1_latency_s: !choice [5.7e-6, 8.3e-6]   # τ_L: 5.7 µs with the 120/100 kHz poles, 8.3 µs pure delay (T15 §2.7(b), B-7)
+    ctrl_latency_s: !expr "dsc1_latency_s"   # the L-Liu controller only (locks/ loops keep latency_s)
+    ctrl_in_pole_hz: !expr "1.2e+5 if dsc1_latency_s < 7.0e-6 else inf"   # DSC1 p.1 (120 kHz typ; order not stated)
+    ctrl_out_pole_hz: !expr "1.0e+5 if dsc1_latency_s < 7.0e-6 else inf"  # DSC1 p.2 note d (100 kHz)
+    zoh_delay_s: 0.0               # inside τ_L (D61-2)
+    ctrl_dac_bits: 12              # DSC1 p.2 (12-bit output)
     out_range_v: 4.0               # D35 CV limit −4…+4 V
-    latency_s: 5.7e-6              # 00_summary §2.1 (τ 5.7 µs)
-    dac_bits: 12                   # DSC1 p.2 (12-bit output)
-  # D82 lesson (D85-1 WP6-AB): the stability check must model the controller law the time loop runs. With this
-  # overlay pid0f / pid1f run the DSC1 law (backward-Euler integral including e[n], backward difference; DSC1 p.19)
-  # at their block rate, rate_div 1 → h = 1/f_sim (F_common sets no rate_div; the device's own 500 kHz update is not
-  # imposed by this overlay), so chk.lock_stability uses discretisation dsc1 with that h. F_common's fine stage is
-  # pure I: the dsc1 law adds the proportional term K_i·h/2 (phase lead ωh/2, ≈ 3 % of the I term at 10 kHz, 1 µs).
-  # The TEC stage keeps the continuous law: pid0s runs the dsc1 law at h = tec_rate_div/f_sim = 10 ms, whose extra
-  # K_i·h/2 is ωh/2 ≤ 1 % of its I term at the crossover f_12 ≤ 0.3 Hz (stages are an unkeyed list: not overlaid).
-  blocks:
-    - name: chk.lock_stability
-      params:
-        discretisation: dsc1
-        h_s: !expr "1.0 / run.f_sim_hz"   # = rate_div / f_sim of pid0f / pid1f (rate_div 1)
-pipeline:
-  - name: adc0
-    params: {device: dsc1, bits: 16, range_v: [-4.0, 4.0]}
-  - name: adc1
-    params: {device: dsc1, bits: 16, range_v: [-4.0, 4.0]}
-  - name: lock0.stack
-    stack:
-      stages:
-        - name: stage0f
-          seq:
-            - name: pid0f
-              params: {device: dsc1}
-        - name: pid0s
-          params: {device: dsc1}
-      actuators:
-        - name: act0f
-          seq:
-            - name: dac0f
-              params: {device: dsc1, range_v: [-4.0, 4.0]}
-  - name: lock1.stack
-    stack:
-      stages:
-        - name: stage1f
-          seq:
-            - name: pid1f
-              params: {device: dsc1}
-        - name: pid1s
-          params: {device: dsc1}
-      actuators:
-        - name: act1f
-          seq:
-            - name: dac1f
-              params: {device: dsc1, range_v: [-4.0, 4.0]}

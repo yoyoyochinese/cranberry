@@ -1,43 +1,24 @@
 # Controller axis: Liquid Instruments Moku:Delta PID (devices/moku_delta.yaml; 14-bit DAC, T16 §4.5). Output range
 # ±0.5 V into 50 Ω unless a 10 Vpp path exists (DECISIONS Open, D53); the 915B-class stretcher then uses only its
 # ±0.5 V share (bad_moku_pid_05V).
-# Stability check (D82 lesson, D85-1 WP6-AB): chk.lock_stability stays continuous here. pid0f / pid1f run Tustin at
-# their block rate h = 1/f_sim (1 µs); for F_common's pure-I fine stage Tustin keeps the exact −90° phase and |C| is
-# within (ωh)²/12 = 0.3 % at 30 kHz (tests/integration/test_p6_ab_overlays.py), unlike the DSC1 law (ωh/2 phase lead).
+# G-3 (reviews/phase6_wp6g_ab.md §5): writes only the controller params of F_common (full set restated, so the last
+# controller overlay applied wins entirely; composes with gate/* and probe/* in either order).
+# Stability check (D82 lesson, D85-1 WP6-AB): chk.lock_stability stays continuous. pid0f / pid1f run Tustin at their
+# block rate h = 1/f_sim (1 µs); for F_common's pure-I fine stage Tustin keeps the exact −90° phase and |C| is within
+# (ωh)²/12 = 0.3 % at 30 kHz (tests/integration/test_p6_ab_overlays.py), unlike the DSC1 law (ωh/2 phase lead).
+# Moku's own loop latency is not documented here (UNVERIFIED): the fpga_generic τ_L axis is kept.
 offline:
   params:
+    ctrl_device: moku_delta
+    adc_bits: 16                   # Moku p.6 (16-bit equivalent of the blended 14/20-bit input), ±0.5 V range
+    adc_range_v: 0.5
+    adc_avg_samples: 1
+    pid_law: tustin                # Moku's discrete law is undocumented (devices/moku_delta.yaml "moku")
+    chk_law: continuous
+    pid_rate_div: 1
+    ctrl_in_pole_hz: .inf
+    ctrl_out_pole_hz: .inf
+    ctrl_latency_s: !expr "latency_s"   # the generic τ_L axis of F_common (Moku latency UNVERIFIED)
+    zoh_delay_s: !expr "0.5 / run.f_sim_hz"
+    ctrl_dac_bits: 14              # Moku p.7
     out_range_v: 0.5
-    dac_bits: 14                   # Moku p.7 (ADC: 16-bit equivalent of the blended 14/20-bit input, ±0.5 V range, p.6)
-pipeline:
-  - name: adc0
-    params: {device: moku_delta, bits: 16, range_v: [-0.5, 0.5]}
-  - name: adc1
-    params: {device: moku_delta, bits: 16, range_v: [-0.5, 0.5]}
-  - name: lock0.stack
-    stack:
-      stages:
-        - name: stage0f
-          seq:
-            - name: pid0f
-              params: {device: moku_delta, discretisation: tustin}
-        - name: pid0s
-          params: {device: moku_delta, discretisation: tustin}
-      actuators:
-        - name: act0f
-          seq:
-            - name: dac0f
-              params: {device: moku_delta, range_v: [-0.5, 0.5]}
-  - name: lock1.stack
-    stack:
-      stages:
-        - name: stage1f
-          seq:
-            - name: pid1f
-              params: {device: moku_delta, discretisation: tustin}
-        - name: pid1s
-          params: {device: moku_delta, discretisation: tustin}
-      actuators:
-        - name: act1f
-          seq:
-            - name: dac1f
-              params: {device: moku_delta, range_v: [-0.5, 0.5]}

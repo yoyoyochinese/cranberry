@@ -5,9 +5,18 @@
 # chk.lock_stability: keep liu_demod_lpf_hz ≫ f_u). Sensor noise: white near the carrier, ×2 after demodulation (T14 §2.2).
 offline:
   params:
-    liu_f_shift_hz: 8.0e+7         # AOM shift [AE] (80 MHz class, as probe/freq_80MHz)
-    probe_freq_offset_hz: !expr "liu_f_shift_hz"   # the probe beam carries the shift (path model, stray-light filter)
+    liu_f_shift_hz: 8.0e+7         # AOM shift [AE] (80 MHz class, as probe/freq_80MHz); F_common's probe_freq_offset_hz
+                                   # = probe_line_offset_hz + liu_f_shift_hz, so the probe beam carries the shift
     liu_demod_lpf_hz: 3.0e+5       # [AE] ≫ f_u, < f_N = 500 kHz
+# G-5 (Phase 6 fix): the beat has its own key, so probe/freq_* (which set the probe LINE probe_line_offset_hz) compose
+# in either order. The reference ref_k is put on the probe line (it comes from the same line as the probe, which the
+# AOM shifts by liu_f_shift_hz): P3's "1 THz WDM probe + 160 MHz heterodyne" = probe/freq_1THz + this overlay (+ set
+# liu_f_shift_hz: 1.6e+8). Only the beams' frequency offsets move: like probe/freq_*, the thermal 2πΔν·κ_τ·L term is
+# applied on the long port spools (probe), not on the 1–2 m reference branch (≤ 0.5 rad/K at 1 THz, neglected).
+topology:
+  beams:
+    - {id: ref0, freq_offset_hz: !expr "offline.params.probe_line_offset_hz"}
+    - {id: ref1, freq_offset_hz: !expr "offline.params.probe_line_offset_hz"}
 pipeline:
   - !replace
     name: liu0
@@ -75,7 +84,7 @@ pipeline:
           v_off_v: 0.0
           lpf_hz: !expr "offline.params.liu_demod_lpf_hz"
           toggles: {rf_rate_mode: false, demod_offset: false, rf_reference_phase_noise: false}
-  - name: adc0
+  - name: in_bw0                     # the controller input (F_common in_bw0 → adc0, G-3)
     params: {in: dem.dem0.i}
-  - name: adc1
+  - name: in_bw1                     # the controller input (F_common in_bw1 → adc1, G-3)
     params: {in: dem.dem1.i}

@@ -32,9 +32,13 @@ offline:
         kp: 0.0
         ki_per_s: !expr "2 * pi * offline.params.f_u_hz / (offline.params.liu_k_v * offline.params.pzt_k_rad_per_v)"
         kd_s: 0.0
-        delay_s: !expr "offline.params.latency_s + offline.params.lock_extra_delay_s"
-        poles_hz: []
-        modes: [{f_hz: !expr "offline.params.pzt_f_res_hz", q: !expr "offline.params.pzt_q"}]
+        # G-3/G-4/G-8/D91: controller law, update rate, poles, modes and ZOH from offline.params, as chk.lock_stability
+        # and the time loop; the PID rate_div hold is modelled explicitly, so it is not in delay_s
+        delay_s: !expr "offline.params.ctrl_latency_s - offline.params.ctrl_hold_delay_s + offline.params.zoh_delay_s + offline.params.lock_extra_delay_s"
+        poles_hz: [!expr "offline.params.ctrl_in_pole_hz", !expr "offline.params.ctrl_out_pole_hz",
+                   !expr "offline.params.lock_extra_pole_hz"]
+        modes: !expr "offline.params.pzt_modes"
+        prewarp_hz: !expr "offline.params.pzt_f_res_hz"   # as pzt0 / pzt1
         stages:
           - kp: 0.0
             ki_per_s: !expr "2 * pi * offline.params.f_12_hz * offline.params.pzt_k_rad_per_v / offline.params.tec_k_rad_per_v_k"
@@ -43,7 +47,8 @@ offline:
             poles_hz: [!expr "1 / (2 * pi * offline.params.tec_tau_th_s)"]
             modes: []
         f_grid_hz: [1.0e-6, 1.0e+8, 400001]
-        pid_discretisation: tustin
+        pid_discretisation: !expr "offline.params.pid_law"
+        pid_rate_div: !expr "offline.params.pid_rate_div"
         f_sim_hz: !expr "run.f_sim_hz"
         period_s: !expr "offline.params.gate_period_s"
         lock_fraction: !expr "offline.params.gate_lock_fraction"
@@ -89,11 +94,13 @@ pipeline:
       - block: adc
         name: adc0
         params:
-          in: v.liu0
+          in: v.in_bw0
           out: v.adc0
-          device: fpga_generic
+          device: !expr "offline.params.adc_device"            # controller choice from offline.params (G-3)
+          bits: !expr "offline.params.adc_bits"
+          range_v: [!expr "-offline.params.adc_range_v", !expr "offline.params.adc_range_v"]
           noise_vrms: 0.0
-          avg_samples: 1
+          avg_samples: !expr "offline.params.adc_avg_samples"
           toggles: {quantization: true, noise: false, saturation: true}
       - block: gated_hold
         name: gh0
@@ -105,11 +112,13 @@ pipeline:
       - block: adc
         name: adc1
         params:
-          in: v.liu1
+          in: v.in_bw1
           out: v.adc1
-          device: fpga_generic
+          device: !expr "offline.params.adc_device"            # controller choice from offline.params (G-3)
+          bits: !expr "offline.params.adc_bits"
+          range_v: [!expr "-offline.params.adc_range_v", !expr "offline.params.adc_range_v"]
           noise_vrms: 0.0
-          avg_samples: 1
+          avg_samples: !expr "offline.params.adc_avg_samples"
           toggles: {quantization: true, noise: false, saturation: true}
       - block: gated_hold
         name: gh1

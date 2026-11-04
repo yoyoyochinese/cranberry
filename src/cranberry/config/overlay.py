@@ -17,6 +17,26 @@ Details:
   <ref>[.yaml]`` (so ``fiber/smf`` names ``presets/axes/fiber/smf.yaml``); relative to the CWD.
 * Overlay files are plain partial trees; they may not themselves list ``overlays`` or ``extends``.
 
+Overlay conflicts (Phase 6, reviews/phase6_wp6g_ab.md §5 G-3..G-6; :func:`apply_overlays`). The overlays applied in
+one ``load`` (a config's own ``overlays:`` then the extra ones; a base reached through ``extends:`` counts as the
+base, its overlays included) are checked against each other, and a conflict is a :class:`ConfigError` naming both
+overlays:
+
+* **discard**: a later overlay discards wholesale what an earlier overlay wrote — a ``!replace`` (mapping, list or
+  keyed-list element), a ``!delete`` / ``null``, a plain list replacing a list, or a value of another kind (scalar ↔
+  mapping/list) — at or above a path the earlier overlay set. Example: ``controller/x`` sets ``adc0.params.device``,
+  then a gate overlay ``!replace``-s ``adc0`` (the device would be silently lost).
+* **structure**: a later overlay merges block keys (``block``, ``params``, ``rate_div``) into a pipeline node that
+  is a ``seq`` / ``stack`` (or ``seq`` / ``stack`` into a leaf block), typically because an earlier overlay
+  ``!replace``-d it: e.g. ``probe/detect_heterodyne`` makes ``liu0`` a seq, a gate overlay then sets ``liu0.params``.
+  Never allowed (the merged node would not be a valid pipeline element).
+
+A later overlay writing a *scalar* over an earlier overlay's scalar (a point of an axis: ``gate/borealis_si`` after
+``gate/borealis_window``) is not a conflict, nor is any overlay changing the base config. An intentional discard is
+declared in the later overlay with the top-level key ``overrides: [<overlay ref>, ...]`` (refs as in ``overlays:``,
+e.g. ``gate/borealis_window``; ``"*"`` = any earlier overlay): its discards of what those overlays wrote are
+accepted. ``overrides`` is consumed while loading (never part of the merged tree).
+
 Directives (WP-F2b; tags in ``config.yaml_io``), valid wherever a partial tree is merged onto a
 base (overlays, and the own keys of a file that ``extends:`` a base):
 
@@ -65,6 +85,7 @@ __all__ = [
     "find_base",
     "expand_extends",
     "check_no_directives",
+    "footprint",
 ]
 
 #: Repository root (``src/cranberry/config/overlay.py`` → three levels up from ``src``).
@@ -242,12 +263,77 @@ def display_ref(path: Path) -> str:
         return str(path.resolve())
 
 
+_BLOCK_KEYS = ("block", "params", "rate_div")
+_STRUCT_KEYS = ("seq", "stack")
+
+
+def _fmt(path: tuple[Any, ...]) -> str:
+    return ".".join(str(p[1]) if isinstance(p, tuple) else str(p) for p in path) or "<root>"
+
+
+def footprint(base: Any, ov: Mapping[str, Any]) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]]]:
+    """(writes, discards) of merging ``ov`` onto ``base``: the leaf paths it sets and the paths whose previous content
+    it discards wholesale (module docstring, "Overlay conflicts"). Keyed-list elements appear as (key, label)."""
+    writes: list[tuple[Any, ...]] = []
+    discards: list[tuple[Any, ...]] = []
+
+    def walk(b: Any, o: Mapping[str, Any], p: tuple[Any, ...]) -> None:
+        for k, v in o.items():
+            q = p + (k,)
+            bk = b.get(k) if isinstance(b, Mapping) else None
+            if isinstance(v, (Replace, Delete)) or v is None:
+                discards.append(q)
+                if isinstance(v, Replace):
+                    writes.append(q)
+            elif isinstance(v, Mapping) and isinstance(bk, Mapping):
+                walk(bk, v, q)
+            elif isinstance(v, list) and isinstance(bk, list) and (key := _list_key(bk, v)) is not None:
+                for item in v:
+                    if isinstance(item, Delete):
+                        discards.append(q + ((key, item.label),))
+                    elif isinstance(item, Replace):
+                        lab = q + ((key, item.value[key]),)
+                        discards.append(lab)
+                        writes.append(lab)
+                    else:
+                        i = _find(bk, key, item[key])
+                        if i is None:
+                            writes.append(q + ((key, item[key]),))
+                        else:
+                            walk(bk[i], item, q + ((key, item[key]),))
+            else:
+                if bk is not None and (isinstance(v, (list, Mapping)) or isinstance(bk, (list, Mapping))):
+                    discards.append(q)  # a list replacing a list, or a change of kind
+                writes.append(q)
+
+    walk(base, ov, ())
+    return writes, discards
+
+
+def _mixed_nodes(tree: Any, path: tuple[Any, ...] = ()) -> dict[tuple[Any, ...], list[str]]:
+    """{path: block keys} of every mapping holding both seq/stack and block keys (an invalid pipeline element)."""
+    out: dict[tuple[Any, ...], list[str]] = {}
+    if isinstance(tree, Mapping):
+        if any(k in tree for k in _STRUCT_KEYS) and any(k in tree for k in _BLOCK_KEYS):
+            out[path] = [k for k in _BLOCK_KEYS if k in tree]
+        for k, v in tree.items():
+            out.update(_mixed_nodes(v, path + (k,)))
+    elif isinstance(tree, list):
+        for i, v in enumerate(tree):
+            lab = _keyed(v).get("name", _keyed(v).get("id", i)) if isinstance(_keyed(v), Mapping) else i
+            out.update(_mixed_nodes(v, path + (("name", lab),)))
+    return out
+
+
 def apply_overlays(
     tree: Mapping[str, Any], refs: Sequence[str | Path], base_dir: Path | None = None
 ) -> tuple[dict[str, Any], list[str]]:
-    """Merge the overlay files ``refs`` onto ``tree`` in order; returns (merged tree, display refs)."""
+    """Merge the overlay files ``refs`` onto ``tree`` in order; returns (merged tree, display refs). Conflicts
+    between the overlays raise :class:`ConfigError` (module docstring, "Overlay conflicts")."""
     out = dict(tree)
     applied: list[str] = []
+    written: dict[tuple[Any, ...], str] = {}   # leaf path → the overlay that last wrote it
+    replaced: dict[tuple[Any, ...], str] = {}  # path → the overlay that last !replace-d it
     for ref in refs:
         path = find_overlay(ref, base_dir)
         try:
@@ -260,11 +346,43 @@ def apply_overlays(
             raise ConfigError(f"overlay {display_ref(path)}: must be a mapping, got {type(ov).__name__}")
         if "overlays" in ov or "applied_overlays" in ov or "extends" in ov:
             raise ConfigError(f"overlay {display_ref(path)}: overlay files cannot list overlays or extends")
+        me = display_ref(path)
+        ov = dict(ov)
+        allowed = ov.pop("overrides", None) or []
+        if not isinstance(allowed, list) or not all(isinstance(r, str) for r in allowed):
+            raise ConfigError(f"overlay {me}: overrides: must be a list of overlay references")
+        allow_all = "*" in allowed
+        allowed_refs = {display_ref(find_overlay(r, path.parent)) for r in allowed if r != "*"}
+        writes, discards = footprint(out, ov)
+        for d in discards:
+            for q, who in written.items():
+                if who != me and q[: len(d)] == d and not allow_all and who not in allowed_refs:
+                    raise ConfigError(
+                        f"overlay conflict: {me} discards {_fmt(d)} wholesale (!replace / !delete / list or kind "
+                        f"change), but the earlier overlay {who} set {_fmt(q)} there; its value would be silently lost. "
+                        f"Apply them in the other order if that composes, write a combined overlay, or declare "
+                        f"'overrides: [{who}]' in {me} if the discard is intended")
+        before = _mixed_nodes(out)
         try:
             out = merge(out, ov)
         except ConfigError as e:
-            raise ConfigError(f"overlay {display_ref(path)}: {e}") from None
-        applied.append(display_ref(path))
+            raise ConfigError(f"overlay {me}: {e}") from None
+        for node, keys in _mixed_nodes(out).items():
+            if node not in before:
+                who = next((w for q, w in replaced.items() if q == node), None)
+                cause = f"the earlier overlay {who} replaced it (!replace)" if who else "it is so in the base config"
+                raise ConfigError(
+                    f"overlay conflict: {me} merges block keys {keys} into {_fmt(node)}, which is a seq / stack "
+                    f"({cause}); the overlays cannot be combined in this order (write a combined overlay)")
+        for d in discards:
+            for q in [q for q in written if q[: len(d)] == d]:
+                del written[q]
+        for w in writes:
+            written[w] = me
+        for d in discards:
+            if d in writes:
+                replaced[d] = me
+        applied.append(me)
     return out, applied
 
 

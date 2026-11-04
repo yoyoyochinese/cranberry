@@ -19,7 +19,10 @@ A ``where:`` binding is a literal, a marker (``!sweep`` ...: the expression is *
 ``runner.sweep`` fixes the value), or a string = dotted reference resolved from the enclosing scope.
 ``where`` is therefore a reserved key; it is removed from a mapping once nothing under that mapping
 still needs it (resolved configs carry values, not bindings). References must point at scalar values
-or at other expressions, never at whole mappings/lists or ``!fn`` values.
+or at other expressions, never at ``!fn`` values. **Structured alias** (Phase 6, G-3/G-4): an ``!expr`` whose source
+is a bare dotted name (``modes: !expr "offline.params.pzt_modes"``, no ``where``, no ``args``) may reference a whole
+mapping / list; its value is a copy of that subtree with every expression inside resolved first (deferred while the
+subtree holds a sweep marker or a deferred expression). Any other expression must reference scalar values.
 
 An ``!expr``'s *own* ``where`` (long form) may also hold a sweep marker or a nested ``!expr``: the
 marker is a sweep axis at ``<path of the expr>.where.<name>`` (found by :func:`find_markers`,
@@ -306,7 +309,9 @@ def resolve(tree: Mapping[str, Any]) -> dict[str, Any]:
             if target in exprs:
                 deps.add(target)
             elif any(x[: len(target)] == target for x in exprs):
-                raise ConfigError(f"{where}: reference to {path_str(tree, target)} contains expressions, not a value")
+                if not (_is_alias(e) and isinstance(get_path(tree, target), (Mapping, list))):
+                    raise ConfigError(f"{where}: reference to {path_str(tree, target)} contains expressions, not a value")
+                deps |= {x for x in exprs if x[: len(target)] == target}
         graph[p] = deps
     try:
         order = list(graphlib.TopologicalSorter(graph).static_order())
@@ -327,6 +332,8 @@ def resolve(tree: Mapping[str, Any]) -> dict[str, Any]:
                 v = results[target]
                 if isinstance(v, Expr):
                     raise ConfigError(f"{where}: {name!r} refers to a callable !expr ({path_str(tree, target)})")
+            elif _is_alias(e) and isinstance(get_path(tree, target), (Mapping, list)):
+                v = _subtree_value(tree, target, results)
             else:
                 v = _value_at(tree, target, where)
             if v is _DEFERRED:
@@ -342,6 +349,8 @@ def resolve(tree: Mapping[str, Any]) -> dict[str, Any]:
                         raise ConfigError(f"{where}: callable !expr cannot capture string value {name}={v!r}")
                 compile_expr(e.source, e.args, env)
                 results[p] = Expr(e.source, env, e.args)
+            elif _is_alias(e) and isinstance(next(iter(env.values()), None), (Mapping, list)):
+                results[p] = next(iter(env.values()))
             else:
                 results[p] = safe_eval(e.source, env)
         except ExprError as err:
@@ -357,6 +366,26 @@ def resolve(tree: Mapping[str, Any]) -> dict[str, Any]:
     if find_markers(tree):  # sweep axes left: keep dB names as written (config.db, "When")
         return tree
     return linearize(tree)
+
+
+def _is_alias(e: Expr) -> bool:
+    """A structured alias: ``!expr "<dotted name>"`` with no ``where`` / ``args`` (module docstring)."""
+    return not e.args and not e.where and free_names(e.source) == (e.source.strip(),)
+
+
+def _subtree_value(tree: Any, target: TreePath, results: Mapping[TreePath, Any]) -> Any:
+    """Copy of the subtree at ``target`` with the resolved expressions inside substituted (``_DEFERRED`` if any is
+    deferred or a sweep marker is left in it)."""
+    inner = {p[len(target):]: r for p, r in results.items() if p[: len(target)] == target and len(p) > len(target)}
+    if any(r is _DEFERRED for r in inner.values()):
+        return _DEFERRED
+    sub = copy.deepcopy(get_path(tree, target))
+    for q, r in inner.items():
+        if not any(q[:i] in inner for i in range(1, len(q))):  # outermost expressions only
+            set_path(sub, q, copy.deepcopy(r))
+    if find_markers(sub):
+        return _DEFERRED
+    return _convert_pi_frac(sub)
 
 
 def _convert_pi_frac(node: Any) -> Any:

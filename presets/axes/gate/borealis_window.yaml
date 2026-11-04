@@ -17,9 +17,10 @@
 # is a read-before-write error, so the blocks are inserted with !replace (positions kept, no extra 1/f_sim:
 # lock_extra_delay_s stays as it is).
 #
-# Composition: adc0/adc1 become seqs here. Overlays that merge into adc0/adc1 (controller/*, probe/detect_heterodyne,
-# probe/detect_dither) must be applied BEFORE this one only if their adc values equal the ones restated below
-# (fpga_generic / moku_delta: 16 bit ±0.5 V, equal), and fail loudly when applied after it (params merged into a seq).
+# Composition (Phase 6 fix G-3/G-6): the restated adc0/adc1 read the controller params of F_common, so controller/*
+# (which write only offline.params) compose in either order. probe/detect_heterodyne / probe/detect_dither replace
+# liu0/liu1 with seqs and merge into adc0's input: with a gate overlay config.load raises an overlay conflict naming
+# both overlays (config.overlay "Overlay conflicts"); a combination needs a combined overlay.
 #
 # Checks: chk.lock_stability (F_common, the loop inside the window, LTI) stays; chk.gated_stability adds the Floquet
 # test of the gated loop (loop_unstable → RunResult.valid = False, D80-2; every point kept, D75). Stray light of the
@@ -36,7 +37,8 @@ offline:
     tau_prk_s: !expr "(n_g * (L_prsrc_m + L_prs_m + L_k_m) + 1.0003 * L_d_m) / 299792458.0"   # AOM → det_k
   blocks:
     # Floquet test of the gated loop of port k (the longer flight; port 0 has the same normalised loop). Same open loop
-    # as chk.lock_stability, but the discrete time loop (tustin pid, linear fractional delay, no ZOH half sample).
+    # as chk.lock_stability, but the discrete time loop (pid law and update rate of the controller, linear fractional
+    # delay; the ZOH half sample zoh_delay_s in both checks, G-8).
     - block: gated_loop_stability_check
       name: chk.gated_stability
       params:
@@ -44,9 +46,13 @@ offline:
         kp: 0.0
         ki_per_s: !expr "2 * pi * offline.params.f_u_hz / (offline.params.liu_k_v * offline.params.pzt_k_rad_per_v)"
         kd_s: 0.0
-        delay_s: !expr "offline.params.latency_s + offline.params.lock_extra_delay_s"
-        poles_hz: []
-        modes: [{f_hz: !expr "offline.params.pzt_f_res_hz", q: !expr "offline.params.pzt_q"}]
+        # G-3/G-4/G-8/D91: controller law, update rate, poles, modes and ZOH from offline.params, as chk.lock_stability
+        # and the time loop; the PID rate_div hold is modelled explicitly, so it is not in delay_s
+        delay_s: !expr "offline.params.ctrl_latency_s - offline.params.ctrl_hold_delay_s + offline.params.zoh_delay_s + offline.params.lock_extra_delay_s"
+        poles_hz: [!expr "offline.params.ctrl_in_pole_hz", !expr "offline.params.ctrl_out_pole_hz",
+                   !expr "offline.params.lock_extra_pole_hz"]
+        modes: !expr "offline.params.pzt_modes"
+        prewarp_hz: !expr "offline.params.pzt_f_res_hz"   # as pzt0 / pzt1
         stages:
           - kp: 0.0
             ki_per_s: !expr "2 * pi * offline.params.f_12_hz * offline.params.pzt_k_rad_per_v / offline.params.tec_k_rad_per_v_k"
@@ -55,7 +61,8 @@ offline:
             poles_hz: [!expr "1 / (2 * pi * offline.params.tec_tau_th_s)"]
             modes: []
         f_grid_hz: [1.0e-6, 1.0e+8, 400001]
-        pid_discretisation: tustin               # fpga_generic (controller/dsc1: dsc1)
+        pid_discretisation: !expr "offline.params.pid_law"
+        pid_rate_div: !expr "offline.params.pid_rate_div"
         f_sim_hz: !expr "run.f_sim_hz"
         period_s: !expr "offline.params.gate_period_s"
         lock_fraction: !expr "offline.params.gate_lock_fraction"
@@ -105,11 +112,13 @@ pipeline:
       - block: adc
         name: adc0
         params:
-          in: v.liu0
+          in: v.in_bw0
           out: v.adc0
-          device: fpga_generic
+          device: !expr "offline.params.adc_device"            # controller choice from offline.params (G-3)
+          bits: !expr "offline.params.adc_bits"
+          range_v: [!expr "-offline.params.adc_range_v", !expr "offline.params.adc_range_v"]
           noise_vrms: 0.0
-          avg_samples: 1
+          avg_samples: !expr "offline.params.adc_avg_samples"
           toggles: {quantization: true, noise: false, saturation: true}
       - block: gated_hold
         name: gh0
@@ -121,11 +130,13 @@ pipeline:
       - block: adc
         name: adc1
         params:
-          in: v.liu1
+          in: v.in_bw1
           out: v.adc1
-          device: fpga_generic
+          device: !expr "offline.params.adc_device"            # controller choice from offline.params (G-3)
+          bits: !expr "offline.params.adc_bits"
+          range_v: [!expr "-offline.params.adc_range_v", !expr "offline.params.adc_range_v"]
           noise_vrms: 0.0
-          avg_samples: 1
+          avg_samples: !expr "offline.params.adc_avg_samples"
           toggles: {quantization: true, noise: false, saturation: true}
       - block: gated_hold
         name: gh1

@@ -21,7 +21,18 @@ local slope stays within [0, −2] and whose kinks are ≥ one corner spacing ap
 D's ``lab/acoustic`` table: ≤ 6 %, tests/unit/blocks/noise/test_mech_table.py); it is flat below
 table_f_min and falls as f⁻² above table_f_max. The ledger rows (:meth:`bands`, above the block Nyquist
 frequency) use T itself, so keep table_f_max ≪ f_N and end the table with a f⁻² segment where the
-synthesis and the ledger then agree. It is written as strain: S_ε,i = S_ψ,i/(k_ε L_i)²
+synthesis and the ledger then agree.
+
+*Steeper high-frequency roll-off* (optional ``table_hf_pole_hz``, absent or ``.inf`` = none; Phase 6 fix B-1): an OU sum
+cannot fall faster than f⁻². With a pole f_p every OU section (fitted to T as usual) is cascaded with
+1/(1 + s/(2π f_p)): the synthesised PSD is T(f)/(1 + (f/f_p)²), i.e. T's f⁻² end becomes f⁻⁴ above f_p (a smooth
+corner; T itself is unchanged below, −8 % at 3 kHz for f_p = 10 kHz).
+
+*Ledger above f_N* (Phase 6 fix B-1, table shape only): the OU sections are sampled exactly (Van Loan), so the time
+loop's samples already carry the table's whole variance, the part above the block Nyquist frequency aliased into the
+band; the table therefore declares no ledger row above f_N (it was counted twice before). The ``two_pole`` shape and
+the peaks keep their rows (D34: existing presets unchanged; the same double count applies there, ≲ 1.3 mrad at Ref D).
+It is written as strain: S_ε,i = S_ψ,i/(k_ε L_i)²
 (``k_eps_rad_per_m``; the topology coefficient should be k_ε,a·L). γ ∈ {1, 2} (length scaling) is a
 parameter, independent of the spatial placement.
 
@@ -244,8 +255,9 @@ class SegmentMechNoise(_BankBlock):
         p, tg = self.params, self.toggles
         units: dict[str, list] = {}
         if tg["mech"] and self.shape == "table":
-            units["mech"] = table_fit(self.table, float(p["table_f_min_hz"]), float(p["table_f_max_hz"]),
-                                      int(p["table_per_decade"]))
+            fp = float(p.get("table_hf_pole_hz") or math.inf)
+            secs = table_fit(self.table, float(p["table_f_min_hz"]), float(p["table_f_max_hz"]), int(p["table_per_decade"]))
+            units["mech"] = secs if math.isinf(fp) else [cascade(sec, fp, 1.0, 0.0) for sec in secs]
         elif tg["mech"]:
             units["mech"] = [two_pole(float(p["h_ref_rad2_hz"]), float(p["f_lo_hz"]), float(p["f_c_hz"]))]
         if tg["peaks"] and p["peaks"]:
@@ -281,7 +293,7 @@ class SegmentMechNoise(_BankBlock):
         def psd(f):
             s = np.zeros_like(np.asarray(f, dtype=float))
             if tg["mech"] and self.shape == "table":
-                s = s + self.table(f)
+                pass  # exactly sampled OU sections: no ledger row above f_N (module docstring, B-1)
             elif tg["mech"]:
                 s = s + two_pole_psd(f, float(p["h_ref_rad2_hz"]), float(p["f_lo_hz"]), float(p["f_c_hz"]))
             if tg["peaks"]:

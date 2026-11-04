@@ -728,9 +728,19 @@ def evaluate_metrics(
     loss_registry: LossRegistry | None,
     band_ledger: BandLedger | None,
     measure: Mapping[str, Any],
+    chk_log: Any = None,
+    n_samples: int | None = None,
+    f_sim_hz: float | None = None,
 ) -> MetricsResult:
     """Measurement stage: metric (i)/(ii) series and moments, noise levels via ``phase_to_quadrature``,
-    η per port, overlap and stray light (module docstring)."""
+    η per port, overlap and stray light (module docstring).
+
+    Phase 6 fix (reviews/phase6_wp6g_ab.md G-1/G-2), with ``chk_log`` (a :class:`~cranberry.core.checks.ChkLog`):
+    a metric whose accumulators hold no sample (a ``mask_slot`` window shorter than one sample) gets NaN moments, no
+    noise level and a ``metric_no_sample`` event (invalidating: the point is kept, ``RunResult.valid`` False, D75)
+    instead of an exception; a masked recorded series that is empty or whose window fraction differs from the
+    full-rate one (needs ``n_samples`` / ``f_sim_hz``) gets a ``mask_series`` warning. Without ``chk_log`` an empty
+    accumulator raises as before."""
     blocks = metric_blocks(leaves)
     res = MetricsResult(t_s=np.asarray(t_s))
     sqz_bhd: dict[int, str] = {}
@@ -738,13 +748,37 @@ def evaluate_metrics(
     for b in blocks:
         cfg = _metric_config(measure, b.short)
         for p in b.pairs:
-            stats = PhaseStats.from_acc(state[b.acc_slot(p.port)])
+            acc = np.asarray(state[b.acc_slot(p.port)], dtype=float)
+            empty = chk_log is not None and acc.shape == (5,) and int(round(acc[0])) < 1
+            if empty:
+                nan = float("nan")
+                stats = PhaseStats(0, nan, nan, nan, nan)
+                chk_log.warn("metric_no_sample", b.name,
+                             f"metric {metric_name(b.kind, p.port)}: no sample accumulated"
+                             + (f" inside mask {b.mask_slot!r} (a window shorter than one sample?)" if b.mask_slot else "")
+                             + "; moments NaN, the point is kept and invalid (D75)", metric=metric_name(b.kind, p.port))
+            else:
+                stats = PhaseStats.from_acc(acc)
             ser = np.asarray(series.get(b.slot(p.port), np.zeros(0)), dtype=float)
             keep = np.ones(ser.size, dtype=bool)
             if b.t_settle_s > 0.0 and ser.size:  # the measured series starts with the moments (t_settle_s)
                 keep &= np.asarray(t_s, dtype=float)[: ser.size] >= b.t_settle_s
+            n_settled = int(keep.sum())
             if b.mask_slot is not None and ser.size:  # and keeps the masked samples only (WP6-G)
                 keep &= _mask_of(series, b.mask_slot, ser.size)
+                if chk_log is not None and not empty and n_samples and f_sim_hz and n_settled:
+                    n_full = max(int(n_samples) - int(math.ceil(b.t_settle_s * f_sim_hz - 1e-9)), 1)
+                    fr_full, fr_rec = stats.n / n_full, int(keep.sum()) / n_settled
+                    tol = max(0.25 * fr_full, 3.0 * math.sqrt(max(fr_full * (1.0 - fr_full), 0.0) / n_settled))
+                    if not keep.any() or abs(fr_rec - fr_full) > tol:
+                        chk_log.warn("mask_series", b.name,
+                                     f"metric {metric_name(b.kind, p.port)}: the masked recorded series keeps "
+                                     f"{int(keep.sum())} of {n_settled} recorded values (window fraction {fr_rec:.3g}) "
+                                     f"against {fr_full:.3g} at the full rate: the recorder decimation samples the "
+                                     f"{b.mask_slot!r} window badly (gate period commensurate with decim, or windows "
+                                     "shorter than the anti-alias filter); use the moments, or decim 1 / antialias none",
+                                     kept=int(keep.sum()), recorded=n_settled, fraction_recorded=fr_rec,
+                                     fraction_full_rate=fr_full)
             ser = ser[keep]
             beams = b.beams_of(p)
             sp = b.setpoints[p.port]
@@ -755,7 +789,7 @@ def evaluate_metrics(
             else:
                 res.metric_ii[p.port] = MetricII(p.port, p.observer, ser, sp, None, stats, beams)
                 sqz_gbs[p.port], sqz_gbs[0] = p.plus, p.minus
-            if cfg is None:
+            if cfg is None or empty:
                 continue
             name = metric_name(b.kind, p.port)
             what = f"measure.metrics.{b.short}"

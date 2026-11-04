@@ -1,4 +1,18 @@
-# Controller axis: generic FPGA (devices/fpga_generic.yaml; ±0.5 V, 16 bit; T16 §4.5). Restates the base (D34).
+# Controller axis: generic FPGA (devices/fpga_generic.yaml; ±0.5 V, 16 bit; T16 §4.5). Restates the base (D34): the full
+# controller param set of F_common (G-3: controller overlays write only offline.params, so the last controller overlay
+# applied defines every controller choice and they compose with gate/* and probe/* in either order).
 offline:
   params:
+    ctrl_device: fpga_generic
+    adc_bits: 16
+    adc_range_v: 0.5
+    adc_avg_samples: 1
+    pid_law: tustin
+    chk_law: continuous
+    pid_rate_div: 1
+    ctrl_in_pole_hz: .inf
+    ctrl_out_pole_hz: .inf
+    ctrl_latency_s: !expr "latency_s"   # the generic τ_L axis of F_common
+    zoh_delay_s: !expr "0.5 / run.f_sim_hz"
+    ctrl_dac_bits: !expr "dac_bits"     # the generic dac_bits axis of F_common
     out_range_v: 0.5

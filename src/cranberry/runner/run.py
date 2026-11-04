@@ -41,7 +41,8 @@ Offline stage and measurement (WP-F4)
       ``check()`` once on every offline block that checks on demand (``demux_design``, ``sbs_check``,
       ``stray_light_table`` with a ``limit``); with the construction-time CHK blocks (``loop_stability_check``,
       ``rep_rate_tail_check``) their events go to ``RunResult.events``. A ``loop_unstable`` event
-      (:data:`INVALIDATING_CHK`) makes ``RunResult.valid`` False; the point is kept (D34, D75).
+      (:data:`INVALIDATING_CHK`, also ``metric_no_sample`` of the measurement stage and ``run_error`` of
+      ``runner.sweep``, Phase 6 G-2) makes ``RunResult.valid`` False; the point is kept (D34, D75).
     * **Measurement** (after the loop): when the pipeline holds ``metric_i`` / ``metric_ii`` probes,
       their slots (and their optional ``mask_slot``, WP6-G) are added to ``measure.record`` (if recording) and
       ``meas.metrics.evaluate_metrics``
@@ -113,6 +114,15 @@ t = n / f_sim (the filter delay is not removed). The key is optional for backwar
 is absent the recorder point-samples as before and, when decim > 1, warns once per process
 (:class:`RecordAliasWarning`). With decim = 1 every mode is the identity.
 
+Mask slots (Phase 6 fix G-1, reviews/phase6_wp6g_ab.md §4): the ``mask_slot`` of the metric probes, of
+``measure.decompose`` and of ``measure.stray_light`` entries are recorded with the SAME decimation instants but
+reduced by the minimum, not the anti-alias filter: a recorded mask value is 1 only if every base sample
+contributing to the recorded data value (the ``decim`` boxcar samples, the 16·decim + 1 FIR taps; the one sample of
+point sampling) lies in the window, so a masked recorded series never mixes window and non-window samples. A
+masked series that comes out empty, or whose window fraction differs from the full-rate one (a gate period
+commensurate with ``decim``: the recorder samples one window phase), is reported as a CHK ``mask_series``
+(``RunResult.events``, a warning; the in-kernel moments of the metrics stay exact).
+
 Validity slots (``measure.validity``, optional; Phase 5 M2C-03, D57-4 for metric (i) runs): the listed
 slots (controller outputs at their clamp, e.g. ``ctrl.pid1.u`` with ``abs_max`` just inside ``u_max_v``,
 or saturation / lock-loss flags) are added to the record and ``RunResult.validity[slot]`` = fraction of the
@@ -171,7 +181,7 @@ RUN_MODES: tuple[str, ...] = ("auto", "compiled", "reference")
 
 #: CHK event codes that make ``RunResult.valid`` False (Phase 5 M6-01): the time loop at such a point
 #: oscillates instead of locking. Other CHK codes are warnings about the configuration, not the run.
-INVALIDATING_CHK: frozenset[str] = frozenset({"loop_unstable"})
+INVALIDATING_CHK: frozenset[str] = frozenset({"loop_unstable", "metric_no_sample", "run_error"})
 
 
 def run_offline_checks(blocks: Sequence[Any]) -> None:
@@ -436,7 +446,7 @@ class Recorder(BaseBlock):
     """
 
     def __init__(self, slots: Sequence[str], decim: int, chunk_samples: int, name: str = "recorder",
-                 antialias: str = "none", cos_sin2: Sequence[str] = ()):
+                 antialias: str = "none", cos_sin2: Sequence[str] = (), mask_slots: Sequence[str] = ()):
         if isinstance(decim, bool) or int(decim) != decim or decim < 1:
             raise ValueError(f"measure.record.decim must be an int >= 1, got {decim!r}")
         if not slots or len(set(slots)) != len(slots):
@@ -445,6 +455,7 @@ class Recorder(BaseBlock):
         if set(self.cos_sin2) - set(slots):
             raise ValueError(f"recorder: cos_sin2 slots {sorted(set(self.cos_sin2) - set(slots))} are not recorded")
         self.taps = antialias_taps(antialias, int(decim))
+        self.mask_slots = [m for m in dict.fromkeys(mask_slots) if m in slots]  # min-reduced (module docstring)
         self.decim = int(decim)
         self.antialias = antialias
         self.buf_name, self.idx_name = f"rec.{name}.buf", f"rec.{name}.idx"
@@ -498,6 +509,10 @@ class Recorder(BaseBlock):
         self.derived_columns = [(s, col + 2 * j) for j, s in enumerate(self.cos_sin2)]  # after S, I, Z
         s_src, i_src, z_src = (np.array(src[a], dtype=np.int64) for a in ("S", "I", "Z"))
         d_src = np.array([layout.slot(s).offset for s in self.cos_sin2], dtype=np.int64)
+        # filtered columns (S, then Z re/im, then cos/sin 2x) that are min-reduced masks (G-1)
+        mask_off = {layout.slot(m).offset for m in self.mask_slots if layout.slot(m).array == "S"}
+        n_f = len(s_src) + 2 * len(z_src) + 2 * len(d_src)
+        self._is_min = np.array([j < len(s_src) and int(s_src[j]) in mask_off for j in range(n_f)], dtype=np.bool_)
         self._src = (s_src, i_src, z_src, d_src)
         buf, idx, width, cap = layout.slot(self.buf_name).offset, layout.slot(self.idx_name).offset, max(self.n_cols, 1), self.capacity
         ns, ni, nz, nd = len(s_src), len(i_src), len(z_src), len(d_src)
@@ -534,6 +549,7 @@ class Recorder(BaseBlock):
         hoff, hlen, hhead, hw = hs.offset, hs.ring_len, hs.head, hs.shape[0]  # hw: row width (size = hlen·hw)
         n_off, decim, taps = layout.slot("n").offset, self.decim, np.ascontiguousarray(self.taps)
         M = len(taps)
+        is_min = self._is_min
 
         @numba.njit
         def kernel(S, Z, I, P):  # noqa: N803
@@ -558,11 +574,19 @@ class Recorder(BaseBlock):
             base = buf + row * width
             for c in range(ns + 2 * nz + 2 * nd):
                 acc = 0.0
-                for m in range(M):
-                    a = h - m
-                    if a < 0:
-                        a += hlen
-                    acc += taps[m] * S[hoff + a * hw + c]
+                if is_min[c]:  # mask: 1 only if every contributing sample is in the window (G-1)
+                    acc = S[hoff + h * hw + c]
+                    for m in range(1, M):
+                        a = h - m
+                        if a < 0:
+                            a += hlen
+                        acc = min(acc, S[hoff + a * hw + c])
+                else:
+                    for m in range(M):
+                        a = h - m
+                        if a < 0:
+                            a += hlen
+                        acc += taps[m] * S[hoff + a * hw + c]
                 S[base + (c if c < ns else c + ni)] = acc
             for j in range(ni):
                 S[base + ns + j] = I[i_src[j]]
@@ -592,6 +616,8 @@ class Recorder(BaseBlock):
             raise IndexError("recorder buffer overflow (harvest after every chunk)")
         rows = (h - np.arange(len(self.taps))) % hs.ring_len
         y = self.taps @ hist[rows]
+        if self._is_min.any():  # masks: minimum over the contributing samples (G-1)
+            y[self._is_min] = hist[rows][:, self._is_min].min(axis=0)
         base = buf + row * width
         S[base : base + ns] = y[:ns]
         S[base + ns : base + ns + ni] = state.I[i_src]
@@ -992,8 +1018,13 @@ def run(
         all_named = {b.name: b for b in (*offline_blocks, *leaves)}
         zero_span = any(isinstance(c, Mapping) and getattr(all_named.get(c.get("block")), "kind", None) == "esa_zero_span"
                         for c in ((rs.measure or {}).get("esa") or {}).values())
+        meas_cfg = rs.measure or {}
+        mask_slots = [b.mask_slot for b in probes if b.mask_slot]
+        mask_slots += [m for m in [(meas_cfg.get("decompose") or {}).get("mask_slot")] if m]
+        mask_slots += [v.get("mask_slot") for v in (meas_cfg.get("stray_light") or {}).values()
+                       if isinstance(v, Mapping) and v.get("mask_slot")]
         recorder = Recorder(slots, rec_cfg["decim"], settings.chunk_samples,
-                            antialias=rec_cfg.get("antialias", "none"),
+                            antialias=rec_cfg.get("antialias", "none"), mask_slots=mask_slots,
                             cos_sin2=[b.slot(p.port) for b in probes for p in b.pairs] if zero_span else ())
         root = Seq([root, recorder])
 
@@ -1043,10 +1074,12 @@ def run(
     seeds: dict[str, Any] = {"root": root_ss.entropy}
     seeds.update({leaf.name: list(stream_key(leaf.name)) for leaf in iter_leaves(block) if leaf is not recorder})
     metrics = None
+    meas_log = ChkLog()  # measurement-stage CHK events (metric_no_sample, mask_series; Phase 6 G-1/G-2)
     if probes:
         metrics = evaluate_metrics(
             leaves, state, t_s=t_s, series=series, topology=offline.topology, source_outputs=offline.source_outputs,
-            loss_registry=offline.loss_registry, band_ledger=offline.band_ledger, measure=rs.measure)
+            loss_registry=offline.loss_registry, band_ledger=offline.band_ledger, measure=rs.measure,
+            chk_log=meas_log, n_samples=n_total, f_sim_hz=settings.f_sim_hz)
     measurements: dict[str, dict[str, Any]] = {}
     if any((rs.measure or {}).get(h) for h in MEASUREMENT_HOOKS):
         named = {b.name: b for b in (*offline_blocks, *leaves)}
@@ -1072,7 +1105,8 @@ def run(
         measurements=measurements,
         validity=validity_frac,
         # CHK events of the offline checks (e.g. loop_stability_check, M2C-02): warned, never pruned (D34)
-        events=[e for b in offline_blocks if isinstance(getattr(b, "chk_log", None), ChkLog) for e in b.chk_log.to_json()],
+        events=[e for b in offline_blocks if isinstance(getattr(b, "chk_log", None), ChkLog) for e in b.chk_log.to_json()]
+        + meas_log.to_json(),
     )
     if run_dir is not None:
         _write_results(run_dir, result)
