@@ -1,39 +1,78 @@
 # Lock axis: two-layer (dual-band) lock of P5 (Pittaluga et al. 2021; D85-5; notes/lit-pittaluga2021.md §3.3–§4.3).
-# Applies to every future base preset (F_wg100, F_wg6, F_bor6, F_liu20: F_common names). Phase 6 WP6-C.
+# Applies to every future base preset (F_wg100, F_wg6, F_bor6, F_liu20: F_common names). Phase 6 WP6-C; review fixes
+# reviews/phase6_wp6c_p.md C-1..C-9.
 #
 #   fast layer  unchanged: the L-Liu proxy lock of F_common (liu1 → adc1 → pid1f → stretcher F1, TEC offload), or any
 #               probe overlay that keeps the liu1 / adc1 names (probe/sep_wdm, freq_*, ...).
-#   slow layer  weak in-band seeds of port 0 and port k travel the squeezed path (dseed0 / dseed1) in calibration slots
-#               and interfere at the GBS input; photon_counting_fringe (pcf1) counts the two outputs with the GBS SNSPDs
-#               over dbs_t_int_s, X̂_s − π/2 drives a slow integrator (dbs1.pid, f_c = dbs_fc_x_tint / T_int, the note's
-#               f_c ≈ 1/(10 T_int)) that moves the fast lock point of port k. Port 0 is the reference (metric (ii) is
-#               relative to it), so port k alone carries the slow layer.
+#   slow layer  weak in-band seeds of port 0 and port k travel the squeezed path in calibration gates and interfere at
+#               the GBS input; photon_counting_fringe (pcf1) counts the two outputs with the GBS SNSPDs over dbs_t_int_s,
+#               X̂_s − π/2 drives a slow integrator (dbs1.pid, f_c = dbs_fc_x_tint / T_int, the note's f_c ≈ 1/(10 T_int))
+#               that moves the fast lock point of port k. Port 0 is the reference (metric (ii) is relative to it), so
+#               port k alone carries the slow layer.
 #
 # Where the slow correction goes (choice axis dbs_target):
 #   setpoint       (primary) the slow output is summed into the fast detector signal before adc1 (an analog set-point
 #                  offset, equivalent to a digital one within an ADC LSB): the fast loop then holds X_pr = π/2 − u/K
-#                  and the stretcher of F_k carries the correction to the squeezed light. Physically right because the
-#                  correction must enter where the fast sensor is blind: any actuator on F_k (the TEC or the stretcher
-#                  of the offload stack) is seen by the probe and undone by the fast loop within 1/f_u. It needs no
-#                  hardware and adds no loss on the squeezed path; the range is the DC fringe (|u| < K, here
-#                  ±0.9 K ≈ ±64° of phase) and the gain is 1/K (drifts with probe power and visibility: a slow-loop gain
-#                  error, no bias). Drifts beyond ±64° (hours of common-point temperature ramp) would need an offload.
+#                  and the stretcher of F_k carries the correction to the squeezed light. The correction must enter
+#                  where the fast sensor is blind: the stretcher of F_k (factor 1 on both axes) is seen by the probe and
+#                  undone by the fast loop within 1/f_u. The TEC of F_k acts on the probe's fast axis with k_T + |K_T| and
+#                  on the squeezed light's slow axis with k_T, so after the fast loop cancels it a fraction
+#                  −|K_T|/(k_T + |K_T|) ≈ −4.5 % (opposite sign) of the TEC move remains on the squeezed light (M6-04):
+#                  a small reversed-sign gain, not a usable actuator (review C-8). No hardware, no loss on the squeezed
+#                  path; the range is the DC fringe (|u| < K, here ±0.9 K ≈ ±64° of phase) and the gain is 1/K (drifts
+#                  with probe power and visibility: a slow-loop gain error, no bias). Moving the set point by an offset
+#                  ϕ also scales the fast loop's slope by cos ϕ (0.44 at 64°): the fast layer's gain and f_u drop and its
+#                  residual grows while the slow layer holds a large offset (review C-8). Drifts beyond ±64° (hours of
+#                  common-point temperature ramp) would need an offload.
 #   ref_stretcher  a stretcher on the reference branch REF_k (outside the squeezed path, lossless): the fast loop follows
 #                  it one-to-one, linear, range = the stretcher's. Costs one actuator per port and its own strain noise
 #                  enters the common-point path (not modelled: the actuator has no noise term here).
 #   (P5 literally actuates a λ1-only section; ours is G_k, squeezed only, which puts the stretcher loss on the squeezed
 #   light: not offered, see lit-pittaluga2021 §4.2 (c).)
 #
-# Seed injection point (choice axis dbs_seed_inject): before_squeezer (the seeds cross PUMP / XTAL like the squeezed
-# light, in θ-units as L-A-seed; they then see the time-multiplexed squeezer-side noise that enters metric (ii), M6-08)
-# or after_squeezer (injected at the start of UP: PUMP / XTAL are invisible to the slow layer).
+# Seed injection (choice axis dbs_seed_inject; every seed comes from the laser through the seed delivery path SEED:
+# laser → preparation EOM → injection, length dbs_L_seed_m UNVERIFIED, free-space strain noise env.mech.seed, counted in
+# component 1 as slow-loop sensor noise):
+#   after_squeezer  (primary) a coupler (tap dbs_inj_tap) at the start of UP puts the seeds into the squeezed path: no
+#                   phase-sensitive gain, the preparation offset π/2 is kept exactly; the tap's loss on the squeezed light
+#                   is registered (dbs.loss seed_coupler, review C-4). PUMP / XTAL are invisible to the slow layer. The
+#                   pump can be switched off in the calibration slot (dbs_cal_pump gated: no squeezed vacuum b'); the
+#                   nominal keeps it on (pumped: a per-slot pump gate is not demonstrated, UNVERIFIED) and counts b'.
+#   before_squeezer the seeds cross the squeezer (they then see the time-multiplexed squeezer-side noise of metric (ii),
+#                   M6-08); the pump must be on in the calibration slot, so b' is always there. dbs_seed_model:
+#     psa         (physical) seed_psa: the amplifier's gain e^{±r} relative to the squeeze axis (dbs_sq_r): output angle
+#                 atan2(e^{−r} sin δ, e^{r} cos δ) of the input angle δ to the amplified axis, the seed's own input phase
+#                 (SEED vs PUMP, laser at the two emission times) amplified by dψ/dδ (review C-1). dbs_seed_prep:
+#                 quadrature (port k at δ = π/2, port 0 at 0: offset π/2 kept, intensity ratio e^{−4r}, input phase
+#                 noise of port k × e^{2r} = 36.6 at r = 1.8) or pm_pi4 (±π/4: equal intensities, input noise × 2e^{−2r},
+#                 the offset collapses to 2 atan(e^{−2r}) and the remaining π/2 − 2 atan(e^{−2r}) is set on the
+#                 detection side, the GBS interferometer, UNVERIFIED). dbs_seed_balance: equal_output (input powers
+#                 chosen for equal output intensity at the nominal δ) or equal_input (fringe contrast 2√(g_k g_0)/(g_k + g_0)).
+#     ideal_copy  (BAD / ideal, kept for comparison, D34) the pre-review model: the seed's output phase is an exact θ-unit
+#                 copy of the squeezed light (beams dseed0/1 through PUMP / XTAL), the π/2 preparation offset survives
+#                 the amplifier untouched and the seed's own phase noise does not exist.
+#
+# Calibration slot (choice axis dbs_cal_slot; review C-3, the frame numbers in chk.dbs_cal = cal_slot_check):
+#   cal_frames  (primary) a fraction dbs_cal_fraction (< 1) of the frames carries the seeds in the N_b slots of the blocks
+#               of port k and port 0 instead of data: N_b gates per calibration frame, L_k unchanged, the GBS keeps
+#               1 − f of the frames (frame weighting as forward_ref_stray_table's calibration frames).
+#   guard       one seed per frame in a guard slot (needs n_guard ≥ 1: apply demux/guard_slot or the point
+#               lock/points/dbs_cal_guard, else the check raises): L_k and Δτ_k grow by (N_b + n_guard)/(N_b + n_guard − 1)
+#               automatically (F_common L_k_m, t_frame_s; component 3 and the D78 linewidth requirement follow).
+#   ideal_free  (BAD / ideal, D34) the pre-review assumption: a free slot next to every block at no cost (F_liu20 has
+#               none: n_guard = 0); CHK dbs_cal_slot_ideal.
+# chk.dbs_cal also reports the SNSPD recovery into the data slot after a seed gate (lit-pittaluga2021 §3.3 condition 3,
+# CHK dbs_recovery above dbs_recovery_loss_max) and warns below dbs_min_gates gates per counting window (review C-7).
 #
 # Loop delay and order (D55-1, D61-2): the slow blocks sit in the liu1 seq, after the path model and before the fast
 # detector, so each loop closes once: pcf1 → dbs1.pid → dbs1.sum → (fast loop) → stretcher F_k → path model (the fast
 # loop's own delay_buffer dl1f closes it: τ_L), and pcf1 → dbs1.pid → dbs1.dl → REF_k stretcher → path model (dbs1.dl,
 # τ_s = 0: 1/f_sim). The photon_counting_fringe window is modelled explicitly (window average, centroid T/2, held one
-# window: ≈ T_int), so the slow loop delay is T_int + τ_L (chk.dbs_stability; τ_L ≥ 1/f_sim covers both targets). The
-# fast loop is unchanged: dbs1.sum sits between liu1 and adc1 in pipeline order and adds no delay to it.
+# window: ≈ T_int), so the slow loop delay is T_int + τ_L. chk.dbs_stability: window average → hold → integrator ramp is
+# the discrete loop e_{n+2} = (1 − a/2)e_{n+1} − (a/2)e_n, a = 2π f_c T_int, stable for f_c·T_int < 1/π (Jury; review
+# C-6, p6_wp6c_slowloop.py). The check uses L = (2π f_c/s)·e^{−sτ_eq}, τ_eq = (π/4)·T_int + τ_L, whose boundary
+# f_c·τ_eq = 1/4 is that exact limit (its phase margin is not the discrete one). The fast loop is unchanged: dbs1.sum sits
+# between liu1 and adc1 in pipeline order and adds no delay to it.
 #
 # Ledger (M6-02): the common-point window row env.dist.window (band [1/t_cal_s, 1/T_rec] that a short run cannot
 # contain) is suppressed by the slow loop's type-1 sensitivity f²/(f² + f_c²) (f⁻² band with the f_lo flattening; the
@@ -43,17 +82,35 @@
 #
 # Not modelled: the seeds' leakage into the data gates (switch tail μ·ε_tail, lit-pittaluga2021 §3.3 condition 2: an
 # offline number), the demux switch phase seen by the calibration slot at another time than the squeezed slot (§5 Q3),
-# the GBS interferometer (the fringe is port k against port 0 at the GBS input, §5 Q4). Combinations: the overlay
-# replaces liu1 by a seq (liu1, dbs1.sum), so it does not combine with overlays that also replace liu1
-# (probe/detect_heterodyne, probe/detect_dither, presets/locks/L-A-seed.yaml).
+# the GBS interferometer (the fringe is port k against port 0 at the GBS input, §5 Q4), a lock of the seed-pump relative
+# phase (before_squeezer). Combinations: the overlay replaces liu1 by a seq (liu1, dbs1.sum), so it does not combine with
+# overlays that also replace liu1 (probe/detect_heterodyne, probe/detect_dither, presets/locks/L-A-seed.yaml).
 offline:
   params:
     dbs_target: !choice [setpoint, ref_stretcher]
-    dbs_seed_inject: !choice [before_squeezer, after_squeezer]
+    dbs_seed_inject: !choice [after_squeezer, before_squeezer]
+    dbs_seed_model: !choice [psa, ideal_copy]     # before_squeezer only (header); ideal_copy = the BAD pre-review copy
+    dbs_seed_prep: !choice [quadrature, pm_pi4]   # psa preparation: (π/2, 0) or (±π/4) against the amplified axis
+    dbs_seed_balance: !choice [equal_output, equal_input]   # psa seed input powers
+    dbs_sq_r: !sweep [0.5, 1.8, 3]        # squeeze r of the seed's mode for the psa and b' [AE]: F_liu20 r_0 = 1.8,
+                                          # F_bor6 0.53 (T17 §2.6); set it with the base preset's x_ss
+    dbs_L_seed_m: !sweep_log [0.3, 10.0, 3]       # seed delivery laser → preparation EOM → injection, free space [AE]
+                                          # UNVERIFIED (not designed; the pump path L_pump_m is 1 m)
+    dbs_inj_tap: !sweep_log [1.0e-3, 5.0e-2, 3]   # after_squeezer injection tap coupling (the squeezed light loses it) [AE]
+    dbs_cal_slot: !choice [cal_frames, guard, ideal_free]   # header "Calibration slot"
+    dbs_cal_pump: !choice [pumped, gated]         # pump in the calibration slot (after_squeezer; before_squeezer: pumped)
+    dbs_sqvac_eta: !sweep [0.55, 0.7, 3]  # squeezer → GBS SNSPD transmission incl. qe for b' [AE] (F_liu20_nominal
+                                          # metrics.efficiency η_gbs 0.63–0.73 × qe 0.93, review C-2)
+    dbs_sqvac_overlap: !sweep [0.5, 1.0, 3]       # fraction of the squeezed vacuum's mode the calibration gate counts
+                                          # (seed / detected-mode overlap; 1 = the whole mode in the gate) [AE]
+    dbs_min_gates: 100                    # CHK dbs_few_counts below this many gates per window [AE] (review C-7)
+    dbs_recovery_loss_max: 0.01           # CHK dbs_recovery above this frame-weighted data-gate efficiency loss [AE]
+    dbs_sigma_target_rad: 0.01            # D78 table column of chk.dbs_cal's linewidth report (report only)
     dbs_mu_per_gate: !sweep_log [0.1, 30.0, 4]   # seed photons per gate at the GBS detectors, both outputs (§3.3: the
                                           # information per gate peaks at ≈ 3.2 detected, 3.4 with qe 0.93) [AE]
-    dbs_cal_fraction: !sweep_log [0.01, 1.0, 3]  # fraction of the frames whose port-k slot carries a calibration gate
-                                          # (1 = every frame: the "parallel" case of §3.3; 1/31 ≈ ports in turn) [AE]
+    dbs_cal_fraction: !sweep_log [0.01, 0.5, 3]  # cal_frames: fraction of the frames that are calibration frames (< 1);
+                                          # guard / ideal_free: fraction of the frames whose port-k slot carries a
+                                          # calibration gate (1 = every frame, §3.3 "parallel"; 1/31 ≈ ports in turn) [AE]
     dbs_t_int_s: !sweep_log [0.01, 30.0, 4]      # counting window (P5: 50–100 ms; §3.3: 45–140 ms for 10 mrad) [AE]
     dbs_dark_cps: !sweep_log [1.0, 1.0e+4, 3]    # SNSPD dark-count rate UNVERIFIED (Liu's value not in the notes)
     dbs_dark_per_gate: !expr "dbs_dark_cps * t_gate_s"
@@ -61,9 +118,26 @@ offline:
     dbs_visibility: 0.95                  # seed-seed fringe visibility at the GBS input [AE] (§3.3 example value)
     dbs_dead_time_s: 1.0e-8               # SNSPD dead time [AE] UNVERIFIED
     dbs_recovery_s: 1.1e-8                # recovery 1/e time [AE]: ≈ 95 % at 43 ns (Liu SNSPD recovery, pulsed-opo-source.md)
-    dbs_f_gate_hz: !expr "1.0 / t_frame_s"   # one port-k slot per frame (seed slot next to the block, §3.3 condition 1)
-    dbs_phi_offset_rad: !pi_frac 0.5      # seed-preparation phase of port k against port 0 (EOM on the seed line before
-                                          # injection): X_s = Θ_k + π/2, so locking X_s = π/2 holds Θ_k = 0
+    dbs_f_gate_hz: !expr "(N_b if dbs_cal_slot == 'cal_frames' else 1) / t_frame_s"   # gates per frame / T_f (header)
+    # seed models (header "Seed injection"): seed_psa r, preparation angles δ to the amplified axis, input powers
+    dbs_psa_on: !expr "dbs_seed_inject == 'before_squeezer' and dbs_seed_model == 'psa'"
+    dbs_psa_r: !expr "dbs_sq_r if dbs_psa_on else 0.0"
+    dbs_delta_k: !expr "(pi / 2 if dbs_seed_prep == 'quadrature' else pi / 4) if dbs_psa_on else 0.0"
+    dbs_delta_0: !expr "(0.0 if dbs_seed_prep == 'quadrature' else -pi / 4) if dbs_psa_on else 0.0"
+    dbs_g_k: !expr "exp(2 * dbs_psa_r) * cos(dbs_delta_k)**2 + exp(-2 * dbs_psa_r) * sin(dbs_delta_k)**2"
+    dbs_g_0: !expr "exp(2 * dbs_psa_r) * cos(dbs_delta_0)**2 + exp(-2 * dbs_psa_r) * sin(dbs_delta_0)**2"
+    dbs_p_in_k: !expr "0.5 / dbs_g_k if dbs_seed_balance == 'equal_output' else 1.0 / (dbs_g_k + dbs_g_0)"
+    dbs_p_in_0: !expr "0.5 / dbs_g_0 if dbs_seed_balance == 'equal_output' else 1.0 / (dbs_g_k + dbs_g_0)"
+    dbs_seed_k: !expr "'beam.dseedu1.phi' if dbs_seed_inject == 'after_squeezer' else ('beam.dsin1.phi' if dbs_psa_on else 'beam.dseed1.phi')"
+    dbs_seed_0: !expr "'beam.dseedu0.phi' if dbs_seed_inject == 'after_squeezer' else ('beam.dsin0.phi' if dbs_psa_on else 'beam.dseed0.phi')"
+    # fringe offset: the π/2 preparation EOM (after_squeezer, ideal_copy); psa quadrature keeps π/2 through the amplifier
+    # (offset 0 here); psa pm_pi4 leaves 2 atan(e^{−2r}) and the rest is set on the detection side. X_s = Θ_k + π/2.
+    dbs_phi_offset_rad: !expr "(0.0 if dbs_seed_prep == 'quadrature' else pi / 2 - 2 * atan(exp(-2 * dbs_sq_r))) if dbs_psa_on else pi / 2"
+    # squeezed vacuum in a pumped calibration slot (review C-2): b' = ln[(a + ½)(b + ½)], photon_counting.sqvac_background
+    dbs_cal_pumped: !expr "dbs_seed_inject == 'before_squeezer' or dbs_cal_pump == 'pumped'"
+    dbs_sqvac_e1: !expr "0.5 * dbs_sqvac_eta * dbs_sqvac_overlap"
+    dbs_sqvac_per_gate: !expr "log((0.5 * (dbs_sqvac_e1 * exp(-2 * dbs_sq_r) + 1 - dbs_sqvac_e1) + 0.5) * (0.5 * (dbs_sqvac_e1 * exp(2 * dbs_sq_r) + 1 - dbs_sqvac_e1) + 0.5)) if dbs_cal_pumped else 0.0"
+    dbs_eta_coupler: !expr "1.0 - dbs_inj_tap if dbs_seed_inject == 'after_squeezer' else 1.0"
     dbs_fc_x_tint: 0.1                    # f_c·T_int (§3.3: f_c ≈ 1/(10 T_int); phase margin 90° − 360°·0.1 = 54°) [AE]
     dbs_f_c_hz: !expr "dbs_fc_x_tint / dbs_t_int_s"
     dbs_ref_range_rad: 32.5               # REF_k stretcher half range at ±out_range_v (915B-like, as pzt_range_rad) [AE]
@@ -72,8 +146,6 @@ offline:
     dbs_k_plant: !expr "1.0 / liu_k_v if dbs_target == 'setpoint' else dbs_ref_range_rad / out_range_v"   # |dX_s/du| [rad/V]
     dbs_ki_per_s: !expr "2 * pi * dbs_f_c_hz / dbs_k_plant"
     dbs_u_max_v: !expr "0.9 * liu_k_v if dbs_target == 'setpoint' else out_range_v"   # set point stays inside the fringe
-    dbs_in_a: !expr "'beam.dseed1.phi' if dbs_seed_inject == 'before_squeezer' else 'beam.dseedu1.phi'"
-    dbs_in_b: !expr "'beam.dseed0.phi' if dbs_seed_inject == 'before_squeezer' else 'beam.dseedu0.phi'"
     # common-point window row under the slow loop (header "Ledger"); f_c = f_lo is regularised (removable singularity)
     dbs_fcw: !expr "dbs_f_c_hz if abs(dbs_f_c_hz - mech_f_lo_hz_dist) > 1.0e-3 * mech_f_lo_hz_dist else 1.001 * mech_f_lo_hz_dist"
     dbs_win_band_per_h: !expr "(dbs_fcw * (atan(1.0 / (t_rec_s * dbs_fcw)) - atan(f_win_lo_hz / dbs_fcw)) - mech_f_lo_hz_dist * (atan(1.0 / (t_rec_s * mech_f_lo_hz_dist)) - atan(f_win_lo_hz / mech_f_lo_hz_dist))) / (dbs_fcw**2 - mech_f_lo_hz_dist**2)"
@@ -83,8 +155,8 @@ offline:
       params:
         variance_rad2: !expr "offline.params.dbs_cp_window_var_rad2"
         source: "M6-02 window row × the dual-band slow loop's type-1 sensitivity (lock/dual_band_slow header)"
-    # slow loop: L = (2π f_c/s)·e^{−s(T_int + τ_L)} (fast loop ≈ 1 at f_c ≪ f_u; window sinc magnitude dropped:
-    # errs on the unstable side)
+    # slow loop: L = (2π f_c/s)·e^{−s τ_eq}, τ_eq = (π/4)·T_int + τ_L: boundary at the exact discrete limit
+    # f_c·T_int = 1/π (header "Loop delay"; fast loop ≈ 1 at f_c ≪ f_u)
     - block: loop_stability_check
       name: chk.dbs_stability
       params:
@@ -92,14 +164,44 @@ offline:
         kp: 0.0
         ki_per_s: !expr "offline.params.dbs_ki_per_s"
         kd_s: 0.0
-        delay_s: !expr "offline.params.dbs_t_int_s + offline.params.latency_s"
+        delay_s: !expr "0.25 * pi * offline.params.dbs_t_int_s + offline.params.latency_s"
         poles_hz: []
         modes: []
         f_grid_hz: [!expr "1.0e-3 * offline.params.dbs_f_c_hz", !expr "1.0e+3 * offline.params.dbs_f_c_hz", 20001]
         toggles: {enabled: true}
+    - block: cal_slot_check               # calibration slot: cost, D78, SNSPD recovery, small counts (review C-3, C-7)
+      name: chk.dbs_cal
+      params:
+        placement: !expr "offline.params.dbs_cal_slot"
+        N_b: !expr "offline.params.N_b"
+        n_guard: !expr "offline.params.n_guard"
+        K: !expr "offline.params.K_ports"
+        t_rep_s: !expr "1.0 / offline.params.f_rep_hz"
+        cal_fraction: !expr "offline.params.dbs_cal_fraction"
+        t_int_s: !expr "offline.params.dbs_t_int_s"
+        mu_per_gate: !expr "offline.params.dbs_mu_per_gate"
+        qe: !expr "offline.params.det_qe_gbs"
+        bg_per_gate: !expr "offline.params.dbs_dark_per_gate + offline.params.dbs_sqvac_per_gate"
+        dead_time_s: !expr "offline.params.dbs_dead_time_s"
+        recovery_s: !expr "offline.params.dbs_recovery_s"
+        sigma_target_rad: !expr "offline.params.dbs_sigma_target_rad"
+        lock_ratio_R: 1.0                 # D78 table (R = 1)
+        min_gates: !expr "offline.params.dbs_min_gates"
+        recovery_loss_max: !expr "offline.params.dbs_recovery_loss_max"
+        toggles: {enabled: true}
+    - block: loss_budget                  # after_squeezer injection tap on the squeezed path (review C-4; η = 1 otherwise)
+      name: dbs.loss
+      params:
+        elements:
+          - {id: seed_coupler, eta: !expr "offline.params.dbs_eta_coupler", kind: component, applies_to: [gbs, bhd],
+             segment: UP, observer: null, source: "lock/dual_band_slow after_squeezer seed injection tap [AE]"}
+        toggles: {enabled: true}
 topology:
   segments:
     - {id: REF1, drivers: {stretcher: uniform}}   # REF_k actuator (dbs_target: ref_stretcher; k = 0 otherwise)
+    - {id: SEED, kind: free_space, L_m: !expr "offline.params.dbs_L_seed_m", n_g: 1.0003, beta2_s2_per_m: 0.0,
+       beta3_s3_per_m: 0.0, zone: squeezer, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {},
+       drivers: {strain: uniform}}                 # seed delivery laser → preparation EOM → injection (header)
   beams:
     - {id: dseed0, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: gbs,
        path: [{segment: PUMP, direction: 1}, {segment: XTAL, direction: 1}, {segment: UP, direction: 1},
@@ -109,24 +211,76 @@ topology:
        path: [{segment: PUMP, direction: 1}, {segment: XTAL, direction: 1}, {segment: UP, direction: 1},
               {segment: DMX1, direction: 1}, {segment: EM1, direction: 1}, {segment: D1, direction: 1},
               {segment: F1, direction: 1, axis: slow}, {segment: G1, direction: 1}]}
+    # (dseed0/1 above: ideal_copy, θ-unit copies through PUMP / XTAL; dsin0/1: the seed's own phase at the squeezer input
+    # (SEED, then the crystal and the squeezed path) for seed_psa; dseedu0/1: injected after the squeezer)
+    - {id: dsin0, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: gbs,
+       path: [{segment: SEED, direction: 1}, {segment: XTAL, direction: 1}, {segment: UP, direction: 1},
+              {segment: DMX0, direction: 1}, {segment: D0, direction: 1}, {segment: F0, direction: 1, axis: slow},
+              {segment: G0, direction: 1}]}
+    - {id: dsin1, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: gbs,
+       path: [{segment: SEED, direction: 1}, {segment: XTAL, direction: 1}, {segment: UP, direction: 1},
+              {segment: DMX1, direction: 1}, {segment: EM1, direction: 1}, {segment: D1, direction: 1},
+              {segment: F1, direction: 1, axis: slow}, {segment: G1, direction: 1}]}
     - {id: dseedu0, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: gbs,
-       path: [{segment: UP, direction: 1}, {segment: DMX0, direction: 1}, {segment: D0, direction: 1},
-              {segment: F0, direction: 1, axis: slow}, {segment: G0, direction: 1}]}
+       path: [{segment: SEED, direction: 1}, {segment: UP, direction: 1}, {segment: DMX0, direction: 1},
+              {segment: D0, direction: 1}, {segment: F0, direction: 1, axis: slow}, {segment: G0, direction: 1}]}
     - {id: dseedu1, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: gbs,
-       path: [{segment: UP, direction: 1}, {segment: DMX1, direction: 1}, {segment: EM1, direction: 1},
-              {segment: D1, direction: 1}, {segment: F1, direction: 1, axis: slow}, {segment: G1, direction: 1}]}
+       path: [{segment: SEED, direction: 1}, {segment: UP, direction: 1}, {segment: DMX1, direction: 1},
+              {segment: EM1, direction: 1}, {segment: D1, direction: 1}, {segment: F1, direction: 1, axis: slow},
+              {segment: G1, direction: 1}]}
   coef:
     - {id: REF1.stretcher.all.phase, segment: REF1, driver: stretcher, beam: "*", effect: phase, value: 1.0}
     - {id: REF1.stretcher.all.group_delay, segment: REF1, driver: stretcher, beam: "*", effect: group_delay, value: 0.0}
+    - {id: SEED.strain.all.phase, segment: SEED, driver: strain, beam: "*", effect: phase, value: !expr "offline.params.k_eps_fs_rad_per_m * offline.params.dbs_L_seed_m"}
+    - {id: SEED.strain.all.group_delay, segment: SEED, driver: strain, beam: "*", effect: group_delay, value: !expr "offline.params.dbs_L_seed_m / 299792458.0"}
 pipeline:
+  - name: squeezer                      # hook before the path model: the seed delivery path's free-space strain noise
+    seq:
+      - block: segment_mech_noise
+        name: env.mech.seed
+        params:
+          segments: [SEED]
+          L_ref_m: 1.0
+          gamma: 1.0
+          k_eps_rad_per_m: !expr "offline.params.k_eps_fs_rad_per_m"
+          h_ref_rad2_hz: !expr "offline.params.h_ref_fs_rad2_hz"
+          f_c_hz: !expr "offline.params.mech_f_c_hz"
+          f_lo_hz: 0.1
+          rho_0: 0.0
+          f_rho_hz: !expr "offline.params.f_rho_hz"
+          toggles: {mech: true, peaks: false, correlation: false}
   - !replace
     name: liu1
     seq:
+      - block: seed_psa                     # seed k through the squeezer (r = 0: after_squeezer / ideal_copy, no gain)
+        name: dpsa1
+        params:
+          in_seed: !expr "offline.params.dbs_seed_k"
+          in_sqz: beam.sqz1.phi
+          out: v.dpsa1
+          out_i: v.dpsa1i
+          r: !expr "offline.params.dbs_psa_r"
+          delta_rad: !expr "offline.params.dbs_delta_k"
+          p_in_rel: !expr "offline.params.dbs_p_in_k"
+          toggles: {amplification: true}
+      - block: seed_psa                     # seed 0
+        name: dpsa0
+        params:
+          in_seed: !expr "offline.params.dbs_seed_0"
+          in_sqz: beam.sqz0.phi
+          out: v.dpsa0
+          out_i: v.dpsa0i
+          r: !expr "offline.params.dbs_psa_r"
+          delta_rad: !expr "offline.params.dbs_delta_0"
+          p_in_rel: !expr "offline.params.dbs_p_in_0"
+          toggles: {amplification: true}
       - block: photon_counting_fringe       # slow-layer sensor: seed k vs seed 0 at the GBS SNSPDs (D85-5)
         name: pcf1
         params:
-          in_a: !expr "offline.params.dbs_in_a"
-          in_b: !expr "offline.params.dbs_in_b"
+          in_a: v.dpsa1
+          in_b: v.dpsa0
+          ia_in: v.dpsa1i
+          ib_in: v.dpsa0i
           # bg_in / gate_in not wired (optional slots: probe stray light; the gate_schedule mask of calibration frames)
           out: v.pcf1
           f_gate_hz: !expr "offline.params.dbs_f_gate_hz"
@@ -138,11 +292,13 @@ pipeline:
           qe: !expr "offline.params.det_qe_gbs"
           dark_per_gate: !expr "offline.params.dbs_dark_per_gate"
           bg_per_gate: 0.0                  # probe stray light in the calibration gate: stray1 photons/mode (≲ 1e−5, D80) ≪ μ
+          sqvac_per_gate: !expr "offline.params.dbs_sqvac_per_gate"   # squeezed vacuum b' (pumped calibration slot)
           phi_offset_rad: !expr "offline.params.dbs_phi_offset_rad"
           setpoint_rad: !pi_frac 0.5        # side of the fringe (maximum information, §3.3)
           dead_time_s: !expr "offline.params.dbs_dead_time_s"
           recovery_s: !expr "offline.params.dbs_recovery_s"
-          toggles: {counting_noise: true, saturation: true, dark: true, background: true, dead_time: true}
+          toggles: {counting_noise: true, saturation: true, dark: true, background: true, dead_time: true,
+                    squeezed_vacuum: true}
       - block: pid                          # slow integrator (e = X̂_s − π/2; dX_s/du = −k_plant for both targets)
         name: dbs1.pid
         params:
@@ -218,7 +374,7 @@ measure:
       locked_path_residual: [env.thermal.F0.drift, env.thermal.F1.drift, env.mech.ports.mech, env.mech.fs_lock.mech,
                              liu0.shot_noise, liu0.electronic_noise, liu1.shot_noise, liu1.electronic_noise,
                              adc0.quantization, adc1.quantization, dac0f.quantization, dac1f.quantization,
-                             pcf1.counting_noise]
+                             pcf1.counting_noise, env.mech.seed.mech]
     validity:
       - {slot: act.pzt0.sat, abs_max: 0.5}
       - {slot: act.pzt1.sat, abs_max: 0.5}

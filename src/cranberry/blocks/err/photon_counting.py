@@ -10,7 +10,17 @@ calibration gate, output d ∈ {1 (+), 0 (−)} sees the Poisson mean (photons a
 μ = ``mu_per_gate`` (both outputs together, at the detector), V = ``visibility``, qe = ``qe`` (Liu SNSPD 0.93,
 ``notes/pulsed-opo-source.md``), b = background photons per gate and output (``bg_per_gate`` + slot ``bg_in``,
 e.g. probe stray light), dark = ``dark_per_gate``. ``in_b``, ``bg_in``, ``gate_in`` are optional slots
-(absent or null = not wired: a null inside an overlay is stripped by the merge, D74-7). Click detector (toggle
+(absent or null = not wired: a null inside an overlay is stripped by the merge, D74-7).
+
+Unequal seeds (optional slots ``ia_in`` / ``ib_in``, both or neither; e.g. the output intensities of two
+``seed_psa`` blocks, relative, ½ each when balanced): μ(1 ± V cos X)/2 becomes μ(I_a + I_b ± 2V√(I_a I_b) cos X)/2.
+The estimator is not told (the fringe contrast 2√(I_a I_b)/(I_a + I_b) is a slope error, no bias at π/2).
+
+Squeezed vacuum (toggle ``squeezed_vacuum``, runtime ``sqvac_per_gate`` = b'): a calibration slot with the pump on
+also holds the squeezer's vacuum; b' (detected photons per gate and output, :func:`sqvac_background`) is added to
+λ_d and, being measurable in seed-off gates, subtracted with the dark counts (reviews/phase6_wp6c_p.md C-2).
+ponytail: b' enters as its equivalent Poisson mean (exact no-click probability); the squeezed vacuum's
+super-Poisson click statistics and its interference with the seed are not modelled. Click detector (toggle
 ``saturation``): one click with p = 1 − e^{−λ}; off: photon-number-resolving Poisson count. r = recovery after the last click of the same
 output (toggle ``dead_time``): 0 for Δt < ``dead_time_s``, else 1 − exp(−(Δt − dead)/``recovery_s``).
 
@@ -28,7 +38,7 @@ X = π/2 its variance reaches the Cramér-Rao bound 1/(2 G F), F = m²V²/(e^{m+
 previous ``out`` / ``x_hat`` (counts are still written).
 
 Toggles: ``counting_noise`` (off: expected counts, no draws), ``saturation``, ``dark``, ``background``
-(off: b = 0), ``dead_time``. Slots: ``out`` (rad); ``cnt.<name>.n0`` / ``n1`` / ``n_gates`` (last window),
+(off: b = 0), ``dead_time``, ``squeezed_vacuum`` (off: b' = 0). Slots: ``out`` (rad); ``cnt.<name>.n0`` / ``n1`` / ``n_gates`` (last window),
 ``cnt.<name>.x_hat`` (rad), ``cnt.<name>.window_index`` (int, completed windows); internal
 ``cnt.<name>.acc`` = [n0, n1, G, steps, gate fraction], ``cnt.<name>.t_last`` (last click time per output).
 
@@ -36,8 +46,8 @@ Loop delay (D55-1, D61-2): the block models the window explicitly: the estimate 
 T/2 old) and is held for one window, ≈ T of delay; the reader adds 1/f_sim when it runs earlier in the pipeline.
 
 ponytail: dead time uses the last click only and is skipped with ``counting_noise`` off (expected counts);
-afterpulses and the GBS data gates between calibration gates are not modelled (lit-pittaluga2021 §3.3 keeps the
-SNSPD recovery out of the data gates by design).
+afterpulses and the GBS data gates between calibration gates are not modelled here; the SNSPD recovery into the
+data slot next to a calibration gate (lit-pittaluga2021 §3.3 condition 3) is the offline ``cal_slot_check``.
 """
 
 from __future__ import annotations
@@ -54,12 +64,25 @@ from cranberry.core.block import require
 from cranberry.core.registry import register_block
 from cranberry.core.rng import DrawBuffer
 
-__all__ = ["PhotonCountingFringe", "make_photon_counting_fringe", "fisher_per_gate", "WINDOW_MODES"]
+__all__ = ["PhotonCountingFringe", "make_photon_counting_fringe", "fisher_per_gate", "sqvac_background", "WINDOW_MODES"]
 
 WINDOW_MODES: dict[str, int] = {"time": 0, "gates": 1}
 _RUNTIME = ("mu_per_gate", "visibility", "qe", "dark_per_gate", "bg_per_gate", "phi_offset_rad", "setpoint_rad",
-            "dead_time_s", "recovery_s")
-_TOGGLES = ("counting_noise", "saturation", "dark", "background", "dead_time")
+            "dead_time_s", "recovery_s", "sqvac_per_gate")
+_TOGGLES = ("counting_noise", "saturation", "dark", "background", "dead_time", "squeezed_vacuum")
+
+
+def sqvac_background(r: float, eta: float, overlap: float = 1.0) -> float:
+    """Equivalent Poisson background b' [detected photons per gate and output] of the squeezed vacuum in a pumped
+    calibration slot: each output sees half of the port-k and half of the port-0 squeezed vacuum (squeeze r), each
+    transmitted by η_1 = ½·eta·overlap (eta = squeezer → detector incl. qe; overlap = fraction of the squeezed
+    vacuum's mode the calibration gate counts, the seed / detected-mode overlap). Two lossy single-mode squeezed
+    vacua, vacuum probability p0 = 1/sqrt((a + ½)(b + ½)) each (a, b the quadrature variances), so
+    b' = −2 ln p0 = ln[(a + ½)(b + ½)] (reviews/phase6_wp6c_p.md C-2, p6_wp6c_counting.py E)."""
+    e1 = 0.5 * eta * overlap
+    a = 0.5 * (e1 * math.exp(-2.0 * r) + 1.0 - e1)
+    b = 0.5 * (e1 * math.exp(2.0 * r) + 1.0 - e1)
+    return math.log((a + 0.5) * (b + 0.5))
 
 
 def fisher_per_gate(m: float, vis: float, x: float, dark: float = 0.0, saturation: bool = True) -> float:
@@ -89,10 +112,12 @@ _poisson_nb = numba.njit(_poisson)
 
 
 def _make_step(poisson):
-    def step(S, I, P, i_t, i_a, i_b, i_bg, i_gate, i_out, i_n0, i_n1, i_ng, i_x, i_wi, acc, tl,  # noqa: N803, E741
-             p0, rate, h, n_max, mode, buf, idx, noise_on, sat_on, dark_on, bg_on, dead_on):
+    def step(S, I, P, i_t, i_a, i_b, i_bg, i_gate, i_ia, i_ib, i_out, i_n0, i_n1, i_ng, i_x, i_wi, acc, tl,  # noqa: N803, E741
+             p0, rate, h, n_max, mode, buf, idx, noise_on, sat_on, dark_on, bg_on, dead_on, sq_on):
         mu, vis, qe = P[p0], P[p0 + 1], P[p0 + 2]
         dark = P[p0 + 3] if dark_on else 0.0
+        if sq_on:
+            dark += P[p0 + 9]  # squeezed vacuum b': known (seed-off gates), subtracted like the dark counts
         x = S[i_a] + P[p0 + 5]
         if i_b >= 0:
             x -= S[i_b]
@@ -105,11 +130,18 @@ def _make_step(poisson):
         S[acc + 4] -= n
         m = 0.5 * qe * mu
         vc = vis * math.cos(x)
+        m_sum, m_int = m, m  # balanced seeds (no intensity inputs)
+        if i_ia >= 0:  # seed intensities I_a, I_b (relative; balanced = ½ each): μ(I_a + I_b ± 2V√(I_a I_b) cos X)/2
+            m_sum = qe * mu * 0.5 * (S[i_ia] + S[i_ib])
+            m_int = qe * mu * math.sqrt(max(S[i_ia] * S[i_ib], 0.0))
         t = S[i_t]
         for j in range(n_max):
             tg = t + j * h / max(n, 1)
             for d in range(2):
-                lam = qe * b + dark + m * ((1.0 + vc) if d == 1 else (1.0 - vc))
+                if i_ia >= 0:
+                    lam = qe * b + dark + m_sum + (m_int * vc if d == 1 else -m_int * vc)
+                else:
+                    lam = qe * b + dark + m * ((1.0 + vc) if d == 1 else (1.0 - vc))
                 if dead_on and noise_on:
                     dt = tg - S[tl + d]
                     dead, rec = P[p0 + 7], P[p0 + 8]
@@ -133,9 +165,9 @@ def _make_step(poisson):
         S[acc + 2] += n
         S[acc + 3] += 1.0
         if mode == 0:
-            done = S[acc + 3] >= max(1.0, math.floor(P[p0 + 9] / h + 0.5))
+            done = S[acc + 3] >= max(1.0, math.floor(P[p0 + 10] / h + 0.5))
         else:
-            done = S[acc + 2] >= P[p0 + 9]
+            done = S[acc + 2] >= P[p0 + 10]
         if not done:
             return
         g = S[acc + 2]
@@ -176,7 +208,10 @@ class PhotonCountingFringe(KitBlock):
     def __init__(self, params: Mapping[str, Any], name: str | None):
         name = name or self.KIND
         require(params, "in_a", "out", "f_gate_hz", "cal_fraction", "window_mode", block=name)
-        params = {"in_b": None, "bg_in": None, "gate_in": None, **params}   # optional wiring (an overlay null is stripped)
+        params = {"in_b": None, "bg_in": None, "gate_in": None, "ia_in": None, "ib_in": None,
+                  **params}   # optional wiring (an overlay null is stripped)
+        if (params["ia_in"] is None) != (params["ib_in"] is None):
+            raise ValueError(f"block {name!r}: give both ia_in and ib_in or neither")
         mode = params["window_mode"]
         if mode not in WINDOW_MODES:
             raise ValueError(f"block {name!r}: window_mode must be one of {tuple(WINDOW_MODES)}, got {mode!r}")
@@ -185,7 +220,7 @@ class PhotonCountingFringe(KitBlock):
             raise ValueError(f"block {name!r}: need f_gate_hz > 0 and 0 < cal_fraction <= 1")
         c = f"cnt.{name}"
         self.n_names = {k: f"{c}.{k}" for k in ("n0", "n1", "n_gates", "x_hat", "window_index", "acc", "t_last")}
-        reads = tuple(params[k] for k in ("in_a", "in_b", "bg_in", "gate_in") if params[k] is not None)
+        reads = tuple(params[k] for k in ("in_a", "in_b", "bg_in", "gate_in", "ia_in", "ib_in") if params[k] is not None)
         super().__init__(params, name, reads=reads + ("t",), writes=(params["out"], *self.n_names.values()),
                          runtime=(*_RUNTIME, self.win_key))
         self.draws = DrawBuffer(self.name, 1, "random")
@@ -221,11 +256,11 @@ class PhotonCountingFringe(KitBlock):
         n, t, o = self.n_names, self.toggles, self.o
         pr = self.params
         return (o(layout, "t"), o(layout, pr["in_a"]), o(layout, pr["in_b"]), o(layout, pr["bg_in"]),
-                o(layout, pr["gate_in"]), o(layout, pr["out"]), o(layout, n["n0"]), o(layout, n["n1"]),
+                o(layout, pr["gate_in"]), o(layout, pr["ia_in"]), o(layout, pr["ib_in"]), o(layout, pr["out"]), o(layout, n["n0"]), o(layout, n["n1"]),
                 o(layout, n["n_gates"]), o(layout, n["x_hat"]), o(layout, n["window_index"]), o(layout, n["acc"]),
                 o(layout, n["t_last"]), offs[0], self.rate, self.h, self.n_max, WINDOW_MODES[pr["window_mode"]],
                 self.draws.buf_off, self.draws.idx_off, t["counting_noise"], t["saturation"], t["dark"],
-                t["background"], t["dead_time"])
+                t["background"], t["dead_time"], t["squeezed_vacuum"])
 
 
 @register_block("photon_counting_fringe")

@@ -160,7 +160,7 @@ def _resolved(spec: RunSpec) -> RunSpec:
         from cranberry.runner.sweep import expand
 
         rs = spec if spec.run.seed_mode else dataclasses.replace(spec, run=dataclasses.replace(spec.run, seed_mode="common"))
-        return expand(rs)[0].spec
+        return expand(rs, limit=1)[0].spec
     return spec
 
 

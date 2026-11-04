@@ -19,6 +19,9 @@ offline:
     prog_t_first_s: !expr "t_settle_s"
     prog_seed: 0
     prog_tol_rad: 0.01
+    prog_tol_sigma: 3.0            # as program/p6_steps (review P-4)
+    prog_max_step_rad: 2.827433388230814   # 0.9π, as program/p6_steps (review P-5)
+    prog_settle_s: !expr "log(prog_max_step_rad / prog_tol_rad) / (2 * pi * f_u_hz)"   # settle mask (review P-1)
   blocks:
     - block: step_response
       name: sr
@@ -31,6 +34,7 @@ offline:
         actuator_range: {"0": !expr "offline.params.out_range_v", "1": !expr "offline.params.out_range_v"}
         slips: {"0": lock.sup0.n_slip, "1": lock.sup1.n_slip}
         tol_rad: !expr "offline.params.prog_tol_rad"
+        tol_sigma: !expr "offline.params.prog_tol_sigma"
 pipeline:
   - name: squeezer
     seq:
@@ -44,6 +48,8 @@ pipeline:
           dwell_s: !expr "offline.params.prog_dwell_s"
           step_rad: !choice [null, 0.39269908169872414, 0.7853981633974483, 1.5707963267948966]   # null, π/8, π/4, π/2
           seed: !expr "offline.params.prog_seed"
+          max_step_rad: !expr "offline.params.prog_max_step_rad"
+          settle_s: !expr "offline.params.prog_settle_s"
           mode: step
           output: dc_setpoint
           sign: -1.0
@@ -98,7 +104,7 @@ pipeline:
             - name: sup1
               params: {e_in: v.err1, slip_center_slot: ctrl.prog.target1}
   - name: mii
-    params: {setpoint_slot: {"0": ctrl.prog.target0, "1": ctrl.prog.target1}}
+    params: {setpoint_slot: {"0": ctrl.prog.target0, "1": ctrl.prog.target1}, mask_slot: ctrl.prog.settled}
 measure:
   step_response:
     p6: {block: sr}

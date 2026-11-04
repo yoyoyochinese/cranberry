@@ -186,6 +186,9 @@
 
 **成分 2 の時間ループでの確認（WP6-C、`presets/axes/lock/dual_band_slow.yaml` ＋ `lock/points/dual_band_slow_nominal`、F_liu20_nominal、30 s、成分 2 だけ on）**:
 基準 59.9 ± 11.5 mrad（seed 1–3: 67.5・46.5・65.7。30 s の時間ループなので窓の行は 0）→ 2 段 18.4 ± 0.5 mrad（18.2・18.0・19.0、REF_k ストレッチャの変種も 18.2）。
+**注（Phase 5 レビュー C-9）:** seed 3 の基準の分解は線形性 0.93 で 5 % の判定に落ちる（`decomposition_invalid`）。有効な seed 1・2 だけの基準は
+57.0 mrad（67.5・46.5）、seed 3 の 65.7 は参考値。以下の数字は修正前の理想化した点（`lock/points/dual_band_slow_ideal`: squeezer の前の θ 単位の写し、
+コストのない較正スロット、squeezed 真空なし）のもので、物理的に整合する名目の点の数字は `reviews/scripts/p6_wp6c_fix_headline.py` と D92 の追記を見ること。
 上の「約 14 mrad」は遅延のない型 1 の感度 f²/(f² + f_c²) の値（f_lo = 0.1 Hz を入れて 13.4 mrad）で、窓の平均と保持の遅延 T_int を入れた
 L = (2π f_c/s)e^{−sT_int}·sinc の解析値 18.7 mrad が時間ループと合う（感度の山 |S| = 1.76）。f_c·T_int = 0.1 は 0.1–0.15 で最小の近く（0.05 で 21.9、0.2 で 21.4 mrad）。
 3 s の実行と台帳の窓の行（オーバーレイの感度つきの行）でも 53.4 → 17.5 mrad で 30 s と整合。

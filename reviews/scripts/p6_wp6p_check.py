@@ -28,7 +28,7 @@ fs = importlib.util.module_from_spec(_sp)
 _sp.loader.exec_module(fs)
 
 from cranberry.blocks.ctrl.phase_program import random_table  # noqa: E402
-from cranberry.blocks.meas.step_response import segment_response, _wrap  # noqa: E402
+from cranberry.blocks.meas.step_response import segment_response, unwrap_path, _wrap  # noqa: E402
 from cranberry.runner.run import run  # noqa: E402
 
 HET = ("probe/detect_heterodyne", "program/p6_steps")
@@ -80,8 +80,12 @@ def sec_b():
         y = g_prev + d * (1 - np.exp(-t / 1.6e-4))            # the physical quadrature angle follows the shortest way?
         yq = g + _wrap(y - g, math.pi)                         # what step_response.table_of feeds segment_response
         r = segment_response(t, yq, 0.0, g_prev, g, 0.01)
+        # fix (P-2): rise / overshoot along the unwrapped path (what step_response.table_of passes now)
+        rf = segment_response(t, yq, 0.0, g_prev, g, 0.01, path=unwrap_path(_wrap(y, math.pi), g_prev, math.pi),
+                              period=math.pi)
         print(f"   Δ = {d:5.2f}: rise {1e3*r['rise_s']:.3f} ms (true {1e3*1.6e-4*math.log(9):.3f}), overshoot "
-              f"{r['overshoot']:.3f}, settle {1e3*r['settle_s']:.3f} ms")
+              f"{r['overshoot']:.3f}, settle {1e3*r['settle_s']:.3f} ms  | fixed: rise {1e3*rf['rise_s']:.3f} ms, "
+              f"overshoot {rf['overshoot']:.3f}, ambiguous {rf['ambiguous']}")
     for st in (None, math.pi / 8, math.pi / 4, math.pi / 2):
         tb = random_table(30, 2, st, 0)
         dth = np.diff(np.r_[[0.0], tb[:, 1] - tb[:, 0]])

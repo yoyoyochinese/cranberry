@@ -99,9 +99,9 @@ def block_windows(x, mu, g, n_windows, seed=11):
              "params": {"in_a": "v.a", "in_b": None, "bg_in": None, "gate_in": None, "out": "v.pcf", "f_gate_hz": 1e6,
                         "cal_fraction": 1.0, "window_mode": "gates", "window_n_gates": g, "mu_per_gate": mu,
                         "visibility": V, "qe": QE, "dark_per_gate": DARK, "bg_per_gate": 0.0, "phi_offset_rad": 0.0,
-                        "setpoint_rad": math.pi / 2, "dead_time_s": 1e-8, "recovery_s": 1.1e-8,
+                        "setpoint_rad": math.pi / 2, "dead_time_s": 1e-8, "recovery_s": 1.1e-8, "sqvac_per_gate": 0.0,
                         "toggles": {"counting_noise": True, "saturation": True, "dark": True, "background": True,
-                                    "dead_time": False}}}]
+                                    "dead_time": False, "squeezed_vacuum": False}}}]
     lay = SlotLayout(1e6)
     blk = build(spec_from_obj(objs), lay, seed)
     st, pr = State(lay), Params(lay)
@@ -179,9 +179,9 @@ def sec_f():
                  "params": {"in_a": "v.a", "out": "v.pcf", "f_gate_hz": 2.7e6, "cal_fraction": 0.61,
                             "window_mode": "time", "window_t_s": 3.3e-4, "mu_per_gate": 3.4, "visibility": V, "qe": QE,
                             "dark_per_gate": 1e-3, "bg_per_gate": 0.01, "phi_offset_rad": 0.0, "setpoint_rad": 1.5,
-                            "dead_time_s": 1e-7, "recovery_s": 2e-7,
+                            "dead_time_s": 1e-7, "recovery_s": 2e-7, "sqvac_per_gate": 0.0,
                             "toggles": {"counting_noise": True, "saturation": True, "dark": True, "background": True,
-                                        "dead_time": True}}}]
+                                        "dead_time": True, "squeezed_vacuum": False}}}]
         lay = SlotLayout(1e6)
         blk = build(spec_from_obj(objs), lay, 5)
         st, pr = State(lay), Params(lay)
