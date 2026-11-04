@@ -1,0 +1,93 @@
+# Program axis P6 (Zhong et al. 2021, Jiuzhang 2.0; notes/lit-zhong2021.md §3.1, §4.3; D85-6): program the GBS port
+# phases through the lock set point instead of a modulator on the squeezed path. A phase_program `prog` plays a random
+# table of 30 settings on ports 0 and k into the demodulators' reference phase (dem0/dem1 in_program): with the
+# heterodyne Liu probe I = K cos(X + φ_d + rf) the loop holds X = π/2 − φ_d − rf, so the lock point, and with it Θ_k,
+# moves one to one with the RF phase whatever the probe power, visibility or PD gain (K). sign −1: X_k − π/2 = +p_k and
+# Θ_k = p_k − p_0 (F_common: coupler_sign +1; the stretcher moves probe and squeezed light alike).
+#
+# Apply AFTER probe/detect_heterodyne (it makes liu0/liu1 the [liu, demodulator] seqs this file merges into; alone it
+# fails loudly). Applied after probe/detect_dither instead it is the deliberately BAD configuration (D34) of programming
+# the dither demodulation phase: I ∝ sin X · cos p, the lock stays at the extremum X = 0 and only the slope scales by
+# cos p (0 at |p| = π/2), so Θ_k does not follow the program (step_response theta_bias_rad ≈ −Δ(p_k − p_0)). The DC
+# set-point variant (lock point depends on K) is program/p6_steps_dc.
+#
+# Axes: step size (prog `step_rad`: every switch moves each port by exactly ±step, a bounded random walk in
+# [−π/2, π/2]; null = Zhong's independent uniform settings, Fig. 4(a), mapped to quadrature angles) and switching
+# interval prog_dwell_s. DDS phase resolution: Moku:Delta 1e−6° (notes/fact-p6-thermo-optic-moku.md §2; whether a
+# change of the demodulation phase while locked is glitch-free is not documented there, UNVERIFIED). The first switch
+# comes after the metric settle time t_settle_s. The whole table needs run.duration_s ≥ t_settle_s + 30·prog_dwell_s
+# (0.065–0.905 s; run: cannot depend on a sweep axis): a shorter run plays and analyses only the switches it reaches.
+#
+# Set points that follow the program: mii setpoint_slot (metric (ii) = deviation from the programmed Θ_k − Θ_0) and the
+# slip centre of sup0/sup1 (lock.L<k>.err moves with p_k). Metric (i) (BHD, Δ_k) is NOT corrected: it moves by −p_k.
+# Wiring in place (D90-3): prog is appended to the `squeezer` hook seq, which runs before liu0, so nothing is added at
+# the end of the pipeline and the loop delay is unchanged (lock_extra_delay_s unchanged). The demodulator low pass stays
+# outside chk.lock_stability (detect_heterodyne note). step_response `sr` reports per switch rise / overshoot / settling
+# (to prog_tol_rad), static bias, actuator use, slips and the cross-port consistency (measure.step_response.p6).
+offline:
+  params:
+    prog_n_settings: 30            # Zhong p.6, Fig. 4(a)
+    prog_dwell_s: !sweep_log [1.0e-3, 3.0e-2, 3]   # switching interval [AE] (f_u = 1 kHz: ~0.7 ms to 10 mrad for π/4)
+    prog_t_first_s: !expr "t_settle_s"
+    prog_seed: 0
+    prog_quantum_rad: 1.7453292519943295e-08       # 1e−6° (Moku:Delta lock-in / laser lock box demodulation phase)
+    prog_slew_rad_per_s: 1.0e+3    # ramp mode only [AE]
+    prog_tol_rad: 0.01             # settling tolerance [AE] (D78 10 mrad class)
+  blocks:
+    - block: step_response
+      name: sr
+      params:
+        program: prog
+        positions: {"0": lock.L0.err, "1": lock.L1.err}
+        position_sign: 1.0
+        metric: mii
+        actuators: {"0": ctrl.sup0.u, "1": ctrl.sup1.u}
+        actuator_range: {"0": !expr "offline.params.out_range_v", "1": !expr "offline.params.out_range_v"}
+        slips: {"0": lock.sup0.n_slip, "1": lock.sup1.n_slip}
+        tol_rad: !expr "offline.params.prog_tol_rad"
+pipeline:
+  - name: squeezer
+    seq:
+      - block: phase_program
+        name: prog
+        params:
+          ports: [0, 1]
+          source: random
+          n_settings: !expr "offline.params.prog_n_settings"
+          t_first_s: !expr "offline.params.prog_t_first_s"
+          dwell_s: !expr "offline.params.prog_dwell_s"
+          step_rad: !choice [null, 0.39269908169872414, 0.7853981633974483, 1.5707963267948966]   # null, π/8, π/4, π/2
+          seed: !expr "offline.params.prog_seed"
+          mode: step
+          output: rf_phase
+          sign: -1.0
+          slew_rad_per_s: !expr "offline.params.prog_slew_rad_per_s"
+          quantum_rad: !expr "offline.params.prog_quantum_rad"
+          toggles: {enabled: true, quantization: true}
+  - name: liu0
+    seq:
+      - name: dem0
+        params: {in_program: rf.prog.port0}
+  - name: liu1
+    seq:
+      - name: dem1
+        params: {in_program: rf.prog.port1}
+  - name: lock0.stack
+    stack:
+      stages:
+        - name: stage0f
+          seq:
+            - name: sup0
+              params: {slip_center_slot: ctrl.prog.target0}
+  - name: lock1.stack
+    stack:
+      stages:
+        - name: stage1f
+          seq:
+            - name: sup1
+              params: {slip_center_slot: ctrl.prog.target1}
+  - name: mii
+    params: {setpoint_slot: {"0": ctrl.prog.target0, "1": ctrl.prog.target1}}
+measure:
+  step_response:
+    p6: {block: sr}

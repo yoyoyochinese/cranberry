@@ -64,6 +64,8 @@ Measurement-stage hooks (WP-I1, D58-6; :func:`evaluate_measurements`, after the 
                                               # or {metric, quadrature_rad}
         loop_identification:                  # Phase 6 P7 (D85-7): L̂, S, T, margins from one locked run
           <entry>: {block}                    # its x / reference / response slots join measure.record
+        step_response:                   # WP6-P: per-switch step response of a phase_program (blocks.meas.step_response)
+          <entry>: {block}               # the slots it reads are added to measure.record (needs measure.record)
 
     ``metric`` names a metric with noise levels (``measure.metrics``), e.g. ``i.port0``;
     ``quadrature_rad`` is added to the measured angle Δ = Δ_set + δ − θ_off (0: the locked quadrature,
@@ -655,6 +657,7 @@ MEASUREMENT_HOOKS: dict[str, tuple[str, ...]] = {
     "esa": ("esa_zero_span", "esa_swept_spectrum"),
     "pulse_sample": ("pulse_sample",),
     "loop_identification": ("loop_identification",),
+    "step_response": ("step_response",),
 }
 
 
@@ -878,6 +881,8 @@ def evaluate_measurements(
                 res[str(entry)] = _swept(blk, cfg, blocks, metrics, loss_registry, rng, what)
             elif blk.kind == "loop_identification":
                 res[str(entry)] = _loop_ident(blk, cfg, blocks, series, t_rec, f_sim_hz, what)
+            elif blk.kind == "step_response":
+                res[str(entry)] = blk.evaluate(series, t_rec, blocks)
             else:
                 res[str(entry)] = _pulse(blk, cfg, blocks, metrics, rng, what)
         out[hook] = res
@@ -1009,6 +1014,10 @@ def run(
         for c in ((rs.measure or {}).get("loop_identification") or {}).values():
             b = named0.get(c.get("block")) if isinstance(c, Mapping) else None
             slots += [s for s in getattr(b, "signal_slots", []) if s not in slots]
+        for c in ((rs.measure or {}).get("step_response") or {}).values():  # WP6-P: the slots the hook reads
+            blk = named0.get(c.get("block")) if isinstance(c, Mapping) else None
+            if blk is not None and blk.kind == "step_response":
+                slots += [s for s in blk.required_slots(named0) if s not in slots]
         if "antialias" not in rec_cfg and int(rec_cfg["decim"]) > 1:
             global _ALIAS_WARNED
             if not _ALIAS_WARNED:

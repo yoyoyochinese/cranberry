@@ -1,0 +1,104 @@
+# Program axis P6, DC set-point variant — a deliberately BAD configuration (D34; notes/lit-zhong2021.md §3.1-2): the
+# same random program as program/p6_steps, but entered as a DC set point of the side-fringe lock (F_common's
+# liu_probe_interferometer homodyne_dc, v = K cos X; do NOT apply probe/detect_heterodyne). The program writes
+# vset_k = K_cal·sin(−p_k) (phase_program output dc_setpoint, v_fringe_v = K_cal = liu_k_v, the fringe amplitude
+# calibrated at the nominal probe power and visibility) and an adder feeds e = v − vset to the fine PID: the loop holds
+# K cos X = −K_cal sin p, i.e. X − π/2 = arcsin((K_cal/K) sin p). Only while K = K_cal is that p; a drift of the probe
+# power (K ∝ √P̄) or visibility after calibration moves every programmed point (the bias grows with |p|, no lock point
+# at all once (K_cal/K)|sin p| > 1), and the slope falls as cos p. Compare with the RF-phase program (one to one,
+# independent of K). Same axes, step_response `sr` and followed set points (mii, sup0/sup1 slip centres) as p6_steps.
+#
+# Wiring in place (D90-3): prog in the `squeezer` hook; adc0/adc1 become [adc, adder dcsp0/dcsp1] seqs with the adc
+# values restated (as gate/borealis_window, so this overlay does not compose with gate/*, controller/* applied after
+# it, or probe/detect_*: write a combined overlay when needed, D90-4); pid0f/pid1f and sup0/sup1 read v.err0/v.err1.
+# No block at the end of the pipeline, no extra loop delay. Run length: as p6_steps.
+offline:
+  params:
+    prog_n_settings: 30
+    prog_dwell_s: !sweep_log [1.0e-3, 3.0e-2, 3]
+    prog_t_first_s: !expr "t_settle_s"
+    prog_seed: 0
+    prog_tol_rad: 0.01
+  blocks:
+    - block: step_response
+      name: sr
+      params:
+        program: prog
+        positions: {"0": lock.L0.err, "1": lock.L1.err}
+        position_sign: 1.0
+        metric: mii
+        actuators: {"0": ctrl.sup0.u, "1": ctrl.sup1.u}
+        actuator_range: {"0": !expr "offline.params.out_range_v", "1": !expr "offline.params.out_range_v"}
+        slips: {"0": lock.sup0.n_slip, "1": lock.sup1.n_slip}
+        tol_rad: !expr "offline.params.prog_tol_rad"
+pipeline:
+  - name: squeezer
+    seq:
+      - block: phase_program
+        name: prog
+        params:
+          ports: [0, 1]
+          source: random
+          n_settings: !expr "offline.params.prog_n_settings"
+          t_first_s: !expr "offline.params.prog_t_first_s"
+          dwell_s: !expr "offline.params.prog_dwell_s"
+          step_rad: !choice [null, 0.39269908169872414, 0.7853981633974483, 1.5707963267948966]   # null, π/8, π/4, π/2
+          seed: !expr "offline.params.prog_seed"
+          mode: step
+          output: dc_setpoint
+          sign: -1.0
+          v_fringe_v: !expr "offline.params.liu_k_v"
+          toggles: {enabled: true, quantization: false}
+  - !replace
+    name: adc0
+    seq:
+      - block: adc
+        name: adc0
+        params:
+          in: v.liu0
+          out: v.adc0
+          device: fpga_generic
+          noise_vrms: 0.0
+          avg_samples: 1
+          toggles: {quantization: true, noise: false, saturation: true}
+      - block: adder
+        name: dcsp0
+        params: {ins: [v.adc0, ctrl.prog.vset0], gains: [1.0, -1.0], out: v.err0, unit: V}
+  - !replace
+    name: adc1
+    seq:
+      - block: adc
+        name: adc1
+        params:
+          in: v.liu1
+          out: v.adc1
+          device: fpga_generic
+          noise_vrms: 0.0
+          avg_samples: 1
+          toggles: {quantization: true, noise: false, saturation: true}
+      - block: adder
+        name: dcsp1
+        params: {ins: [v.adc1, ctrl.prog.vset1], gains: [1.0, -1.0], out: v.err1, unit: V}
+  - name: lock0.stack
+    stack:
+      stages:
+        - name: stage0f
+          seq:
+            - name: pid0f
+              params: {in: v.err0}
+            - name: sup0
+              params: {e_in: v.err0, slip_center_slot: ctrl.prog.target0}
+  - name: lock1.stack
+    stack:
+      stages:
+        - name: stage1f
+          seq:
+            - name: pid1f
+              params: {in: v.err1}
+            - name: sup1
+              params: {e_in: v.err1, slip_center_slot: ctrl.prog.target1}
+  - name: mii
+    params: {setpoint_slot: {"0": ctrl.prog.target0, "1": ctrl.prog.target1}}
+measure:
+  step_response:
+    p6: {block: sr}

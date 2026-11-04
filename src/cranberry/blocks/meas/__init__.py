@@ -14,6 +14,7 @@ Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 * ``metric_ii``
 * ``required_theta_contour``
 * ``loop_identification`` (L̂, S, T, margins from a locked run with an ``excitation``; D85-7)
+* ``step_response`` (WP6-P, measurement hook ``measure.step_response``)
 
 Contract: core.block (factory interface, reads/writes, losses(), bands(), toggles, D34 no defaults).
 """

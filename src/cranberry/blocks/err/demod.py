@@ -3,7 +3,10 @@
 ``demodulator``
     Reference 2cos(2π f_ref t + φ), φ = ``phi_d_rad`` + φ_RF(t) (``in_phase``, a slot written by
     ``rf_reference`` — normally through a ``delay_buffer`` of τ_RF; toggle
-    ``rf_reference_phase_noise``). Input from a generator (``_common`` signal representation):
+    ``rf_reference_phase_noise``) + φ_prog(t) (optional ``in_program``, WP6-P, backward compatible: absent or null =
+    0; a slot such as ``rf.<program>.port<k>`` of a ``phase_program``, always added — not behind a toggle, so an
+    ablation of the RF phase noise never switches the program off). Input from a generator (``_common`` signal
+    representation):
 
     * baseband (``rf_rate_mode`` off, input shape (2,) = (a, b)): I = a cos φ − b sin φ,
       Q = a sin φ + b cos φ (the exact DC terms of the RF products);
@@ -40,7 +43,7 @@ __all__ = ["Demodulator", "RfReference", "make_demodulator", "make_rf_reference"
 
 TWO_PI = 2.0 * math.pi
 _DP = ("f_ref_hz", "phi_d_rad", "v_off_v", "lpf_hz")
-C_DEM = namedtuple("C_DEM", ("s_in", "s_phase", "s_i", "s_q", "s_lpf", "t", "buf", "idx", "fb", "mode", "law",
+C_DEM = namedtuple("C_DEM", ("s_in", "s_phase", "s_program", "s_i", "s_q", "s_lpf", "t", "buf", "idx", "fb", "mode", "law",
                              "f_rf", "f_demod_offset", "f_rf_reference_phase_noise", *(f"p_{k}" for k in _DP)))
 C_RFR = namedtuple("C_RFR", ("s_out", "s_walk", "t", "buf", "idx", "fb", "mode", "law", "f_phase_noise",
                              "p_s_phi_white_rad2_hz", "p_s_nu_white_hz2_hz"))
@@ -55,6 +58,8 @@ def _build(jit: bool):
         phi = P[c.p_phi_d_rad]
         if c.f_rf_reference_phase_noise:
             phi += S[c.s_phase]
+        if c.s_program >= 0:
+            phi += S[c.s_program]
         if c.f_rf:
             arg = TWO_PI * P[c.p_f_ref_hz] * S[c.t] + phi
             x = S[c.s_in]
@@ -106,7 +111,8 @@ class Demodulator(ErrBlock):
         self.setup(
             self.KIND, name, params,
             inputs={"in": (params["in"], "V"),
-                    "phase": (params["in_phase"] if tg.get("rf_reference_phase_noise") else None, "rad")},
+                    "phase": (params["in_phase"] if tg.get("rf_reference_phase_noise") else None, "rad"),
+                    "program": (params.get("in_program"), "rad")},
             outputs={"i": (params["out_i"], (), "V"), "q": (params["out_q"], (), "V"),
                      "lpf": (f"dem.{name}.lpf", (max(2 * int(order), 1),), "V")},
             runtime=_DP, toggles=("rf_rate_mode", "demod_offset", "rf_reference_phase_noise"),

@@ -72,6 +72,11 @@ Metric blocks (WP-F4)
                        ``runner.decompose``) and the ``MetricI/II`` series take only the samples with mask > 0.5 (the GBS
                        measurement window: the error that the GBS sees, not diluted by the lock windows). The runner
                        records the mask with the metric slots
+        setpoint_slot: optional, ``metric_ii`` only (WP6-P, D85-6; absent or null = the constant ``setpoint_rad``, the old
+                       behaviour): {k: <slot>} with k among the selected ports and/or the reference port 0, e.g. the
+                       ``ctrl.<program>.target<k>`` of a ``phase_program``. The set point then follows the program:
+                       Θ_k,set(t) = setpoint_rad_k + S[slot_k] − S[slot_0] (a missing entry counts 0), so the slot holds
+                       the deviation from the programmed Θ_k − Θ_0. Composes with ``mask_slot`` and ``t_settle_s``
 
     Port keys k of these mappings (and of ``measure.metrics`` / ``overlap`` / ``stray_light``) are
     ints or digit strings; a ``RunSpec`` (config tree) requires string keys, e.g. ``{"0": {...}}``.
@@ -424,13 +429,30 @@ class MetricProbe(BaseBlock):
         if self.mask_slot is not None and (not isinstance(self.mask_slot, str) or not self.mask_slot):
             raise ValueError(f"block {name!r}: mask_slot must be a slot name or null")
         self.short = METRIC_KINDS[kind]
+        self.setpoint_slots = self._setpoint_slots(params.get("setpoint_slot"), pairs, name)
         self.name = name  # slot names are needed before BaseBlock.__init__ (which sets it again)
         reads = [*(["t"] if self.has_settle else []), *([self.mask_slot] if self.mask_slot else []),
+                 *dict.fromkeys(self.setpoint_slots.values()),
                  *dict.fromkeys(f"beam.{b}.phi" for p in pairs for b in (p.plus, p.minus))]
         writes = [w for p in pairs for w in (self.slot(p.port), self.acc_slot(p.port))]
         super().__init__(kind, name, params, reads=reads, writes=writes)
         self.slot_units = {s: "rad" for s in reads if s not in ("t", self.mask_slot)}
         self.slot_units.update({self.slot(p.port): "rad" for p in pairs})
+
+    def _setpoint_slots(self, spec: Any, pairs: list[_Pair], name: str) -> dict[int, str]:
+        """{port: slot} of the optional ``setpoint_slot`` (module docstring)."""
+        if spec is None:
+            return {}
+        if self.short != "ii":
+            raise ValueError(f"block {name!r}: setpoint_slot is a metric_ii option")
+        if not isinstance(spec, Mapping):
+            raise ValueError(f"block {name!r}: setpoint_slot must be a mapping {{k: <slot>}} or null")
+        out = {_port_key(k, f"block {name!r}: setpoint_slot"): v for k, v in spec.items()}
+        allowed = {0} | {p.port for p in pairs}
+        bad = sorted(set(out) - allowed)
+        if bad or not all(isinstance(v, str) and v for v in out.values()):
+            raise ValueError(f"block {name!r}: setpoint_slot needs slot names for ports in {sorted(allowed)}, got {spec!r}")
+        return out
 
     # names --------------------------------------------------------------------------------------
 
@@ -570,11 +592,19 @@ class MetricProbe(BaseBlock):
                 raise ValueError(f"block {self.name!r}: mask_slot {self.mask_slot!r} must be a scalar float slot")
             M = ms.offset
         self._mask = M
+        sps = self.setpoint_slots
+        SK = np.array([layout.slot(sps[p.port]).offset if p.port in sps else -1 for p in self.pairs] or [-1], np.int64)
+        S0 = layout.slot(sps[0]).offset if 0 in sps else -1
+        self._sp_cols = (SK, S0)
 
         @numba.njit
         def kernel(S, Z, I, P):  # noqa: N803
             for j in range(n):
                 x = S[PLUS[j]] - S[MINUS[j]] - P[SP[j]]
+                if SK[j] >= 0:
+                    x -= S[SK[j]]
+                if S0 >= 0:
+                    x += S[S0]
                 d = half_pi - ((half_pi - x) % pi)
                 S[OUT[j]] = d
                 if T >= 0 and S[T] < P[TS]:
@@ -592,8 +622,13 @@ class MetricProbe(BaseBlock):
 
     def __call__(self, state, params):
         S, P = state.S, params.P
-        for plus, minus, sp, out, a in self._cols:
+        SK, S0 = self._sp_cols
+        for j, (plus, minus, sp, out, a) in enumerate(self._cols):
             x = S[plus] - S[minus] - P[sp]
+            if SK[j] >= 0:
+                x -= S[SK[j]]
+            if S0 >= 0:
+                x += S[S0]
             d = 0.5 * math.pi - ((0.5 * math.pi - x) % math.pi)
             S[out] = d
             if self._t_cols[0] >= 0 and S[self._t_cols[0]] < P[self._t_cols[1]]:

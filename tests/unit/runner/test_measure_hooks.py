@@ -59,7 +59,7 @@ def test_zero_span_matches_metric_levels():
     res = run(spec(esa=esa))
     nl = res.metrics.noise_levels["i.port0"]
     out = res.measurements["esa"]
-    assert set(res.measurements) == {"esa"} and set(MEASUREMENT_HOOKS) == {"esa", "pulse_sample", "loop_identification"}
+    assert set(res.measurements) == {"esa"} and set(MEASUREMENT_HOOKS) == {"esa", "pulse_sample", "loop_identification", "step_response"}
     assert 10 * math.log10(out["sq"]["r_lin"]) == pytest.approx(nl["r_minus_db"], abs=2e-3)
     assert 10 * math.log10(out["anti"]["r_lin"]) == pytest.approx(nl["r_plus_db"], abs=2e-3)
     # radiometer noise off, power average, V′ flat over the 100 Hz VBW (1 kHz jitter averaged): mean = R
