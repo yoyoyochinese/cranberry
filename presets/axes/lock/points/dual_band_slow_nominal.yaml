@@ -1,7 +1,9 @@
 # One point of every axis of lock/dual_band_slow (apply AFTER it; a file's own keys lose to its overlays, D74-7).
 # Not an optimum and not a default (D34): the representative values the axis comments name. Physically sound variants
-# (reviews/phase6_wp6c_p.md C-1..C-4): seed after the squeezer, pump on in the calibration slot (b' counted),
-# calibration frames. The pre-review idealisation is lock/points/dual_band_slow_ideal; the guard-slot variant
+# (reviews/phase6_wp6c_p.md C-1..C-4): seed after the squeezer, pump gated off in the calibration slot, calibration
+# frames. reviews/phase6_wp6c_fix.md F-1: with the pump on, the seed interferes with the squeezed vacuum at the click
+# detectors (cos X̂ = −0.893 sin 2β, β = seed phase vs the squeeze axis, unlocked here), so "b' known and subtracted"
+# is not a valid model; pumped stays a choice of the axis (bad / optimistic-or-biased, D34), gated is the nominal. The pre-review idealisation is lock/points/dual_band_slow_ideal; the guard-slot variant
 # lock/points/dbs_cal_guard (apply after this file).
 offline:
   params:
@@ -16,9 +18,9 @@ offline:
     dbs_cal_slot: cal_frames              # no extra slot, L_k unchanged
     dbs_cal_fraction: 0.2                 # the GBS keeps 80 % of the frames (the cost of guard at N_b = 4); N_b gates per
                                           # calibration frame → 0.8 gates per frame on F_liu20 [AE]
-    dbs_cal_pump: pumped                  # per-slot / per-frame pump gate not demonstrated (UNVERIFIED): b' counted
+    dbs_cal_pump: gated                   # pump off in the calibration frames (per-frame pump gate UNVERIFIED); F-1
     dbs_sqvac_eta: 0.63                   # F_liu20_nominal η_gbs·qe (review C-2: 0.59–0.68) [AE]
     dbs_sqvac_overlap: 1.0                # the whole squeezed-vacuum mode inside the gate (conservative) [AE]
-    dbs_mu_per_gate: 4.2                  # information optimum with b' ≈ 1.7 (review C-2; 3.43 without background)
+    dbs_mu_per_gate: 3.43                 # information optimum without background (b' = 0 when gated; 4.2 if pumped)
     dbs_t_int_s: 0.05                     # P5's 50 ms (f_c = 2 Hz)
     dbs_dark_cps: 100.0                   # [AE] UNVERIFIED axis centre (log)

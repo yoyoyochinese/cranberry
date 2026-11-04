@@ -58,14 +58,16 @@ def test_choice_axes_build(tmp_path, values):
         assert p["dbs_g_setpoint"] == 0.0 and p["dbs_ref_k_rad_per_v"] > 0.0
 
 
-def test_nominal_point_and_cal_slot_options():
+def test_nominal_point_and_cal_slot_options(tmp_path):
     """Nominal (review C-1..C-4): after_squeezer with the tap loss registered, b' counted, calibration frames (L_k
     unchanged); the guard point adds the slot (L_k × 1.25, CHK dbs_cal_guard_slot, SNSPD recovery CHK); the ideal point
     keeps the pre-review assumptions and is flagged (dbs_cal_slot_ideal)."""
     nom = fs.build_check(fs.nominal("F_liu20"), (OV, NOM))
     p = fs.params(nom)
     assert p["dbs_seed_k"] == "beam.dseedu1.phi" and p["dbs_eta_coupler"] == pytest.approx(0.99)
-    assert p["dbs_sqvac_per_gate"] == pytest.approx(1.72, abs=0.01)
+    assert p["dbs_sqvac_per_gate"] == 0.0  # pump gated in the calibration frames (review phase6_wp6c_fix F-1)
+    pumped = fs.params(fs.build_check(fs.nominal("F_liu20"), (OV, NOM, point(tmp_path, "pumped", {"dbs_cal_pump": "pumped"}))))
+    assert pumped["dbs_sqvac_per_gate"] == pytest.approx(1.72, abs=0.01)
     assert p["dbs_phi_offset_rad"] == pytest.approx(math.pi / 2)
     base_lk = p["L_k_m"]
     g = fs.build_check(fs.nominal("F_liu20"), (OV, NOM, "lock/points/dbs_cal_guard"))

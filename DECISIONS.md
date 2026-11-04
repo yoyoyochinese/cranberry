@@ -804,6 +804,7 @@
   4. 修正後の D92-4（F_liu20、30 s、seed 1–3）: cal_frames で成分 1 = 22.2 ± 0.6、成分 2 = 18.4 ± 0.5、成分 3 = 90.3、成分 4 = 12.9、合計 95.5 ± 0.3 mrad（基準 122.6）。guard で合計 106.0 ± 0.3。どちらも GBS のデータの 20 % を使う。旧値 93.5 は理想の点 `lock/points/dual_band_slow_ideal`。
   5. P6: `phase_program` は整定のマスク `ctrl.<name>.settled` を書き、指標 (ii) は 616 → 82 mrad（指定なしと同じ）。立ち上がり・行き過ぎは unwrap した経路で、target は −sign·c、許容 max(tol, 3σ)、`max_step_rad` 0.9π。`sweep.expand(limit=)`。
   6. 新しいブロック `seed_psa`・`cal_slot` は結果を使う前に Phase 5 レビュー。
+  7. Phase 5 レビュー（`reviews/phase6_wp6c_fix.md`）: `seed_psa`・`cal_slot_check`・遅い層の規則は数値的に正しく、D98-4 の数値は正確に再現（成分 1 の 9.8 → 22 mrad の上昇はすべて計数雑音）。ただし (F-1、major) ポンプを入れたままでは、クリック検出器の上でシードが squeezed 真空と干渉し（cos X̂ = −0.893 sin 2β、β はシードの squeeze 軸に対する位相で、ロックもモデル化もされていない）、β ≠ 0 で Θ_k が最大 ±1.1 rad 偏る。「b′ を既知として引く」は成り立たない。→ 名目の点を `dbs_cal_pump: gated`（較正フレームでポンプを切る、ゲートの実現は UNVERIFIED）、μ = 3.43 に変えた。`pumped` は軸の選択肢（偏る悪い構成）として残す。名目の値（ゲートあり）は成分 1 ≈ 11 mrad、合計 ≈ 93.6 mrad。いずれにしても成分 3（レーザーの相関の崩れ、90 mrad）が合計を支配する。軽微: (F-2) b′ の 2 つの半モードの近似は保守側（Θ ≈ 0 で 1.07）、(F-3) cal_frames の回復の位置は漏れたシードのもので、η × 0.974 は guard だけに当てはまる、(F-4) 少数カウントの CHK は G·(1 − p_click) で判定すべき、(F-5) τ_eq の規則は τ_L > 0 で 2–7 % 甘い（名目では差なし）。
 - 日付: 2026-11-05 / Phase 6
 
 ## Open
