@@ -705,6 +705,18 @@
   5. D82 の教訓: `controller/dsc1` は `chk.lock_stability` を dsc1・h = 1/f_sim にする。Moku:Delta は連続のままでよい（30 kHz で誤差 0.3 %）。
 - 日付: 2026-11-04 / Phase 6
 
+### D90 WP6-G のゲートのブロック・マスク・上書き用の設定（D85-2・D85-3 の実装）
+- 決定:
+  1. `gate_schedule`（`gate.<name>.lock/.meas/.phase`、検出窓 complement／anti_sync、周期ごとの白色ジッタ、漏れ、端の傾き）、`gated_hold`（zero／hold／noise_only、ゲートの端の後の `settle_s`）、`gated_loop_stability_check`（f_sim の離散ループの 1 周期のモノドロミー行列の Floquet 乗数 ρ < 1 で安定、不安定は `loop_unstable` → `valid=False`、D80-2・D75。外乱の PSD があれば周期定常の誤差分散、Dick の項、保持中のドリフト）。状態の群 `gate`。
+  2. `liu_probe_interferometer` に任意の `in_gate`（プローブのパワー × g）。指標 (i)(ii)、迷光、分解に任意の `mask_slot`。無ければ従来と同じ。
+  3. 上書き用の設定の末尾にブロックを足すとループの後ろ向きの辺が 2 本になり組み立てられない（D68-1）ので、ゲートの上書きは `!replace` でその場に入れる。ループの遅延は変わらず `lock_extra_delay_s` も変えない（D61 の「末尾に足して遅延を勘定」の指示は使えなかった）。
+  4. ゲートの上書きは adc0/adc1 を seq にするので、`controller/*`・`probe/detect_*` と一緒に使うと設定エラーで止まる（`controller/*` を先に当てると ADC の値が黙って上書きされ、dsc1 の ±4 V が失われる）。組み合わせが要るときは結合した上書きを書く。
+  5. Borealis の SI の読み（65/35 µs、10 kHz）は点 `gate/borealis_si`、P3 の 6 kHz は `gate/chopper_p3`。掃引は `gate/borealis_window`（周期 1e-5–1e-2 s、ロックの割合 0.1–0.9）、`gate/chopper_wdm`（f_ch 1–100 kHz）、`gate/intermittent_slow`（P8、1 ms–1 s）。
+  6. `probe/detect_heterodyne` と周波数の上書きは `probe_freq_offset_hz` を取り合い、後に当てたほうが黙って勝つ。P3 の「1 THz ＋ ヘテロダイン」は新しいキーと ref_k のトポロジーの上書きが要る（ブロックは不要）。
+  7. 照合: 時間ループとの一致 ρ 0.181936/0.999941/1.859896（時間ループ 0.181939/0.999941/1.859896）、測定窓の分散は 8 % 以内。F_liu20 の 30 ms では指標 (ii) はゲートの有無によらず 89.8 mrad（レーザーの相関の崩れが支配）。
+  8. 残り: 上書きは外乱の PSD を検査に渡していない（安定だけを報告）。TEC の段の `rate_div` の保持は検査で無視。上書きの PID の離散化は tustin を仮定（dsc1 なら dsc1 が要る）。3 ブロックは結果を使う前に新しい文脈の Phase 5 レビュー。
+- 日付: 2026-11-04 / Phase 6
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）
