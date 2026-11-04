@@ -117,3 +117,23 @@ def test_point_overlays_build(preset, wire, wave):
     assert "loop_identification" in spec.measure
     ident = next(b for b in offline_block_specs(spec) if b.name == "ident")
     make_block(ident)
+
+
+@pytest.mark.parametrize("ctrl, rdiv", [("controller/dsc1", 2), ("controller/fpga_generic", 1)])
+def test_F_wire_F_runs_at_the_controller_rate(tmp_path, ctrl, rdiv):
+    """Phase 5 review I-7 (D91-1 / D96-2): ident/wire_F's excitation runs at the fast stage's update rate (rate_div =
+    pid_rate_div: 2 on controller/dsc1's 500 kHz) and the record sits on the update instants (decim a multiple of it,
+    >= 2); with the DSC1 the in-lock L-hat still matches chk.lock_stability (dsc1 law, h = 2 us) through the runner."""
+    from cranberry.config.spec import iter_block_specs
+
+    pt = tmp_path / "pt.yaml"   # 0.1 rad of PZT phase: ~6 DSC1 DAC LSB (I-6); the DSC1 model with its 120 / 100 kHz poles
+    pt.write_text("offline:\n  params:\n    ident_n_freqs: 4\n    ident_f_lo_hz: 500.0\n    ident_f_hi_hz: 1.0e+4\n"
+                  "    ident_amplitude: !expr \"0.1 / offline.params.pzt_k_rad_per_v\"\n    dsc1_latency_s: 5.7e-6\n")
+    spec = config.load("presets/future/F_wg6_nominal.yaml", overlays=[ctrl, "ident/wire_F", "ident/in_lock_stepped", str(pt)])
+    blocks = {b.name: b for _, b in iter_block_specs(spec.pipeline)}
+    assert blocks["ident.exc"].rate_div == blocks["pid0f"].rate_div == rdiv
+    decim = spec.measure["record"]["decim"]
+    assert decim % rdiv == 0 and decim >= 2
+    m = run(spec).measurements["loop_identification"]["lock0"]
+    assert np.all(m["coherence"] > 0.9)
+    assert np.max(np.abs(m["mag_err"])) < 0.06 and np.max(np.abs(m["phase_err_deg"])) < 5.0

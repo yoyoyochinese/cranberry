@@ -18,9 +18,10 @@
 # Excitation amplitude: 20 mrad of PZT phase is ≈ 1.3 LSB of the 12-bit DSC1 DAC (controller/dsc1: LSB 1.95 mV ×
 # 8.125 rad/V = 15.9 mrad), which biases L̂ by 6.9 % (1.5 % without quantisation; Phase 5 review I-6): the ident block
 # logs CHK ident_amplitude_lsb below ident_min_amplitude_lsb DAC LSB. Raise ident_amplitude with controller/dsc1.
-# TODO(D91-1, Phase 5 review I-7): controller/dsc1 does not yet run pid0f / dac0f at 500 kHz (rate_div 2). When it
-# does, give ident.exc the same rate_div and set measure.record.decim to the controller's update instants, as
-# ident/wire_refD does for refD (excitation inside the digital controller, record on the PID instants).
+# Rate (D91-1 / D96-2, Phase 5 review I-7): the excitation is inside the digital controller, so it runs at the fast
+# stage's update rate (rate_div = offline.params.pid_rate_div: 2 with controller/dsc1's 500 kHz at f_sim = 1 MHz, 1 with
+# fpga_generic / moku_delta) and the record is taken on the controller's update instants (decim a multiple of
+# pid_rate_div, ≥ 2 so the fpga / Moku record is the earlier 500 kHz one), as ident/wire_refD does for refD.
 run:
   duration_s: !expr "offline.params.ident_duration_s"
 offline:
@@ -54,6 +55,7 @@ pipeline:
           seq:
             - block: excitation        # appended after sup0 (keyed merge)
               name: ident.exc
+              rate_div: !expr "offline.params.pid_rate_div"   # the fast stage's update (I-7, header)
               params:
                 in: ctrl.sup0.u
                 out: ctrl.ident.u0
@@ -79,7 +81,7 @@ pipeline:
               params: {in: ctrl.ident.u0}
 measure:
   record:
-    decim: 2                          # 500 kHz ≥ 2 × ident_f_hi_hz (the identification slots are added by the runner)
+    decim: !expr "offline.params.pid_rate_div * max(1, ceil(2 / offline.params.pid_rate_div))"   # on the update instants, ≥ 2 (I-7); 500 kHz ≥ 2 × ident_f_hi_hz
     antialias: none
   loop_identification:
     lock0: {block: ident}
