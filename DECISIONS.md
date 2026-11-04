@@ -796,6 +796,16 @@
   6. 残り: `ident/wire_F` の rate_div を D91-1（`controller/dsc1` の 500 kHz）に合わせる（I-7、ヘッダに TODO）。LO ストレッチャの 2π のリセットはモデル化していない（検査のみ）。
 - 日付: 2026-11-04 / Phase 6
 
+### D98 WP6-C・WP6-P の Phase 5 レビューの修正（`reviews/phase6_wp6c_p.md`）
+- 決定:
+  1. squeezer の前のシードは新しいブロック `seed_psa`（位相感応増幅、シード自身の位相雑音を dψ/dδ 倍、配送路 SEED は UNVERIFIED の軸）。旧モデルは `dbs_seed_model: ideal_copy`（悪い／理想）。名目は `after_squeezer`（タップ 1 % を損失に登録）。(π/2, 0) の準備は雑音を 36.6 倍にし成り立たない。
+  2. 較正ゲートの squeezed 真空 b′ = ln[(a+½)(b+½)] をトグル `squeezed_vacuum` で入れる（名目 b′ = 1.72、μ = 4.2）。
+  3. 較正スロットは `cal_frames`（名目、フレームの 20 %）、`guard`（n_guard ≥ 1、L_k ×1.25）、`ideal_free`（悪い）。新しいブロック `chk.dbs_cal`（`cal_slot.py`）が L_k、D78、SNSPD の回復（F_liu20 で隣のスロット η × 0.974）、少数カウントを報告。
+  4. 修正後の D92-4（F_liu20、30 s、seed 1–3）: cal_frames で成分 1 = 22.2 ± 0.6、成分 2 = 18.4 ± 0.5、成分 3 = 90.3、成分 4 = 12.9、合計 95.5 ± 0.3 mrad（基準 122.6）。guard で合計 106.0 ± 0.3。どちらも GBS のデータの 20 % を使う。旧値 93.5 は理想の点 `lock/points/dual_band_slow_ideal`。
+  5. P6: `phase_program` は整定のマスク `ctrl.<name>.settled` を書き、指標 (ii) は 616 → 82 mrad（指定なしと同じ）。立ち上がり・行き過ぎは unwrap した経路で、target は −sign·c、許容 max(tol, 3σ)、`max_step_rad` 0.9π。`sweep.expand(limit=)`。
+  6. 新しいブロック `seed_psa`・`cal_slot` は結果を使う前に Phase 5 レビュー。
+- 日付: 2026-11-05 / Phase 6
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）
