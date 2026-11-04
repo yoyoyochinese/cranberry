@@ -31,12 +31,20 @@ Procedure (WP-F4; T04 §4)
       ``RunResult.valid`` False, M6-01), or linearity off by more than ``tolerance``
       → ``status = "decomposition_invalid"`` with the reason.
 
+    * ``mask_slot`` (optional, WP6-G / D85-3; absent or null = every sample): the component variances already come
+      from the metric probes, so a gated configuration gives its ``metric_ii`` the measurement-window
+      ``mask_slot`` (``gate.<name>.meas``) and the four components are evaluated inside the window. The decomposition's
+      own ``mask_slot`` restricts the ``validity`` test to the same window (a saturation or lock-loss flag outside
+      the GBS measurement window does not invalidate the window's components); it is recorded with the validity
+      slots.
+
 Config (``RunSpec.measure.decompose``, or the keyword arguments)::
 
     decompose:
       groups: {locked_path_residual: [...], common_points: [...], laser_decorrelation_oob: [...],
                squeezed_only: [...]}
       validity: [{slot: ctrl.lock1.sat, abs_max: 0.5}, ...]    # [] for none
+      mask_slot: gate.gw.meas                                  # optional
 """
 
 from __future__ import annotations
@@ -57,19 +65,25 @@ if TYPE_CHECKING:
 __all__ = ["decompose_metric_ii", "validity_violations"]
 
 
-def validity_violations(result: RunResult, validity: Sequence[Mapping[str, Any]]) -> list[str]:
-    """Messages for every ``{slot, abs_max}`` reached (recorded series, else the final state)."""
+def validity_violations(result: RunResult, validity: Sequence[Mapping[str, Any]],
+                        mask_slot: str | None = None) -> list[str]:
+    """Messages for every ``{slot, abs_max}`` reached (recorded series, else the final state); with ``mask_slot`` only
+    the recorded samples with mask > 0.5 count (module docstring)."""
     out = []
+    mask = None if mask_slot is None else np.asarray(result.series[mask_slot], dtype=float).ravel() > 0.5
     for v in validity:
         slot, lim = v["slot"], float(v["abs_max"])
         if slot in result.series:
             x = np.asarray(result.series[slot], dtype=float)
+            if mask is not None:
+                x = x[mask[: x.shape[0]]]
         elif result.final_state is not None and slot in result.final_state.layout:
             x = np.asarray(result.final_state[slot], dtype=float)
         else:
             raise KeyError(f"validity slot {slot!r} is neither recorded nor in the final state")
         if np.any(np.abs(x) >= lim):
-            out.append(f"{slot} reached |x| >= {lim:g} (max {float(np.max(np.abs(x))):g})")
+            out.append(f"{slot} reached |x| >= {lim:g} (max {float(np.max(np.abs(x))):g})"
+                       + ("" if mask is None else f" inside {mask_slot}"))
     return out
 
 
@@ -115,8 +129,9 @@ def decompose_metric_ii(
         if set(v) != {"slot", "abs_max"}:
             raise ValueError(f"validity entries are {{slot, abs_max}}, got {dict(v)!r}")
 
+    mask_slot = cfg.get("mask_slot")
     measure = dict(rs.measure or {})
-    vslots = [v["slot"] for v in validity]
+    vslots = [v["slot"] for v in validity] + ([mask_slot] if mask_slot and validity else [])
     if vslots:
         rec = dict(measure.get("record") or {"slots": [], "decim": 1})
         rec["slots"] = list(rec["slots"]) + [s for s in vslots if s not in rec["slots"]]
@@ -135,7 +150,7 @@ def decompose_metric_ii(
             runs[c] = run(variant(c), mode=mode)
     reasons = []
     for key, r in runs.items():
-        bad = validity_violations(r, validity)
+        bad = validity_violations(r, validity, mask_slot if validity else None)
         if bad:
             reasons.append(f"{'all-on' if key is None else key} run: saturation / lock loss: " + "; ".join(bad))
         unstable = sorted({e["source"] for e in r.events if e.get("code") in INVALIDATING_CHK})

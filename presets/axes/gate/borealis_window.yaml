@@ -1,0 +1,155 @@
+# Gate axis P2 (Borealis, Madsen et al. 2022; notes/lit-madsen2022.md §4.2; D85-2, D85-3, D85-10): alternating lock and
+# measurement windows on the Liu-type L-Liu loops of the future presets (F_wg100, F_wg6, F_bor6, F_liu20). In the lock
+# window the probe is on and the loop runs; in the measurement window the probe is off (no stray light from it) and
+# the fine controller holds its output (gated_hold zero mode + the I-only pid*f of F_common = exact hold); the TEC stage
+# keeps offloading the held PZT drive. Metrics (i)/(ii), the decomposition and its validity are taken in the
+# measurement window only (mask gate.gw.meas).
+#
+# Window: gate_period_s and gate_lock_fraction are sweep axes (D85-10: period 10 µs–10 ms log, lock fraction 0.1–0.9;
+# duty 1 = no gate overlay). The Borealis point is the SI reading, lock light 65 µs / squeezed light 35 µs at 10 kHz
+# [M-SI p.22] (lit-madsen2022 §0-2): presets/axes/gate/borealis_si.yaml. The AOM leak is F_common's eps_aom.
+#
+# Wiring (in place, so the loop delay is unchanged): path.lock → [lock_error, gate_schedule gw, delay_buffer gd0/gd1]
+# (the probe flight τ_pr,k from the AOM at PRsrc to det_k: liu_k sees its probe power with that delay); liu0/liu1
+# in_gate = the delayed gate (probe power × g, liu_probe_interferometer WP6-G); adc0/adc1 → [adc, gated_hold gh0/gh1]
+# and pid0f/pid1f read v.gh0/v.gh1. An overlay cannot append these blocks at the end of the pipeline: the hold between
+# adc and pid would add a second back edge to the loop (PipelineCheckError, D68-1) and a gate read before its writer
+# is a read-before-write error, so the blocks are inserted with !replace (positions kept, no extra 1/f_sim:
+# lock_extra_delay_s stays as it is).
+#
+# Composition: adc0/adc1 become seqs here. Overlays that merge into adc0/adc1 (controller/*, probe/detect_heterodyne,
+# probe/detect_dither) must be applied BEFORE this one only if their adc values equal the ones restated below
+# (fpga_generic / moku_delta: 16 bit ±0.5 V, equal), and fail loudly when applied after it (params merged into a seq).
+#
+# Checks: chk.lock_stability (F_common, the loop inside the window, LTI) stays; chk.gated_stability adds the Floquet
+# test of the gated loop (loop_unstable → RunResult.valid = False, D80-2; every point kept, D75). Stray light of the
+# gated probe in the window: window_stray_light (separate block, WP6 stray worker), not here.
+offline:
+  params:
+    gate_period_s: !sweep_log [1.0e-5, 1.0e-2, 7]   # window period T_c (D85-10); Borealis 1e-4 (gate/borealis_si)
+    gate_lock_fraction: !sweep [0.1, 0.9, 9]        # lock-light fraction of T_c (D85-10); Borealis SI 0.65
+    gate_edge_s: 1.0e-7                             # AOM rise / fall [AE] (100 ns class)
+    gate_jitter_s: 0.0                              # trigger jitter of the window (digital timing) [AE]
+    gate_leak: !expr "eps_aom"                      # AOM off-state leak (F_common, −50 dB) [AE] UNVERIFIED
+    gate_settle_s: 1.0e-6                           # controller blanking after the delayed gate opens [AE]
+    tau_pr0_s: !expr "(n_g * (L_prsrc_m + L_prs_m + L_0_m) + 1.0003 * L_d_m) / 299792458.0"   # AOM → det_0
+    tau_prk_s: !expr "(n_g * (L_prsrc_m + L_prs_m + L_k_m) + 1.0003 * L_d_m) / 299792458.0"   # AOM → det_k
+  blocks:
+    # Floquet test of the gated loop of port k (the longer flight; port 0 has the same normalised loop). Same open loop
+    # as chk.lock_stability, but the discrete time loop (tustin pid, linear fractional delay, no ZOH half sample).
+    - block: gated_loop_stability_check
+      name: chk.gated_stability
+      params:
+        k0: !expr "offline.params.liu_k_v * offline.params.pzt_k_rad_per_v"
+        kp: 0.0
+        ki_per_s: !expr "2 * pi * offline.params.f_u_hz / (offline.params.liu_k_v * offline.params.pzt_k_rad_per_v)"
+        kd_s: 0.0
+        delay_s: !expr "offline.params.latency_s + offline.params.lock_extra_delay_s"
+        poles_hz: []
+        modes: [{f_hz: !expr "offline.params.pzt_f_res_hz", q: !expr "offline.params.pzt_q"}]
+        stages:
+          - kp: 0.0
+            ki_per_s: !expr "2 * pi * offline.params.f_12_hz * offline.params.pzt_k_rad_per_v / offline.params.tec_k_rad_per_v_k"
+            kd_s: 0.0
+            k_act: !expr "offline.params.tec_k_rad_per_v_k / offline.params.pzt_k_rad_per_v"
+            poles_hz: [!expr "1 / (2 * pi * offline.params.tec_tau_th_s)"]
+            modes: []
+        f_grid_hz: [1.0e-6, 1.0e+8, 400001]
+        pid_discretisation: tustin               # fpga_generic (controller/dsc1: dsc1)
+        f_sim_hz: !expr "run.f_sim_hz"
+        period_s: !expr "offline.params.gate_period_s"
+        lock_fraction: !expr "offline.params.gate_lock_fraction"
+        gate_delay_s: !expr "offline.params.tau_prk_s"
+        settle_s: !expr "offline.params.gate_settle_s"
+        hold_mode: zero
+        off_gain: 0.0                            # gated_hold zero: no error reaches the pid outside the window
+        meas_delay_s: !expr "offline.params.gate_edge_s"
+        meas_duty: null
+        disturbance: null                        # give a free-running PSD table for the residual / Dick terms
+        round_trip: null                         # Borealis: the measurement window is the whole probe-off time; the
+                                                 # 2n_gL/c backscatter tail at its start is window_stray_light's
+        toggles: {enabled: true}
+
+pipeline:
+  - !replace
+    name: path.lock
+    seq:
+      - block: lock_error
+        name: path.lock
+        params: {locks: all}
+      - block: gate_schedule
+        name: gw
+        params:
+          detector_gate: complement
+          write_phase: false
+          period_s: !expr "offline.params.gate_period_s"
+          lock_fraction: !expr "offline.params.gate_lock_fraction"
+          phase: !expr "offline.params.gate_lock_fraction"   # t = 0 at the start of a measurement window [AE]
+          edge_s: !expr "offline.params.gate_edge_s"
+          timing_jitter_s: !expr "offline.params.gate_jitter_s"
+          leak: !expr "offline.params.gate_leak"
+          toggles: {gating: true, jitter: true, edges: true, leak: true}
+      - block: delay_buffer
+        name: gd0
+        params: {in: gate.gw.lock, out: delay.gd0.out, method: linear, tau_s: !expr "offline.params.tau_pr0_s"}
+      - block: delay_buffer
+        name: gd1
+        params: {in: gate.gw.lock, out: delay.gd1.out, method: linear, tau_s: !expr "offline.params.tau_prk_s"}
+  - name: liu0
+    params: {in_gate: delay.gd0.out}
+  - name: liu1
+    params: {in_gate: delay.gd1.out}
+  - !replace
+    name: adc0
+    seq:
+      - block: adc
+        name: adc0
+        params:
+          in: v.liu0
+          out: v.adc0
+          device: fpga_generic
+          noise_vrms: 0.0
+          avg_samples: 1
+          toggles: {quantization: true, noise: false, saturation: true}
+      - block: gated_hold
+        name: gh0
+        params: {in: v.adc0, gate: delay.gd0.out, out: v.gh0, unit: V, mode: zero,
+                 settle_s: !expr "offline.params.gate_settle_s", toggles: {gating: true}}
+  - !replace
+    name: adc1
+    seq:
+      - block: adc
+        name: adc1
+        params:
+          in: v.liu1
+          out: v.adc1
+          device: fpga_generic
+          noise_vrms: 0.0
+          avg_samples: 1
+          toggles: {quantization: true, noise: false, saturation: true}
+      - block: gated_hold
+        name: gh1
+        params: {in: v.adc1, gate: delay.gd1.out, out: v.gh1, unit: V, mode: zero,
+                 settle_s: !expr "offline.params.gate_settle_s", toggles: {gating: true}}
+  - name: lock0.stack
+    stack:
+      stages:
+        - name: stage0f
+          seq:
+            - name: pid0f
+              params: {in: v.gh0}
+  - name: lock1.stack
+    stack:
+      stages:
+        - name: stage1f
+          seq:
+            - name: pid1f
+              params: {in: v.gh1}
+  - name: mi
+    params: {mask_slot: gate.gw.meas}
+  - name: mii
+    params: {mask_slot: gate.gw.meas}
+
+measure:
+  decompose:
+    mask_slot: gate.gw.meas

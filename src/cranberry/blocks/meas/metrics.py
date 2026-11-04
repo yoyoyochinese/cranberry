@@ -67,6 +67,11 @@ Metric blocks (WP-F4)
                        t ≥ t_settle_s (runtime parameter), so lock the start-up transient (the initial state is deterministic, Δ(0) = 0; WP-I3/M2C-06)
                        is not part of the moments / noise levels nor of ``MetricI/II`` series (the ESA zero
                        span reads those); the δ slot itself, and ``RunResult.series``, cover every sample
+        mask_slot    : optional (WP6-G, D85-3; absent or null = every sample, the old behaviour): a float slot, e.g.
+                       ``gate.<name>.meas`` of a ``gate_schedule``; the running sums (moments, noise levels,
+                       ``runner.decompose``) and the ``MetricI/II`` series take only the samples with mask > 0.5 (the GBS
+                       measurement window: the error that the GBS sees, not diluted by the lock windows). The runner
+                       records the mask with the metric slots
 
     Port keys k of these mappings (and of ``measure.metrics`` / ``overlap`` / ``stray_light``) are
     ints or digit strings; a ``RunSpec`` (config tree) requires string keys, e.g. ``{"0": {...}}``.
@@ -81,7 +86,9 @@ runner adds to ``measure.record`` when recording is on), the offline stage (``So
         i:  {f_max_hz, weight, source, lo_mode, average, include_hf_phase_noise, dither_m_rad}
         ii: {...same keys...}
       overlap:     {k: <slot> | <number>}                                  # optional
-      stray_light: {k: {clicks_per_gate: <slot>|<number>, photons_per_mode: <slot>|<number>}}
+      stray_light: {k: {clicks_per_gate: <slot>|<number>, photons_per_mode: <slot>|<number>,
+                        mask_slot: <slot>}}                        # mask_slot optional (WP6-G, D85-3): a recorded
+                                                                   # series is averaged over mask > 0.5 only
 
     f_max_hz     upper limit of the out-of-band integral (BandLedger.define_metric; conv §6: flat
                  source range, ~1/τ_p pulses, ~κ_c OPO)
@@ -413,13 +420,16 @@ class MetricProbe(BaseBlock):
         self.t_settle_s = float(params.get("t_settle_s", 0.0))
         if not self.t_settle_s >= 0.0:
             raise ValueError(f"block {name!r}: t_settle_s must be >= 0")
+        self.mask_slot = params.get("mask_slot")
+        if self.mask_slot is not None and (not isinstance(self.mask_slot, str) or not self.mask_slot):
+            raise ValueError(f"block {name!r}: mask_slot must be a slot name or null")
         self.short = METRIC_KINDS[kind]
         self.name = name  # slot names are needed before BaseBlock.__init__ (which sets it again)
-        reads = [*(["t"] if self.has_settle else []),
+        reads = [*(["t"] if self.has_settle else []), *([self.mask_slot] if self.mask_slot else []),
                  *dict.fromkeys(f"beam.{b}.phi" for p in pairs for b in (p.plus, p.minus))]
         writes = [w for p in pairs for w in (self.slot(p.port), self.acc_slot(p.port))]
         super().__init__(kind, name, params, reads=reads, writes=writes)
-        self.slot_units = {s: "rad" for s in reads if s != "t"}
+        self.slot_units = {s: "rad" for s in reads if s not in ("t", self.mask_slot)}
         self.slot_units.update({self.slot(p.port): "rad" for p in pairs})
 
     # names --------------------------------------------------------------------------------------
@@ -553,6 +563,13 @@ class MetricProbe(BaseBlock):
         half_pi, pi = 0.5 * math.pi, math.pi
         T, TS = (layout.slot("t").offset, layout.param(self.settle_param).offset) if self.has_settle else (-1, -1)
         self._t_cols = (T, TS)
+        M = -1
+        if self.mask_slot is not None:
+            ms = layout.slot(self.mask_slot)
+            if ms.array != "S" or ms.shape != ():
+                raise ValueError(f"block {self.name!r}: mask_slot {self.mask_slot!r} must be a scalar float slot")
+            M = ms.offset
+        self._mask = M
 
         @numba.njit
         def kernel(S, Z, I, P):  # noqa: N803
@@ -561,6 +578,8 @@ class MetricProbe(BaseBlock):
                 d = half_pi - ((half_pi - x) % pi)
                 S[OUT[j]] = d
                 if T >= 0 and S[T] < P[TS]:
+                    continue
+                if M >= 0 and not S[M] > 0.5:
                     continue
                 a = ACC[j]
                 S[a] += 1.0
@@ -578,6 +597,8 @@ class MetricProbe(BaseBlock):
             d = 0.5 * math.pi - ((0.5 * math.pi - x) % math.pi)
             S[out] = d
             if self._t_cols[0] >= 0 and S[self._t_cols[0]] < P[self._t_cols[1]]:
+                continue
+            if self._mask >= 0 and not S[self._mask] > 0.5:
                 continue
             S[a] += 1.0
             S[a + 1] += d
@@ -676,6 +697,16 @@ def define_metrics(ledger: BandLedger, blocks: list[MetricProbe], measure: Mappi
     return names
 
 
+def _mask_of(series: Mapping[str, np.ndarray], slot: str, n: int) -> np.ndarray:
+    """Boolean mask (> 0.5) of the recorded series ``slot``, length ``n`` (WP6-G ``mask_slot``)."""
+    if slot not in series:
+        raise KeyError(f"mask_slot {slot!r} is not recorded (add it to measure.record.slots)")
+    m = np.asarray(series[slot], dtype=float).ravel()
+    if m.size < n:
+        raise ValueError(f"mask_slot {slot!r}: {m.size} recorded values for {n} samples (record both at one decim)")
+    return m[:n] > 0.5
+
+
 def _values(slot_or_value: Any, state, series: Mapping[str, np.ndarray], what: str) -> np.ndarray:
     if isinstance(slot_or_value, str):
         if slot_or_value in series:
@@ -709,8 +740,12 @@ def evaluate_metrics(
         for p in b.pairs:
             stats = PhaseStats.from_acc(state[b.acc_slot(p.port)])
             ser = np.asarray(series.get(b.slot(p.port), np.zeros(0)), dtype=float)
+            keep = np.ones(ser.size, dtype=bool)
             if b.t_settle_s > 0.0 and ser.size:  # the measured series starts with the moments (t_settle_s)
-                ser = ser[np.asarray(t_s, dtype=float)[: ser.size] >= b.t_settle_s]
+                keep &= np.asarray(t_s, dtype=float)[: ser.size] >= b.t_settle_s
+            if b.mask_slot is not None and ser.size:  # and keeps the masked samples only (WP6-G)
+                keep &= _mask_of(series, b.mask_slot, ser.size)
+            ser = ser[keep]
             beams = b.beams_of(p)
             sp = b.setpoints[p.port]
             if b.short == "i":
@@ -766,8 +801,15 @@ def evaluate_metrics(
         res.overlap[k] = Overlap(k, _values(v, state, series, f"measure.overlap[{k}]"))
     for kk, v in ((measure or {}).get("stray_light") or {}).items():
         k = _port_key(kk, "measure.stray_light")
-        require(v, "clicks_per_gate", "photons_per_mode", block=f"measure.stray_light[{k}]")
-        res.stray_light[k] = StrayLight(
-            k, float(np.mean(_values(v["clicks_per_gate"], state, series, f"measure.stray_light[{k}]"))),
-            float(np.mean(_values(v["photons_per_mode"], state, series, f"measure.stray_light[{k}]"))))
+        what = f"measure.stray_light[{k}]"
+        require(v, "clicks_per_gate", "photons_per_mode", block=what)
+
+        def mean(x: Any) -> float:
+            vals = _values(x, state, series, what)
+            mask = v.get("mask_slot")  # optional (WP6-G, D85-3): average a recorded series over mask > 0.5 only
+            if mask is not None and isinstance(x, str) and x in series:
+                vals = vals[_mask_of(series, mask, vals.size)]
+            return float(np.mean(vals))
+
+        res.stray_light[k] = StrayLight(k, mean(v["clicks_per_gate"]), mean(v["photons_per_mode"]))
     return res

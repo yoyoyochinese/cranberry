@@ -1,0 +1,7 @@
+# Gate point: P3's chopper rate, 6 kHz (Nardelli et al. 2026 p.140, p.142 Fig. 3: best of 4, 6, 8, 10 kHz;
+# notes/lit-nardelli2026.md §2) and no blade jitter. A point of the gate_f_ch_hz / gate_jitter_s axes of
+# gate/chopper_wdm; apply it after that overlay. Not a default (D34).
+offline:
+  params:
+    gate_f_ch_hz: 6.0e+3
+    gate_jitter_s: 0.0

@@ -81,6 +81,7 @@ SLOT_GROUPS: frozenset[str] = frozenset(
         "t", "n", "laser", "drv", "psi", "tau_g", "J", "beam", "pump", "opa", "opo", "rf",
         "v", "dem", "ctrl", "delay", "act", "timing", "leak", "lock", "metric",
         "rng", "rec", "pol", "pow",
+        "gate",  # WP6-G: gate_schedule windows (gate.<name>.lock / .meas / .phase)
     }
 )
 #: Slots that every layout has, written by the runner.

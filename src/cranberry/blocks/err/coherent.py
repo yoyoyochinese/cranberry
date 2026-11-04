@@ -46,6 +46,10 @@ scheme B detection OPA)
     * ``mode: heterodyne``: carrier f_shift_hz, (a, b) = K (cos X, sin X).
     * ``mode: dither``: amplitude ``dither_m_rad`` in X.
 
+    * optional ``in_gate`` (WP6-G, backward compatible: absent or null = 1): slot g ∈ [0, 1] (g < 0 counts as 0), the probe power
+      transmission of a ``gate_schedule`` (``gate.<name>.lock``): P̄ → g·P̄, so K ∝ √g and the probe's shot noise ∝ g;
+      with g = 0 only the reference shot noise and i_n remain (the probe switched off, P2 / P3 / P8 windows).
+
     Noise: S_I = 2eℜ(P_ref + P_pr,DC) (+ i_n²), ×1/D when gated. Same / different laser for probe
     and reference (D40) is a property of the beams (their phases carry the laser phase at their own
     emission times, F6); the block only takes the difference. Schemes A/B of the Liu ⊕ Ref-A
@@ -84,7 +88,7 @@ _LIU_P = ("p_pr_avg_w", "p_ref_w", "duty", "visibility", "coupler_sign", "v_off_
 _COMMON_C = ("t", "buf", "idx", "fb", "mode", "law", "f_rf", "f_shot_noise", "f_electronic_noise", "f_ram_offset")
 C_PBD = namedtuple("C_PBD", ("s_pr", "s_p", "s_out", *_COMMON_C, "f_f_sh_leak", *(f"p_{k}" for k in _PBD_P)))
 C_BHD = namedtuple("C_BHD", ("s_pr", "s_p", "s_lo", "s_out", *_COMMON_C, *(f"p_{k}" for k in _BHD_P)))
-C_LIU = namedtuple("C_LIU", ("s_pr", "s_ref", "s_out", *_COMMON_C, "f_gating", *(f"p_{k}" for k in _LIU_P)))
+C_LIU = namedtuple("C_LIU", ("s_pr", "s_ref", "s_gate", "s_out", *_COMMON_C, "f_gating", *(f"p_{k}" for k in _LIU_P)))
 
 HET, DITHER, DC = 0, 1, 2
 
@@ -174,10 +178,11 @@ def _build(jit: bool):
     def liu_step(S, Z, I, P, c):  # noqa: N803
         x = S[c.s_pr] - S[c.s_ref]
         d, pbar, pref = P[c.p_duty], P[c.p_p_pr_avg_w], P[c.p_p_ref_w]
+        g = max(S[c.s_gate], 0.0) if c.s_gate >= 0 else 1.0  # optional probe-power gate (WP6-G), 1 without in_gate
         if c.f_gating:
-            p_eff, p_dc, nscale = pbar / d, pref + pbar / d, 1.0 / d
+            p_eff, p_dc, nscale = g * pbar / d, pref + g * pbar / d, 1.0 / d
         else:
-            p_eff, p_dc, nscale = d * pbar, pref + pbar, 1.0
+            p_eff, p_dc, nscale = g * d * pbar, pref + g * pbar, 1.0
         k = (P[c.p_coupler_sign] * P[c.p_gain_v_per_a] * 2.0 * P[c.p_responsivity_a_per_w]
              * math.sqrt(p_eff * pref) * P[c.p_visibility])
         t = S[c.t]
@@ -212,6 +217,7 @@ class _Coherent(ErrBlock):
     KIND = ""
     MODES: tuple[str, ...] = ()
     INPUTS: tuple[str, ...] = ()
+    OPTIONAL_INPUTS: tuple[tuple[str, str], ...] = ()  # (param, unit): wired only when given and not null
     BASE_P: tuple[str, ...] = ()
     MODE_P: Mapping[str, tuple[str, ...]] = {}
     MODE_T: Mapping[str, tuple[str, ...]] = {}
@@ -222,6 +228,7 @@ class _Coherent(ErrBlock):
         mode = choice(params, "mode", self.MODES, name)
         mname = self.MODES[mode]
         require(params, *self.INPUTS, "out", "toggles", block=name)
+        opt = {r.removeprefix("in_"): (params[r], u) for r, u in self.OPTIONAL_INPUTS if params.get(r) is not None}
         carrier = mname in self.CARRIER_MODES
         toggles = ("shot_noise", "electronic_noise", *(("rf_rate_mode",) if carrier else ()), *self.MODE_T.get(mname, ()))
         tg = params["toggles"]
@@ -230,7 +237,7 @@ class _Coherent(ErrBlock):
         self._rf = rf
         self.setup(
             self.KIND, name, params,
-            inputs={r.removeprefix("in_"): (params[r], "rad") for r in self.INPUTS},
+            inputs={**{r.removeprefix("in_"): (params[r], "rad") for r in self.INPUTS}, **opt},
             outputs={"out": (params["out"], () if rf else (2,), "V")},
             runtime=(*self.BASE_P, *self.MODE_P.get(mname, ())),
             toggles=toggles,
@@ -264,6 +271,7 @@ class BhdProbeBeat(_Coherent):
 class LiuProbeInterferometer(_Coherent):
     KIND, MODES, CONST, STEP = "liu_probe_interferometer", ("heterodyne", "dither", "homodyne_dc"), C_LIU, (_PY[2], _NB[2])
     INPUTS = ("in_pr", "in_ref")
+    OPTIONAL_INPUTS = (("in_gate", "1"),)
     BASE_P = ("p_pr_avg_w", "p_ref_w", "duty", "visibility", "coupler_sign", *DET_KEYS)
     MODE_P = {"heterodyne": ("f_shift_hz",), "dither": DITHER_KEYS, "homodyne_dc": ("v_off_v",)}
     MODE_T = {"heterodyne": ("gating",), "dither": ("gating", "ram_offset"), "homodyne_dc": ("gating",)}
