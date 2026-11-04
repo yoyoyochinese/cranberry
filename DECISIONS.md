@@ -755,7 +755,8 @@
   4. `probe/actuator_pathlength`: プローブの stretcher・strain に g = 1 + f·Δν/ν0、dT・tec に g(k_T + 2πΔνR)L、偏りの選択（R・R′・悪い implicit）、ホップの偏り 2π(1/g − 1)。`probe/bad_kT_kappa_independent` は悪い構成（R が −2.3〜+6.0 ps/(km·K) に振れる）。
   5. `probe/two_tone`（P8）: ±δν、2δν = m·f_rep/(N_b + n_guard)（m 偶数）の格子、軸 r と ΔL_0 の残り。時間ループの偏りは −atan(r tan E) と 1 mrad 以内で一致、格子上では全ポート共通で指標 (ii) で打ち消す。直交偏光のプローブの群複屈折は E に入っていない（Open）。
   6. `probe/detect_heterodyne_refshift`: AOM を参照側に置き、`probe/freq_*` とどちらの順でも組み合わせられる。既存の `probe/detect_heterodyne` は不変。`probe/freq_*` で参照が 0 Hz のままの既存の不整合は記録だけ。
-- 結果（Ref A ＋ファイバ、fpga_generic、50 ms × 3 seed、レビュー前）: σ_total は 1 / 10 / 100 m でファイバ整合 9.4 / 9.5 / 10.9 mrad、自由空間 9.0 / 6.0 / 20.6 mrad（自由空間の 10 m 付近はフィルタキャビティの遅延の補償）。DSC1 では 0.3–1.5 mrad 悪い。DX1 の線幅では遅延の項が約 400 倍（フィルタキャビティの項 155 mrad）で、LO の遅延整合 ≲ 1 ns とフィルタキャビティの再設計が要る。
+- 結果（Ref A ＋ファイバ、fpga_generic、3 seed、Phase 5 レビュー `reviews/phase6_wp6i_x.md` で修正済み）: σ_total は 1 / 10 / 100 m でファイバ整合 9.3 / 9.3 / 9.4 mrad（定常、t ≥ 15 ms。最初の版の 100 m の 10.9 はロック引き込みの過渡を含んでいた）、自由空間 9.0 / 6.0 / 20.6 mrad（最適は 17.8 m、フィルタキャビティの遅延の補償）。DSC1 では 0.3–1.0 mrad 悪い（refA の 20 kHz 設計に対して。K23 の MHz 級のループには届かない）。DX1 の線幅では遅延の項が約 400 倍（フィルタキャビティの項 156 mrad）。LO の遅延を合わせるのではなく、squeezed の経路をフィルタキャビティの遅延の約 0.7 倍長くする（±10 ns）とレーザーの項は 97 mrad。フィルタキャビティの再設計が主な要求。
+- レビューで確定: D93-5 の数値はすべて再現。D94-1〜6 の物理は正しい。`probe/two_tone` は直交偏光のプローブの群複屈折 b_g = 1.36 ps/m（と温度係数）が E に入っておらず、F_liu20 の 7 GHz でポートごとに E が 2.4 rad ずれる。修正まで「格子上で全ポート共通」は同じ偏光のプローブでだけ成り立つ。
 - 日付: 2026-11-04 / Phase 6
 
 ### D95 P6 のロックの設定値によるポート位相の指定（WP6-P、D85-6 の実装）
