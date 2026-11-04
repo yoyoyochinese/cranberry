@@ -6,6 +6,8 @@
 # at the GBS input of port k (offline table + CHK stray_light_limit against T17's 5.8e−4 per mode).
 # The bad variant (reference in a guard slot, L_k × (N_b + 1)/N_b) is ref/aurora_guardslot.
 # Every hardware value below is UNVERIFIED (the Aurora SI is not available, D85-14): sweep axes with documented ranges.
+# mode: the τ_mode Gaussian (right on F_wg6 / F_wg100). On the OPO presets apply ref/opo_mode_bor6 or ref/opo_mode_liu20
+# AFTER this file: the Gaussian is 2.7× high for this f_ref = 0 leak (Phase 5 WS-01).
 offline:
   params:
     fref_placement: cal_frames
@@ -14,8 +16,15 @@ offline:
     fref_t_pulse_s: !sweep_log [1.0e-10, 1.0e-8, 3]   # reference pulse length (modulator-carved) [AE] UNVERIFIED
     fref_freq_offset_hz: 0.0              # same laser, same frequency as the squeezed light (P1)
     fref_eps_mod: !sweep_log [1.0e-9, 1.0e-3, 4]      # carving-modulator extinction 30–90 dB (90 dB = cascaded / shuttered) [AE]
-                                          # UNVERIFIED (F_common eps_aom 1e-5 inside). The CW leak ε_mod·P_pk is present in
-                                          # every frame whatever the placement and dominates on the OPO presets
+                                          # UNVERIFIED (F_common eps_aom 1e-5 inside). Without a slow gate the CW leak
+                                          # ε_mod·P_pk is in every data frame and dominates on the OPO presets
+    fref_eps_gate: !choice [1.0, 1.0e-3, 1.0e-5, 1.0e-9]   # slow gate in series in the reference path, closed during the
+                                          # data frames, open for the calibration frame (Phase 5 WS-02): leak = ε_mod·ε_gate·P_pk.
+                                          # 1 = none (the pre-WS-02 table); 30 dB weak AOM; 50 dB one fibre AOM; 90 dB two AOMs
+                                          # or AOM + shutter [AE] UNVERIFIED. Only the calibration-frame placement can use it
+                                          # (ref/aurora_guardslot opens the path every frame). The gate's rise (AOM 10–100 ns)
+                                          # falls in the frame gaps; a mechanical shutter (ms) leaves its open time of data
+                                          # frames unprotected: drop those frames or add t_open/t_cal to ε_gate
     fref_edge_tau_s: !sweep_log [1.0e-10, 1.0e-8, 3]  # 1/e time of the pulse edges / tail [AE] UNVERIFIED
     det_qe_gbs: 0.93                      # GBS SNSPD detection efficiency (Liu, notes/pulsed-opo-source.md §L 本文)
     det_p_afterpulse: !choice [0.0, 1.0e-3, 1.0e-2]   # afterpulse probability per click [AE] UNVERIFIED (0 = none, TES-like)
@@ -31,6 +40,7 @@ offline:
         t_ref_s: !expr "offline.params.fref_t_pulse_s"
         freq_offset_hz: !expr "offline.params.fref_freq_offset_hz"
         eps_mod: !expr "offline.params.fref_eps_mod"
+        eps_gate: !expr "offline.params.fref_eps_gate"
         edge_tau_s: !expr "offline.params.fref_edge_tau_s"
         er_dmx_db: !expr "offline.params.dmx_er_db"
         qe_det: !expr "offline.params.det_qe_gbs"
@@ -46,7 +56,6 @@ offline:
         gbs_filter: {shape: flat, fwhm_hz: !expr "offline.params.gbs_filter_fwhm_hz"}
         mode: {shape: gaussian, t_fwhm_s: !expr "offline.params.tau_mode_s"}
         L_m: !expr "offline.params.L_k_m"
-        alpha_per_m: !expr "offline.params.alpha_pm_db_per_km / 1000 * log(10) / 10"
         gawbs: {cladding_diameter_m: 1.25e-4, v_l_m_s: 5996.0, v_s_m_s: 3740.0, n_modes: 12,   # T07 §4.1; London et al. R0,7
                 gamma_om_per_w_m: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0e-3, 0.0, 0.0, 0.0, 0.0, 0.0], linewidth_hz: 4.3e+6,
                 mode_sum_factor: 1.0}  # (UNVERIFIED typical, as bad_copropagating_probe)

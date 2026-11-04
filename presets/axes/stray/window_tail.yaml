@@ -5,6 +5,9 @@
 # its own win_* params, so a gate overlay (applied after it) ties the two together with e.g.
 #   win_period_s: !expr "<the gate overlay's period param>"
 # without either file depending on the other.
+# The tail is weighted by the round-trip attenuation e^{−2αz} (Phase 5 WS-03). mode: the τ_mode Gaussian (right on
+# F_wg6 / F_wg100). On the OPO presets apply stray/opo_mode_bor6 or stray/opo_mode_liu20 AFTER this file: the Gaussian
+# is 2.7× high for a same-frequency probe and 10²–10⁶× low for a frequency-offset probe (Phase 5 WS-01).
 offline:
   params:
     win_period_s: !sweep_log [1.0e-5, 1.0e-2, 4]   # window period 10 µs – 10 ms (D85-10; Borealis 100 µs, M-SI)
@@ -14,6 +17,14 @@ offline:
     win_eps_off: !sweep_log [1.0e-6, 1.0e-4, 3]  # probe extinction when off [AE] UNVERIFIED (F_common eps_aom = 1e-5 inside)
     win_slot_period_s: !expr "t_frame_s"  # GBS slots once per frame (D46)
     win_limit_statistic: !choice [mean, max]   # T17 limit on the window mean or on the worst slot (just after switch-off)
+    win_refl_r: !choice [0.0, 1.0e-6, 1.0e-4, 1.0e-3]   # discrete reflection at the probe extraction point (circulator /
+                                          # WDM / coupler at z ≈ L_k, Phase 5 WS-08): returns 2τ_k late at the full on level,
+                                          # a step lasting the whole W after switch-off. 0 = none (the stray1 set); 1e-6 APC
+                                          # connector class; 1e-4–1e-3 bulk component / interferometer (Borealis ~1e-3 was the
+                                          # main stray source, lit-madsen2022 §1.2) [AE] UNVERIFIED
+    win_refl_z_m: !expr "L_k_m"           # its distance from the probe injection (GBS input)
+    win_refl_eps: !expr "eps_xt_pm + t_perp_pbs"   # the reflected orthogonal probe keeps its polarization and is rejected at
+                                          # PBS_k like Rayleigh (ε_pol of pm_orthogonal, T10 §3.4.3); set 1 for a same-pol probe
   blocks:
     - block: window_stray_light       # P2 tail table of the port-k fibre (T10 eq. (8); D85-4)
       name: winstray1
@@ -39,8 +50,8 @@ offline:
         lambda0_m: !expr "offline.params.lambda0_m"
         temperature_k: 295.0           # D27
         t_gate_s: !expr "offline.params.t_gate_s"
-        reflections: []
-        reflection_z_m: []
+        reflections: [[!expr "offline.params.win_refl_r", !expr "offline.params.win_refl_eps"]]
+        reflection_z_m: [!expr "offline.params.win_refl_z_m"]
         gbs_filter: {shape: flat, fwhm_hz: !expr "offline.params.gbs_filter_fwhm_hz"}
         wdm_isolation_lin: 1.0
         mode: {shape: gaussian, t_fwhm_s: !expr "offline.params.tau_mode_s"}

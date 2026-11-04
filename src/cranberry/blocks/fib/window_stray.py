@@ -9,14 +9,19 @@ before the detector QE), ``*_mode`` = photons in the squeezed temporal mode (con
     a(t) ∈ [0, 1], period T = ``period_s``: on (lock window) between the 50 % points [φ, φ + D·T) (mod T,
     φ = ``phase_s``, D = ``duty_lock``), linear power ramps of length e = ``edge_s`` centred on the switching
     times. When off the probe keeps ε_off = ``eps_off`` of its on power. Distributed backscatter (Rayleigh,
-    Brillouin, Raman) of the port fibre returns as a(t) convolved with a uniform box of length W = 2 n_g L/c
-    (T10 eq. (8), αL ≪ 1), so after the probe switches off it keeps arriving for W = 2τ_k:
+    Brillouin, Raman) from z returns 2n_g z/c later, weighted by the round-trip attenuation e^{−2αz} (T10 eq. (8)),
+    so after the probe switches off it keeps arriving for W = 2 n_g L/c = 2τ_k:
 
-        h(t) = (1/W) ∫_{t−W}^{t} a(t') dt'   (W → 0: h = a),   factor f(t) = ε_off + (1 − ε_off)·h(t),
+        h(t) = ∫_0^W a(t − s) e^{−κs} ds / ∫_0^W e^{−κs} ds,   κ = α c/n_g   (W → 0: h = a; κ = 0: the plain box),
+        factor f(t) = ε_off + (1 − ε_off)·h(t),
 
     N_mech(t) = f(t)·N_mech,CW(P_on) with N_CW from ``scattering.stray_photons`` at the on-state average power
     P_on = ``p_on_avg_w`` (distributed scattering depends on P̄ only, T10 §3.4.4, so the AOM frame gating inside
-    the lock window does not change it). A discrete reflection at z_i returns a(t − 2 n_g z_i/c) instead of h.
+    the lock window does not change it). The CW value uses the same weight (L_bs = ∫e^{−2αz}dz), so h → 1 in CW;
+    the weight shortens the tail's mean delay (window mean ≈ (1 − αL/3)× the plain box: −5 % at 1 km, −14 % at
+    3.2 km for 0.5 dB/km; WS-03). A discrete reflection at z_i returns a(t − 2 n_g z_i/c) instead of h (reflectance
+    = its effective value seen from z = 0, as in ``stray_photons``): one at the probe extraction point z ≈ L_k keeps
+    the full on-state level for the whole W after switch-off (overlay axis ``win_refl_r``, WS-08).
     GBS slots: every ``slot_period_s`` (D46: once per frame) inside the fully-off part of the measurement window
     [φ + D·T + e/2, φ + T − e/2), at the slot centres (j + ½)·Δ from its start. Window average = mean over slots.
     The phase φ shifts the window and the slots together: it changes the table's time axis, not the numbers.
@@ -31,49 +36,77 @@ before the detector QE), ``*_mode`` = photons in the squeezed temporal mode (con
     slots of port k (toggles):
 
     * ``mod_leak``: the modulator that carves the pulses from CW leaks ε_mod·P_pk continuously:
-      mode Φ_leak·|ũ(f_ref)|², gate Φ_leak·T_gate·F(f_ref) (Φ = P/hν0; as a line of ``stray_photons``).
+      mode Φ_leak·|ũ(f_ref)|², gate Φ_leak·T_gate·F(f_ref) (Φ = P/hν0; as a line of ``stray_photons``). With
+      ``cal_frames`` a slow gate in series (AOM / shutter, extinction ε_gate = ``eps_gate``) closes the reference
+      path during the data frames: Φ_leak = ε_mod·ε_gate·P_pk/hν0 (WS-02). The gate is open during the calibration
+      frame and switches in the frame gaps, so the edges, crosstalk and afterpulses of the calibration-frame pulses
+      are not reduced by it. ``guard_slot`` cannot use it: the reference path must pass one pulse one slot
+      (10–170 ns) before the data, every frame, so it is open in every frame, and an AOM / shutter (rise 10 ns – ms)
+      cannot separate the guard slot from the data slots; there ``eps_gate`` must be 1.
     * ``edges``: pulse edges / tails outside the rectangle, P(Δ) = s·P_pk·e^{−(|Δ| − t_ref/2)/τ_e}
       (τ_e = ``edge_tau_s``, both sides; s = 1 for the port's own pulse, ε_dmx for a leaked one). Mode: quasi-static
-      P(Δ)/hν0·|ũ(f_ref)|² (ponytail: exact for τ_e ≫ the mode length, an upper bound of the coherent overlap
-      otherwise); gate: the exact integral of the exponential over the gate times F(f_ref).
+      P(Δ)/hν0·|ũ(f_ref)|²; gate: the exact integral of the exponential over the gate times F(f_ref).
+      ponytail: the quasi-static mode count is exact only for τ_e ≫ the mode length, and it is not a bound: the tail
+      is coherent with the laser, N = |∫√Φ(t) u(t) dt|², which for a symmetric mode (Gaussian) is ≥ the quasi-static
+      value (convexity; × exp(τ_mode²/(16 ln2·τ_e²)), e.g. ×2.7 for F_liu20's τ_mode at τ_e = 3 ns) and for the
+      asymmetric OPO mode lies on either side (0.9–3.8×; Phase 5 WS-04). Use the overlap on ``mode_time`` when the
+      edge term matters.
     * ``demux_crosstalk``: the reference pulses of the other ports leak into port k with ε_dmx = 1/ER
-      (``er_dmx_lin``; a YAML ``er_dmx_db`` loads as it, ``config.db``) and arrive in the time bins next to port k's
-      data block (never in a data slot: the offset (k − k')(N_b + n_guard)·T_rep is not a multiple of the frame);
-      their edges count here.
+      (``er_dmx_lin``; a YAML ``er_dmx_db`` loads as it, ``config.db``; every other port at ε_dmx, conservative for
+      a tree) and arrive in the time bins next to port k's data block (never in a data slot: the offset
+      (k − k')(N_b + n_guard)·T_rep is not a multiple of the frame); their edges count here.
     * ``forward_scatter``: forward GAWBS (T07 §4.1, ``scattering.gawbs_variances``) and forward Raman
-      (``scattering.raman_scatter_density``) of the continuous leak ε_mod·P_pk over the port fibre L. The bright
-      pulse's own forward scattering co-moves with it (walk-off ≪ T_rep) and stays in the reference bin.
+      (``scattering.raman_scatter_density``) of the continuous leak over the port fibre. P_pk is the power at the
+      fibre output (the GBS input) and light scattered at z co-propagates with the leak, so the output carries
+      P_out·L (not L_eff; WS-09). The bright pulse's own forward scattering co-moves with it (walk-off ≪ T_rep) and
+      stays in the reference bin.
     * ``afterpulse``: a pulse of N = s·P_pk·t_ref/hν0 photons clicks the GBS detector with p = 1 − e^{−QE·N};
       each click afterpulses with probability p_ap (``p_afterpulse``), delay distributed as e^{−t/τ_ap}/τ_ap
-      (``tau_afterpulse_s``): clicks in a gate at Δ > 0 after the pulse = p·p_ap·∫_gate e^{−t/τ_ap}/τ_ap dt.
-      Clicks only (no photons in the mode). A data slot closer than ``det_recovery_s`` after a click is blind
-      with probability p (column ``blind_prob``: an efficiency loss, reported, not a stray photon).
+      (``tau_afterpulse_s``): clicks in a gate at Δ > 0 after the pulse = p·p_ap·∫_gate e^{−t/τ_ap}/τ_ap dt, summed
+      over the pulses listed below. Clicks only (no photons in the mode). A data slot closer than
+      ``det_recovery_s`` after the listed pulses is blind with probability 1 − Π(1 − p_i) (column ``blind_prob``:
+      an efficiency loss, reported, not a stray photon).
 
-    Placement (data slot j = 0 … N_b − 1 of port k's block; Δ = t_slot − t_pulse, T_f = K·(N_b + n_guard)·T_rep):
+    Placement (data slot j = 0 … N_b − 1 of port k's block; Δ = t_slot − t_pulse, B = N_b + n_guard,
+    T_f = K·B·T_rep):
 
     * ``cal_frames`` (primary, D85-11): every ``t_cal_s`` one whole frame carries reference pulses instead of
       squeezed light. Only the data frames before and after a calibration frame see it, each with weight T_f/t_cal:
       own pulses at Δ = T_f − (N_b − 1 − j)·T_rep (after) and Δ = −(T_f − j·T_rep) (before), leaked pulses at
-      Δ = (1 + n_guard + j)·T_rep and Δ = −(1 + n_guard + N_b − 1 − j)·T_rep. L_k is unchanged.
-    * ``guard_slot`` (kept as the bad configuration, D85-11, D34): one reference pulse in the guard slot before
-      each block, every frame: own pulse at Δ = (j + 1)·T_rep, the neighbour port's leaked guard pulse at
-      Δ = −(N_b − j)·T_rep. Needs n_guard ≥ 1, so L_k grows by (N_b + n_guard)/(N_b + n_guard − 1) (×2 at N_b = 1,
-      D62-3) and the D78 linewidth requirement Δν ≤ σ²/(2πRΔτ), Δτ = (K − 1)(N_b + n_guard)·T_rep, tightens by the
-      same factor; :meth:`check` reports it (CHK ``forward_ref_guard_slot``).
-
-    ponytail: only the nearest pulse of each kind on each side of a slot; tails from further pulses are smaller by
-    e^{−T_rep/τ}. The switching of the demux during the guard slot (which splits a guard-slot pulse between two
-    ports) is not modelled.
+      Δ = (1 + n_guard + j)·T_rep and Δ = −(n_guard + N_b − j)·T_rep. The leaked-pulse positions are the WORST
+      PORT's (the first / last port in emission order, one side each) applied to every port; a middle port k sees
+      its nearest leaked pulses (k + 1) blocks away (WS-06, conservative). L_k is unchanged.
+      ponytail: only the nearest pulse of each kind on each side; the other pulses of the calibration frame would
+      add afterpulses, frame-weighted by T_f/t_cal ≈ 10⁻⁵–10⁻⁸. A detector recovery longer than T_f (TES 10–20 µs,
+      T_f = 5–6 µs) blinds the 2–4 data frames after a calibration frame; only the first is counted, so
+      ``blind_prob`` is low by at most ×4 on a weight of T_f/t_cal (WS-05).
+    * ``guard_slot`` (kept as the bad configuration, D85-11, D34): one reference pulse in the last guard slot before
+      each block, every frame. A pulse reaches port k's detector every B·T_rep: the own pulse at Δ = (j + 1)·T_rep,
+      the other ports' leaked guard pulses at Δ = (m·B + j + 1)·T_rep, m = 1 … K − 1, and the own pulse of the
+      previous frame at m = K (all counted: each leaked one clicks at µW-class P_pk and afterpulses, WS-05), and
+      the next port's leaked pulse at Δ = −(B − 1 − j)·T_rep after the slot. These positions hold for every port and
+      every n_guard ≥ 1. Needs n_guard ≥ 1, so L_k grows by (N_b + n_guard)/(N_b + n_guard − 1) (×2 at N_b = 1,
+      D62-3; the reference adds one guard slot to the preset's n_guard − 1) and the D78 linewidth requirement
+      Δν ≤ σ²/(2πRΔτ), Δτ = (K − 1)(N_b + n_guard)·T_rep, tightens by the same factor; :meth:`check` reports it
+      (CHK ``forward_ref_guard_slot``).
+      ponytail: pulses more than one frame back are dropped (afterpulse weight ≤ e^{−T_f/τ_ap} < 1 % for
+      τ_ap ≤ 1 µs). The switching of the demux during the guard slot (which splits a guard-slot pulse between two
+      ports) is not modelled.
 
 Mode: both blocks take ``mode`` like ``stray_light_table`` (parametric, or ``{source: <temporal source spec>}`` for
-the OPO's optimal mode, M5-03). ponytail: the overlays use the τ_mode Gaussian of F_common's ``stray1``; on the OPO
-presets ``stray1`` is re-pointed at the OPO mode (F_bor6 / F_liu20 ``mode: !replace {source: ...}``), which an overlay
-cannot reference, so there the overlay counts per mode are the Gaussian stand-in (F_liu20 nominal: 2.7× below the
-OPO-mode value). The window factor and the timing are mode-independent: OPO-mode numbers = ``mean_factor`` ×
-``stray1``'s photons per mode, or pass the OPO ``mode`` spec to the block (an OPO-only overlay when needed).
+the OPO's optimal mode, M5-03). The axis overlays use the τ_mode Gaussian of F_common's ``stray1``, which is right on
+the waveguide presets. On the OPO presets ``stray1`` is re-pointed at the OPO mode (F_bor6 / F_liu20
+``mode: !replace {source: ...}``), and the Gaussian stand-in errs in a direction set by the mechanism and the probe
+frequency (Phase 5 WS-01). For a line at the squeezed carrier (same-frequency probe Rayleigh, the P1 leak) it is
+2.6–2.8× HIGH (|ũ(0)|² = τ_eff: Gaussian 38.3 / 21.3 ns vs OPO mode 14.2 / 7.8 ns for F_bor6 / F_liu20). For a
+frequency-offset probe it is far LOW, because the Gaussian spectrum has no tail: at 80 MHz ×914 (F_liu20) and
+×2.9×10⁶ (F_bor6) low, at 100 GHz ×37 / ×165 low, so the CHK would pass wrongly. On the OPO presets apply the OPO-mode
+overlays after the axis overlays: ``stray/opo_mode_bor6`` / ``stray/opo_mode_liu20`` (winstray1) and
+``ref/opo_mode_bor6`` / ``ref/opo_mode_liu20`` (frefstray1) copy the preset's ``pulsed_opo_source`` spec into
+``mode`` (a test keeps them equal to stray1's).
 
-Unknown hardware values (reference power, extinction, edge tail, afterpulse probability and delay, recovery time)
-are sweep axes of the overlays ``presets/axes/ref/aurora_*.yaml`` and ``presets/axes/stray/window_tail.yaml``,
+Unknown hardware values (reference power, extinctions ε_mod and ε_gate, edge tail, afterpulse probability and delay,
+recovery time, probe switch-off extinction and ramp, extraction-point reflectance) are sweep axes of the overlays ``presets/axes/ref/aurora_*.yaml`` and ``presets/axes/stray/window_tail.yaml``,
 marked UNVERIFIED (Aurora SI not available, D85-14).
 """
 
@@ -85,7 +118,6 @@ from typing import Any
 
 import numpy as np
 
-from cranberry.blocks.fib.gnlse import l_eff
 from cranberry.blocks.fib.scattering import (
     STRAY_COLUMNS,
     _check_mode,
@@ -136,21 +168,45 @@ def _ramp_int(y, e):
     return np.where(y <= 0, 0.0, np.where(y >= e, y - e / 2, y * y / (2 * e)))
 
 
+def _lin_int_exp(y, k):
+    """∫_0^y (y − s) e^{−ks} ds for y > 0 (0 otherwise): (ky − 1 + e^{−ky})/k², y²/2 at k = 0."""
+    y = np.maximum(np.asarray(y, dtype=float), 0.0)
+    if k <= 0:
+        return y * y / 2
+    x = k * y
+    small = x < 1e-3  # series: the closed form cancels catastrophically
+    return np.where(small, y * y * (0.5 - x / 6 + x * x / 24), (x + np.expm1(-np.where(small, 1.0, x))) / (k * k))
+
+
+def _ramp_int_exp(y, e, k):
+    """∫_0^∞ _ramp(y − s, e) e^{−ks} ds (= :func:`_ramp_int` at k = 0)."""
+    if k <= 0:
+        return _ramp_int(y, e)
+    if e <= 0:
+        return -np.expm1(-k * np.maximum(np.asarray(y, dtype=float), 0.0)) / k
+    return (_lin_int_exp(y, k) - _lin_int_exp(np.asarray(y, dtype=float) - e, k)) / e
+
+
 def window_factor(t_s, *, period_s: float, duty_lock: float, phase_s: float, edge_s: float, roundtrip_s: float,
-                  delay_s: float = 0.0) -> np.ndarray:
-    """h(t) of the module docstring: the box-averaged (length ``roundtrip_s`` = W) probe envelope seen at the GBS
-    input at times ``t_s``; W = 0 gives the envelope itself, delayed by ``delay_s`` (a discrete reflection)."""
+                  delay_s: float = 0.0, kappa_per_s: float = 0.0) -> np.ndarray:
+    """h(t) of the module docstring: the probe envelope seen at the GBS input at times ``t_s``, averaged over the
+    round trips s ∈ [0, W] (W = ``roundtrip_s``) with weight e^{−κs} (κ = ``kappa_per_s`` = αc/n_g; 0 = plain box);
+    W = 0 gives the envelope itself, delayed by ``delay_s`` (a discrete reflection)."""
     t = np.asarray(t_s, dtype=float) - float(delay_s)
-    T, w, e = float(period_s), float(roundtrip_s), float(edge_s)
+    T, w, e, k = float(period_s), float(roundtrip_s), float(edge_s), float(kappa_per_s)
     on = duty_lock * T
     m = np.arange(math.floor((t.min() - w - phase_s) / T) - 2, math.ceil((t.max() - phase_s) / T) + 2)
     s = (phase_s - e / 2 + m * T)[None, :]  # ramp-up starts; ramp-down starts at s + on
     x = t[:, None] - s
     if w <= 0.0:
         return np.sum(_ramp(x, e) - _ramp(x - on, e), axis=1)
-    a = _ramp_int(x, e) - _ramp_int(x - on, e) - _ramp_int(x - w, e) + _ramp_int(x - w - on, e)
+    # ∫_0^W g(x − s) e^{−κs} ds = G(x) − e^{−κW} G(x − W), G = ∫_0^∞ (one pulse) e^{−κs} ds
+    decay = math.exp(-k * w)
+    a = (_ramp_int_exp(x, e, k) - _ramp_int_exp(x - on, e, k)
+         - decay * (_ramp_int_exp(x - w, e, k) - _ramp_int_exp(x - w - on, e, k)))
     a[x - w >= on + e] = 0.0  # a pulse wholly before t − W contributes exactly 0 (not a rounding residue)
-    return np.sum(a, axis=1) / w
+    norm = w if k <= 0 else -math.expm1(-k * w) / k
+    return np.sum(a, axis=1) / norm
 
 
 def _window_slots(p: Mapping[str, Any]) -> np.ndarray:
@@ -171,7 +227,8 @@ def window_stray(p: Mapping[str, Any], toggles: Mapping[str, bool]) -> tuple[np.
         return t, rows
     p_on = float(p["p_on_avg_w"])
     col = {c: i for i, c in enumerate(WINDOW_COLUMNS)}
-    f = eps + (1.0 - eps) * window_factor(t, roundtrip_s=w, **timing)
+    kappa = float(p["alpha_per_m"]) * C_M_PER_S / float(p["n_g"])  # e^{−2αz}, z = c·s/(2n_g)
+    f = eps + (1.0 - eps) * window_factor(t, roundtrip_s=w, kappa_per_s=kappa, **timing)
     rows[:, col["factor"]] = f
     cw = stray_photons(p, {**toggles, "stray_reflections": False}, p_on)
     for mech in _DIST:
@@ -301,10 +358,12 @@ def _exp_gate(x, gate, tau):
 
 def _events(p: Mapping[str, Any], j: int) -> list[tuple[str, float, float]]:
     """[(kind 'own' | 'xt', Δ = t_slot − t_pulse, frame weight)] of data slot j (module docstring)."""
-    tr, nb, ng = float(p["t_rep_s"]), int(p["N_b"]), int(p["n_guard"])
+    tr, nb, ng, K = float(p["t_rep_s"]), int(p["N_b"]), int(p["n_guard"]), int(p["K"])
+    b = nb + ng
     if p["placement"] == "guard_slot":
-        return [("own", (j + 1) * tr, 1.0), ("xt", -(nb - j) * tr, 1.0)]
-    tf = int(p["K"]) * (nb + ng) * tr
+        return [("own", (j + 1) * tr, 1.0), ("xt", -(b - 1 - j) * tr, 1.0),
+                *(("own" if m == K else "xt", (m * b + j + 1) * tr, 1.0) for m in range(1, K + 1))]
+    tf = K * b * tr
     wf = tf / float(p["t_cal_s"])
     return [("own", tf - (nb - 1 - j) * tr, wf), ("own", -(tf - j * tr), wf),
             ("xt", (1 + ng + j) * tr, wf), ("xt", -(ng + nb - j) * tr, wf)]
@@ -319,11 +378,11 @@ def _forward_scatter(p: Mapping[str, Any], power_w: float) -> tuple[float, float
     ph = power_w * var / (2 * hnu)  # photons/s in each sideband pair (T17 §6)
     mode_n = float(np.sum(ph * (mode_weight(f0 + fm, mode) + mode_weight(f0 - fm, mode))))
     gate_n = float(p["t_gate_s"]) * float(np.sum(ph * (_filter(f0 + fm, filt) + _filter(f0 - fm, filt))))
-    leff = l_eff(float(p["alpha_per_m"]), float(p["L_m"]))
+    length = float(p["L_m"])  # power_w is the output power: the co-propagating scattered light carries P_out·L
 
     def n_raman(f):
         w = 2 * np.pi * (f0 - np.asarray(f, dtype=float))  # Ω = bright − scattered
-        return power_w * leff * raman_scatter_density(w, gamma_per_w_m=p["gamma_per_w_m"], f_R=p["f_R"],
+        return power_w * length * raman_scatter_density(w, gamma_per_w_m=p["gamma_per_w_m"], f_R=p["f_R"],
                                                       raman_model=p["raman_model"], temperature_k=p["temperature_k"])
 
     fb = np.linspace(-3, 3, 6001) * filt["fwhm_hz"]
@@ -341,10 +400,13 @@ def forward_ref_stray(p: Mapping[str, Any], toggles: Mapping[str, bool]) -> np.n
     t_ref, tau_e, tau_ap = float(p["t_ref_s"]), float(p["edge_tau_s"]), float(p["tau_afterpulse_s"])
     col = {c: i for i, c in enumerate(FORWARD_REF_COLUMNS)}
     rows = np.zeros((int(p["N_b"]), len(FORWARD_REF_COLUMNS)))
-    leak = float(p["eps_mod"]) * phi
+    leak = float(p["eps_mod"]) * float(p["eps_gate"]) * phi  # eps_gate = 1 for guard_slot (checked)
     fwd = _forward_scatter(p, leak * hnu) if toggles["forward_scatter"] else (0.0, 0.0)
+    rec = float(p["det_recovery_s"])
     for j in range(rows.shape[0]):
         r = rows[j]
+        surv, w_blind = 1.0, 0.0  # P(no click within the recovery time before the slot); every Δ > 0 event of a
+        # placement has the same frame weight (guard 1, calibration frames: the frame after)
         if toggles["mod_leak"]:
             r[col["mod_leak_gate"]], r[col["mod_leak_mode"]] = leak * gate * F0, leak * w0
         r[col["forward_gate"]], r[col["forward_mode"]] = fwd
@@ -363,8 +425,9 @@ def forward_ref_stray(p: Mapping[str, Any], toggles: Mapping[str, bool]) -> np.n
                 p_click = -math.expm1(-float(p["qe_det"]) * s * phi * t_ref)
                 if toggles["afterpulse"]:
                     r[col["afterpulse_gate"]] += wf * p_click * float(p["p_afterpulse"]) * _exp_gate(dt, gate, tau_ap)
-                if dt < float(p["det_recovery_s"]):
-                    r[col["blind_prob"]] += wf * p_click
+                if dt < rec:
+                    surv, w_blind = surv * (1.0 - p_click), wf
+        r[col["blind_prob"]] = w_blind * (1.0 - surv)
         r[col["clicks_per_gate"]] = sum(r[col[c]] for c in FORWARD_REF_COLUMNS if c.endswith("_gate"))
         r[col["photons_per_mode"]] = sum(r[col[c]] for c in FORWARD_REF_COLUMNS if c.endswith("_mode"))
     return rows
@@ -375,12 +438,13 @@ class ForwardRefStrayTable(_OfflineTable):
     block, 0 … N_b − 1; columns :data:`FORWARD_REF_COLUMNS`, frame-weighted).
 
     Params (required, D34): ``placement`` (``cal_frames`` | ``guard_slot``); reference ``p_peak_w``, ``t_ref_s``,
-    ``freq_offset_hz``, ``eps_mod``, ``edge_tau_s``; demux ``er_dmx_lin`` (ER as a power ratio > 1; YAML
-    ``er_dmx_db``); detector ``qe_det``, ``p_afterpulse``, ``tau_afterpulse_s``, ``det_recovery_s``; timing
-    ``t_rep_s``, ``N_b``, ``n_guard`` (the run's value, ≥ 1 for ``guard_slot``), ``K``, ``t_cal_s``; GBS side ``t_gate_s``, ``gbs_filter``, ``mode``; forward scattering
-    ``L_m``, ``alpha_per_m``, ``gawbs`` group, ``gamma_per_w_m``, ``f_R``, ``raman_model``, ``lambda0_m``,
-    ``temperature_k``; D78 linewidth ``sigma_target_rad``, ``lock_ratio_R`` (R ≥ 1). Toggles: ``mod_leak``,
-    ``edges``, ``demux_crosstalk``, ``forward_scatter``, ``afterpulse``. Optional ``limit``
+    ``freq_offset_hz``, ``eps_mod``, ``eps_gate`` (slow gate of the reference path during data frames,
+    ``cal_frames`` only; 1 = none, must be 1 for ``guard_slot``), ``edge_tau_s``; demux ``er_dmx_lin`` (ER as a
+    power ratio > 1; YAML ``er_dmx_db``); detector ``qe_det``, ``p_afterpulse``, ``tau_afterpulse_s``,
+    ``det_recovery_s``; timing ``t_rep_s``, ``N_b``, ``n_guard`` (the run's value, ≥ 1 for ``guard_slot``), ``K``,
+    ``t_cal_s``; GBS side ``t_gate_s``, ``gbs_filter``, ``mode``; forward scattering ``L_m``, ``gawbs`` group,
+    ``gamma_per_w_m``, ``f_R``, ``raman_model``, ``lambda0_m``, ``temperature_k``; D78 linewidth
+    ``sigma_target_rad``, ``lock_ratio_R`` (R ≥ 1). Toggles: ``mod_leak``, ``edges``, ``demux_crosstalk``, ``forward_scatter``, ``afterpulse``. Optional ``limit``
     {photons_per_mode_max, source}: CHK ``stray_light_limit`` on the slot mean.
     """
 
@@ -391,9 +455,9 @@ class ForwardRefStrayTable(_OfflineTable):
         name = name or self.kind_name
         _check_raman(params, name)
         check_gawbs_group(params, name)
-        require(params, "placement", "p_peak_w", "t_ref_s", "freq_offset_hz", "eps_mod", "edge_tau_s", "er_dmx_lin",
-                "qe_det", "p_afterpulse", "tau_afterpulse_s", "det_recovery_s", "t_rep_s", "N_b", "n_guard", "K",
-                "t_cal_s", "t_gate_s", "gbs_filter", "mode", "L_m", "alpha_per_m", "sigma_target_rad",
+        require(params, "placement", "p_peak_w", "t_ref_s", "freq_offset_hz", "eps_mod", "eps_gate", "edge_tau_s",
+                "er_dmx_lin", "qe_det", "p_afterpulse", "tau_afterpulse_s", "det_recovery_s", "t_rep_s", "N_b",
+                "n_guard", "K", "t_cal_s", "t_gate_s", "gbs_filter", "mode", "L_m", "sigma_target_rad",
                 "lock_ratio_R", block=name)
         require(params["gbs_filter"], "shape", "fwhm_hz", block=f"{name}.gbs_filter")
         _check_mode(params["mode"], name)
@@ -401,6 +465,11 @@ class ForwardRefStrayTable(_OfflineTable):
             raise ValueError(f"block {name!r}: placement must be one of {PLACEMENTS}, got {params['placement']!r}")
         if params["placement"] == "guard_slot" and int(params["n_guard"]) < 1:
             raise ValueError(f"block {name!r}: placement guard_slot needs n_guard >= 1 (overlay demux/guard_slot)")
+        if params["placement"] == "guard_slot" and float(params["eps_gate"]) != 1.0:
+            raise ValueError(f"block {name!r}: eps_gate must be 1 for guard_slot (the reference path is open every "
+                             "frame; a slow gate cannot separate the guard slot from the data slots)")
+        if not 0.0 <= float(params["eps_gate"]) <= 1.0:
+            raise ValueError(f"block {name!r}: need 0 <= eps_gate <= 1")
         if int(params["N_b"]) < 1 or int(params["K"]) < 2:
             raise ValueError(f"block {name!r}: need N_b >= 1 and K >= 2")
         if "limit" in params:
