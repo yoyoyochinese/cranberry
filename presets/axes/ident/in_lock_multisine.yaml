@@ -1,0 +1,18 @@
+# Identification axis (Phase 6 P7, D85-7): Schroeder-phased multisine, all tones at once in one locked run.
+# Waveform half of the in-lock identification; pair it with a point overlay (see in_lock_stepped.yaml):
+#   --overlay ident/wire_refD | ident/wire_refA | ident/wire_F | ident/p7_literal  --overlay ident/in_lock_multisine
+# Same excitation power as the stepped sine at equal ident_amplitude (amplitude = √2 × RMS, excitation docstring):
+# each of the N tones gets ident_amplitude/√N, so the per-tone SNR is √N lower than a stepped sine of the same
+# amplitude, for N times less measuring time per tone. Raise ident_amplitude to compensate, watching the peak
+# (crest ≈ 1.5–2 × RMS with Schroeder phases) against the fringe nonlinearity.
+offline:
+  params:
+    ident_waveform: multisine
+    ident_n_freqs: 25                 # tones log-spaced in [ident_f_lo_hz, ident_f_hi_hz], snapped to 1/period (duplicates dropped)
+    ident_period_s: 0.01              # tone grid 100 Hz; one Welch segment per period (rectangular window, leakage-free)
+    ident_settle_s: 0.01              # discarded after t_start (one period) [AE]
+    ident_n_periods: 40               # averaged periods: coherence estimated from 40 segments
+    ident_dwell_s: 0.025              # unused by multisine (read only by stepped_sine)
+    ident_n_blocks: 5                 # unused by multisine (stepped-sine coherence sub-blocks)
+    ident_coherence_min: 0.9
+    ident_duration_s: !expr "offline.params.ident_t_start_s + offline.params.ident_settle_s + (offline.params.ident_n_periods + 1) * offline.params.ident_period_s"

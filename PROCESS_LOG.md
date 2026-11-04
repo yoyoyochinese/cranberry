@@ -135,3 +135,5 @@
 - 文献ノート 8 本（`notes/lit-aghaeerad2025.md`・`madsen2022`・`nardelli2026`・`svarc2023`・`pittaluga2021`・`luo2025`・`zhong2021`・`kashiwazaki2023`）を統合。Luo 2025 から P8（対称な 2 トーンの参照光）を提案。P4 (a) の照合: 位相だけの駆動の場合はコードと一致、光路長の駆動の場合はコードに無い（`reviews/scripts/p6_p4a_check.py`）。
 - skill: grilling（grill-me の後継、Phase 6 手順 3）。理由: P1–P8 と (A)(B) に要る新しいブロック・既存ブロックの変更・抽象制御インターフェースの拡張は戻すのが高くつく設計の判断（AGENTS.md）。結果: 14 問すべて推奨どおり（D85）。役に立った（ゲートの 3 担当の提案を 3 ブロックにまとめられた）。
 - skill: anthropic-skills:research-papers（事実調査の担当、Phase 6 手順 3 の前提）。理由: 熱光学係数の波長依存性の一次資料。結果: R ≈ +0.3 ± 0.6 ps/(km·K)（符号は決まらない）、現行のプリセットの k_T と κ_τ の組み合わせは R を約 10 倍大きく見積もる（`notes/fact-p6-thermo-optic-moku.md`）。役に立った。
+- WP6-I（D85-7）: `excitation`・`loop_identification`、抽象制御インターフェースの後方互換の追加（`engage`/`disengage(loop_id)`、`acquire(..., injections_on=)`、`measure_loop_gain`）、Moku:Delta の対応の説明つきスタブ（`hardware/moku.py`）、上書き用の設定 `ident/*`。検証は `reviews/scripts/p6_wp6i_ident.py`。
+- skill: ponytail（プラグインのフックで全ターン有効、WP6-I）。理由: 自動で有効（呼び出したのではない）。AGENTS.md に従い、ブロックの内部（`excitation` のステップ関数、`loop_identification` の推定）にだけ適用し、フレームワーク（インターフェース・`SimController`・ランナーのフック）は保護リストどおり拡張だけ（簡略化なし）。役に立ったか: ブロック内部は短くなった。フレームワークには使っていない。

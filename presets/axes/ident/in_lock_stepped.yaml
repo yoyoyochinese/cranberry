@@ -1,0 +1,19 @@
+# Identification axis (Phase 6 P7, D85-7): stepped sine, one locked run through every frequency.
+# Waveform half of the in-lock identification; the injection point (which preset, which loop) is a second overlay:
+#   refD_nominal:  --overlay ident/wire_refD --overlay ident/in_lock_stepped
+#   refA:          --overlay ident/wire_refA --overlay ident/in_lock_stepped
+#   F_*:           --overlay ident/wire_F    --overlay ident/in_lock_stepped     (port 0, full stack L)
+#   F_* (P7 literal, fast stage replaced by the analyser, TEC holds): --overlay ident/p7_literal --overlay ident/in_lock_stepped
+# The point overlay sets ident_f_lo_hz / ident_f_hi_hz / ident_amplitude / ident_t_start_s (preset-specific);
+# this file sets the waveform keys. Both files define disjoint keys, so their order does not matter.
+# Every ident_* key read by the point overlays is defined here; keys unused by this waveform are marked.
+offline:
+  params:
+    ident_waveform: stepped_sine
+    ident_n_freqs: 25                 # log-spaced in [ident_f_lo_hz, ident_f_hi_hz], snapped to 1/(dwell − settle)
+    ident_dwell_s: 0.025              # per step, settle included [AE]: ≥ 6 periods at 300 Hz in the 20 ms window
+    ident_settle_s: 0.005             # per step: ≫ closed-loop transients (refD: f_c ≈ 2 kHz, 915B Q/πf ≈ 0.2 ms) [AE]
+    ident_period_s: 0.025             # unused by stepped_sine (read only by multisine / chirp)
+    ident_n_blocks: 5                 # coherence from 5 sub-blocks of each 20 ms window
+    ident_coherence_min: 0.9          # points below it are excluded from the margins (still reported)
+    ident_duration_s: !expr "offline.params.ident_t_start_s + offline.params.ident_n_freqs * offline.params.ident_dwell_s + 0.001"

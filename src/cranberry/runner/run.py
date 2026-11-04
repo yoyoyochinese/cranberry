@@ -61,6 +61,8 @@ Measurement-stage hooks (WP-I1, D58-6; :func:`evaluate_measurements`, after the 
         pulse_sample:
           <entry>: {block, kernel, r_slots}   # r_slots: K items, each a number R (shot-noise units)
                                               # or {metric, quadrature_rad}
+        loop_identification:                  # Phase 6 P7 (D85-7): L̂, S, T, margins from one locked run
+          <entry>: {block}                    # its x / reference / response slots join measure.record
 
     ``metric`` names a metric with noise levels (``measure.metrics``), e.g. ``i.port0``;
     ``quadrature_rad`` is added to the measured angle Δ = Δ_set + δ − θ_off (0: the locked quadrature,
@@ -84,6 +86,8 @@ Measurement-stage hooks (WP-I1, D58-6; :func:`evaluate_measurements`, after the 
       the zero span reads them at the block's own centre ``f_s_hz``, the swept spectrum at every bin
       (linear interpolation on the source grid, which must cover the span; θ_off(f_s) included).
     * pulse sample: ``evaluate(r_slots, c=kernel.c, clearance_lin=kernel.clearance_pulse)``.
+    * loop identification: ``evaluate(series, t_s, excitation=<its excitation block>, model=<its
+      loop_stability_check block or None>, f_sim_hz=run.f_sim_hz)`` (``meas.loop_identification``).
 
     Random numbers: ``core.rng.stream(run.seed, "measure.<hook>.<entry>")`` (G11). Results go to
     ``RunResult.measurements[<hook>][<entry>]`` (the block's ``evaluate`` dict plus ``v_prime`` /
@@ -649,6 +653,7 @@ class Recorder(BaseBlock):
 MEASUREMENT_HOOKS: dict[str, tuple[str, ...]] = {
     "esa": ("esa_zero_span", "esa_swept_spectrum"),
     "pulse_sample": ("pulse_sample",),
+    "loop_identification": ("loop_identification",),
 }
 
 
@@ -788,6 +793,23 @@ def _pulse(blk: Any, cfg: Mapping[str, Any], blocks: Mapping[str, Any], metrics:
     return r
 
 
+def _loop_ident(blk: Any, cfg: Mapping[str, Any], blocks: Mapping[str, Any], series: Mapping[str, np.ndarray],
+                t_s: np.ndarray, f_sim_hz: float | None, what: str) -> dict:
+    _need(cfg, ("block",), what)
+    if f_sim_hz is None or t_s.size < 2:
+        raise ValueError(f"{what}: loop identification reads the recorded series (needs measure.record and f_sim_hz)")
+    p = blk.params
+    exc = blocks.get(p["excitation"])
+    if exc is None or exc.kind != "excitation":
+        raise KeyError(f"{what}: no excitation block {p['excitation']!r} in the pipeline")
+    model = None
+    if p.get("model") is not None:
+        model = blocks.get(p["model"])
+        if model is None or model.kind != "loop_stability_check":
+            raise KeyError(f"{what}: no loop_stability_check block {p['model']!r} (offline.blocks / pipeline)")
+    return blk.evaluate(series, t_s, excitation=exc, model=model, f_sim_hz=f_sim_hz)
+
+
 def evaluate_measurements(
     measure: Mapping[str, Any],
     blocks: Mapping[str, Any],
@@ -798,6 +820,7 @@ def evaluate_measurements(
     seed: int,
     series: Mapping[str, np.ndarray] | None = None,
     t_s: np.ndarray | None = None,
+    f_sim_hz: float | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Run the measurement-stage hooks of ``measure`` after the loop (module docstring).
 
@@ -810,6 +833,7 @@ def evaluate_measurements(
         seed: run seed (RNG streams ``measure.<hook>.<entry>``).
         series, t_s: the recorded series and their time axis (the zero span reads the derived
             ``<metric slot>.cos2`` / ``.sin2`` series, :class:`Recorder` ``cos_sin2``).
+        f_sim_hz: base sample rate (``loop_identification``: the excitation schedule is in base samples).
     """
     from cranberry.blocks.meas.metrics import MetricProbe, metric_name
     from cranberry.core.rng import stream
@@ -849,6 +873,8 @@ def evaluate_measurements(
                 res[str(entry)] = _zero_span(blk, cfg, metrics, f_record_hz, rng, what, cos_sin2(str(cfg["metric"])))
             elif blk.kind == "esa_swept_spectrum":
                 res[str(entry)] = _swept(blk, cfg, blocks, metrics, loss_registry, rng, what)
+            elif blk.kind == "loop_identification":
+                res[str(entry)] = _loop_ident(blk, cfg, blocks, series, t_rec, f_sim_hz, what)
             else:
                 res[str(entry)] = _pulse(blk, cfg, blocks, metrics, rng, what)
         out[hook] = res
@@ -975,6 +1001,10 @@ def run(
         slots = list(rec_cfg["slots"])
         slots += [s for b in probes for p in b.pairs if (s := b.slot(p.port)) not in slots]
         slots += [s for s in validity_slots if s not in slots]
+        named0 = {b.name: b for b in (*offline_blocks, *leaves)}
+        for c in ((rs.measure or {}).get("loop_identification") or {}).values():
+            b = named0.get(c.get("block")) if isinstance(c, Mapping) else None
+            slots += [s for s in getattr(b, "signal_slots", []) if s not in slots]
         if "antialias" not in rec_cfg and int(rec_cfg["decim"]) > 1:
             global _ALIAS_WARNED
             if not _ALIAS_WARNED:
@@ -1048,7 +1078,8 @@ def run(
         named = {b.name: b for b in (*offline_blocks, *leaves)}
         f_rec = settings.f_sim_hz / recorder.decim if recorder is not None else None
         measurements = evaluate_measurements(rs.measure, named, metrics=metrics, loss_registry=offline.loss_registry,
-                                             f_record_hz=f_rec, seed=settings.seed, series=series, t_s=t_s)
+                                             f_record_hz=f_rec, seed=settings.seed, series=series, t_s=t_s,
+                                             f_sim_hz=settings.f_sim_hz)
     t_valid = max((b.t_settle_s for b in probes), default=0.0)
     validity_frac = {}
     for v in validity:

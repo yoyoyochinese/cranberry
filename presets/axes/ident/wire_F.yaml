@@ -1,0 +1,76 @@
+# Identification point for the future presets F_* (F_common structure, port 0; Phase 6 P7 (B), D85-7). Needs a
+# waveform overlay (ident/in_lock_stepped or ident/in_lock_multisine).
+#
+# The excitation sums into the fast controller's output (after sup0, before dac0f and before the TEC stage pid0s):
+#
+#   v.adc0 ─► pid0f ─► sup0 ─► ctrl.sup0.u (u) ──(+ x)──► ctrl.ident.u0 (u + x) ─┬─► dac0f ─► … ─► PZT ─┐
+#                                                                                └─► pid0s ─► TEC ──────┤
+#   v.adc0 ◄─────────────────────────────────── Liu fringe ◄─────────────────────────────────────────────┘
+#
+# Every path of the stack passes through u, so u is a summing point of the whole loop: with u = −L(u + x),
+# loop_identification (relation minus_l) gives L̂ = −u/(u + x), the same L as at the error point (the loop gain of a
+# single loop does not depend on where it is broken), here the full stack (PZT + TEC offload), compared with
+# chk.lock_stability (model_stages all). The error point itself (between adc0 and pid0f) would need adc0 restated
+# (the keyed merge appends new blocks at the end of a list), which would override the controller overlays'
+# adc0 settings (controller/dsc1, controller/moku_delta); this point needs only parameter merges, so it combines
+# with them. The excitation is in V at the DAC input; its amplitude is set as an actuator phase.
+# Port k (lock1) is untouched.
+run:
+  duration_s: !expr "offline.params.ident_duration_s"
+offline:
+  params:
+    ident_f_lo_hz: 200.0              # below f_u (1 kHz nominal)
+    ident_f_hi_hz: 5.0e+4             # above the PZT mode (20 kHz nominal) and the −180° region
+    ident_amplitude: !expr "0.02 / offline.params.pzt_k_rad_per_v"   # 20 mrad of PZT phase per volt of x (|S| ≈ 1) [AE]
+    ident_amp_f_corner_hz: .inf       # flat: the PZT mode (Q) amplifies x near f_res; do not raise x with f
+    ident_t_start_s: 0.02
+  blocks:
+    - block: loop_identification
+      name: ident
+      params:
+        excitation: ident.exc
+        x: ctrl.ident.exc.x
+        reference: ctrl.ident.u0
+        response: ctrl.sup0.u
+        relation: minus_l
+        model: chk.lock_stability
+        model_stages: all
+        coherence_min: !expr "offline.params.ident_coherence_min"
+        n_blocks: !expr "offline.params.ident_n_blocks"
+pipeline:
+  - name: lock0.stack
+    stack:
+      stages:
+        - name: stage0f
+          seq:
+            - block: excitation        # appended after sup0 (keyed merge)
+              name: ident.exc
+              params:
+                in: ctrl.sup0.u
+                out: ctrl.ident.u0
+                unit: V
+                waveform: !expr "offline.params.ident_waveform"
+                f_start_hz: !expr "offline.params.ident_f_lo_hz"
+                f_stop_hz: !expr "offline.params.ident_f_hi_hz"
+                n_freqs: !expr "offline.params.ident_n_freqs"
+                spacing: log
+                dwell_s: !expr "offline.params.ident_dwell_s"
+                period_s: !expr "offline.params.ident_period_s"
+                settle_s: !expr "offline.params.ident_settle_s"
+                amp_f_corner_hz: !expr "offline.params.ident_amp_f_corner_hz"
+                amplitude: !expr "offline.params.ident_amplitude"
+                t_start_s: !expr "offline.params.ident_t_start_s"
+                toggles: {enabled: true}
+        - name: pid0s
+          params: {in: ctrl.ident.u0}
+      actuators:
+        - name: act0f
+          seq:
+            - name: dac0f
+              params: {in: ctrl.ident.u0}
+measure:
+  record:
+    decim: 2                          # 500 kHz ≥ 2 × ident_f_hi_hz (the identification slots are added by the runner)
+    antialias: none
+  loop_identification:
+    lock0: {block: ident}

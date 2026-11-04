@@ -1,0 +1,72 @@
+# Identification point for refA (lock 1, pump–probe, EOM1; Phase 6 P7 (B), D85-7). Needs a waveform overlay
+# (ident/in_lock_stepped or ident/in_lock_multisine).
+#
+#   dem.dem1.i ─► adc1 ─► v.adc1 (e) ──(+ x)──► v.ident.ref1 (e + x) ─► pid1 ─► dac1 ─► dl1 ─► eom1 ─► … ─► dem1
+#
+# Error summing point between adc1 and pid1 (refA's controller runs at the base rate, so every recorded sample is a
+# controller instant). loop_identification (relation minus_l): L̂ = −v.adc1 / v.ident.ref1, S, T, margins. refA has
+# no loop_stability_check: no model key (the identified L̂ stands alone; its unity gain should sit near the 20 kHz the
+# pid1 gain was designed for, refA.yaml [AE]). adc1 is restated unchanged (keyed !replace into a seq with the
+# excitation; refA.yaml is the source). The run is long at refA's f_sim = 20 MHz (≈ 0.66 s → 13 M samples).
+run:
+  duration_s: !expr "offline.params.ident_duration_s"
+offline:
+  params:
+    ident_f_lo_hz: 1000.0             # below the 20 kHz design unity gain
+    ident_f_hi_hz: 3.0e+5             # dem1 LPF 500 kHz, τ_L = 1 µs: −180° in the 100s of kHz [AE]
+    ident_amplitude: 0.01             # V at the ADC output (K ≈ 0.40 V/rad: ≈ 25 mrad at |T| ≈ 1) [AE]
+    ident_amp_f_corner_hz: 2.0e+4     # ∝ f above the design unity gain
+    ident_t_start_s: 0.01
+  blocks:
+    - block: loop_identification
+      name: ident
+      params:
+        excitation: ident.exc
+        x: ctrl.ident.exc.x
+        reference: v.ident.ref1
+        response: v.adc1
+        relation: minus_l
+        model_stages: all
+        coherence_min: !expr "offline.params.ident_coherence_min"
+        n_blocks: !expr "offline.params.ident_n_blocks"
+pipeline:
+  - !replace
+    name: adc1
+    seq:
+      - block: adc
+        name: adc1
+        params:
+          in: dem.dem1.i
+          out: v.adc1
+          device: fpga_generic
+          bits: 16
+          range_v: [-0.5, 0.5]
+          noise_vrms: 0.0
+          avg_samples: 1
+          toggles: {quantization: true, noise: false, saturation: true}
+      - block: excitation
+        name: ident.exc
+        params:
+          in: v.adc1
+          out: v.ident.ref1
+          unit: V
+          waveform: !expr "offline.params.ident_waveform"
+          f_start_hz: !expr "offline.params.ident_f_lo_hz"
+          f_stop_hz: !expr "offline.params.ident_f_hi_hz"
+          n_freqs: !expr "offline.params.ident_n_freqs"
+          spacing: log
+          dwell_s: !expr "offline.params.ident_dwell_s"
+          period_s: !expr "offline.params.ident_period_s"
+          settle_s: !expr "offline.params.ident_settle_s"
+          amp_f_corner_hz: !expr "offline.params.ident_amp_f_corner_hz"
+          amplitude: !expr "offline.params.ident_amplitude"
+          t_start_s: !expr "offline.params.ident_t_start_s"
+          toggles: {enabled: true}
+  - name: pid1
+    params: {in: v.ident.ref1}
+measure:
+  record:
+    decim: 20                         # 1 MHz ≥ 2 × ident_f_hi_hz
+    antialias: none
+  loop_identification:
+    lock1: {block: ident}
