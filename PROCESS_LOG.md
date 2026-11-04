@@ -132,3 +132,5 @@
 ## Phase 6 — Exploration（2026-11-04〜）
 - ユーザの指示（D84）: (A)・(B) を先に足し、軸 1（GBS なしの squeezing の位相安定化の実験系）と軸 2（GBS への組み込み）の 2 軸で掃引する。構成図とグラフを付ける。
 - 手順 1（`docs/phase6_prompt.md`）: P1–P7 と Luo 2025 の PDF がすべて `refs/` にあることを確認。新しい文脈の担当 4 人が文献ノート `notes/lit-*.md` を並行して作成中、1 人が既存の機能（(A)・(B)、軸 1・軸 2 の構成、§8 の道具）を調査中。
+- 文献ノート 8 本（`notes/lit-aghaeerad2025.md`・`madsen2022`・`nardelli2026`・`svarc2023`・`pittaluga2021`・`luo2025`・`zhong2021`・`kashiwazaki2023`）を統合。Luo 2025 から P8（対称な 2 トーンの参照光）を提案。P4 (a) の照合: 位相だけの駆動の場合はコードと一致、光路長の駆動の場合はコードに無い（`reviews/scripts/p6_p4a_check.py`）。
+- skill: grilling（grill-me の後継、Phase 6 手順 3）。理由: P1–P8 と (A)(B) に要る新しいブロック・既存ブロックの変更・抽象制御インターフェースの拡張は戻すのが高くつく設計の判断（AGENTS.md）。結果: 回答待ち。
