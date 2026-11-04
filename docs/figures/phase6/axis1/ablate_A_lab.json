@@ -1,0 +1,130 @@
+{
+ "case": "A_lab",
+ "quantity": "i.port0.sigma_total_rad",
+ "point": {
+  "base": "presets/bench/refA_fiber_bench.yaml",
+  "overlays": [
+   "bench/refA_laser_dx1",
+   "bench/refA_fiber_acoustic"
+  ],
+  "axes": {
+   "offline.params.L_sq_fiber_m": 10.0,
+   "offline.params.lo_route": "fiber_matched",
+   "offline.params.eta_fiber_out": 0.98,
+   "offline.params.acoustic_scale": 1.0,
+   "offline.params.acoustic_gamma": 1.0
+  },
+  "duration_s": 0.05,
+  "seed": 1,
+  "extra": {
+   "pipeline": [
+    {
+     "name": "mi",
+     "params": {
+      "t_settle_s": 0.015
+     }
+    }
+   ]
+  }
+ },
+ "n_toggles": 37,
+ "baseline_seed1": 0.18674518941444015,
+ "impact_seed1": {
+  "koheras.fm_white": -0.17464936858518665,
+  "env.thermal.fiber.drift": 2.022445239058257e-09,
+  "mech.mech": -0.00034939881147658114,
+  "sp.phase": -0.0016997660248413426,
+  "sp.group_delay": 0.0,
+  "fc.laser_lowpass": -0.10617857917578849,
+  "ba.emission_time": -0.037000912306446254,
+  "pd1.shot_noise": -2.4517710361937617e-09,
+  "pd1.electronic_noise": 1.0695044017072775e-09,
+  "adc1.quantization": -3.2724009613183114e-09,
+  "adc1.saturation": 0.0,
+  "pid1.feedback": -1.723862020908129e-06,
+  "pid1.i_term": -1.723862020908129e-06,
+  "dac1.quantization": 6.156244958255286e-11,
+  "dac1.saturation": 0.0,
+  "bhdbeat.shot_noise": -1.8175359048355766e-06,
+  "adc2.quantization": -9.201093220667644e-10,
+  "adc2.saturation": 0.0,
+  "pid2.feedback": 0.029024068622762578,
+  "pid2.i_term": 0.029024068622762578,
+  "dac2.quantization": 1.7998679768815862e-09,
+  "dac2.saturation": 0.0,
+  "pid2s.feedback": -6.032140025452604e-06,
+  "pid2s.i_term": -6.032140025452604e-06,
+  "dac2s.quantization": -6.890682932580994e-07,
+  "dac2s.saturation": 0.0,
+  "fs2.resonance": 2.5505702976047484e-06,
+  "fs2.saturation": 0.0,
+  "optics.enabled": 0.0,
+  "bhd_det.qe": 0.0,
+  "bhd_det.circuit_noise": 0.0,
+  "mm.enabled": 0.0,
+  "frontend.circuit_noise": 0.0,
+  "frontend.freq_response": 0.0,
+  "esa_zs.radiometer_noise": 0.0,
+  "esa_spec.radiometer_noise": 0.0,
+  "esa_spec.subtract_circuit_noise": 0.0
+ },
+ "errors": {},
+ "mattered": [
+  "koheras.fm_white",
+  "fc.laser_lowpass",
+  "ba.emission_time",
+  "pid2.feedback",
+  "pid2.i_term"
+ ],
+ "stats": {
+  "baseline": {
+   "mean": 0.1869393509385421,
+   "std": 0.0002110802804072262,
+   "min": 0.18674518941444015,
+   "max": 0.18722411880691647,
+   "n": 4
+  },
+  "combined": {
+   "mean": 0.1852023608852126,
+   "std": 0.00018133347249868308,
+   "min": 0.1850454233895988,
+   "max": 0.18544502711786112,
+   "n": 4
+  },
+  "koheras.fm_white": {
+   "mean": 0.012300178757858748,
+   "std": 0.00017014910235186873,
+   "min": 0.012095820829253494,
+   "max": 0.012465112318113968,
+   "n": 4
+  },
+  "fc.laser_lowpass": {
+   "mean": 0.08061907385367738,
+   "std": 3.701191134975358e-05,
+   "min": 0.08056661023865166,
+   "max": 0.08064878720908475,
+   "n": 4
+  },
+  "ba.emission_time": {
+   "mean": 0.1499200593413346,
+   "std": 0.00018319162447539615,
+   "min": 0.1497442771079939,
+   "max": 0.15016746491324218,
+   "n": 4
+  },
+  "pid2.feedback": {
+   "mean": 0.24857214775828257,
+   "std": 0.02765702374645427,
+   "min": 0.21576925803720273,
+   "max": 0.28333584588369126,
+   "n": 4
+  },
+  "pid2.i_term": {
+   "mean": 0.24857214775828257,
+   "std": 0.02765702374645427,
+   "min": 0.21576925803720273,
+   "max": 0.28333584588369126,
+   "n": 4
+  }
+ }
+}

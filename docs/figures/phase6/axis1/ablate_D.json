@@ -1,0 +1,128 @@
+{
+ "case": "D",
+ "quantity": "series.lock.lockD.err.std",
+ "point": {
+  "base": "presets/bench/refD_lab.yaml",
+  "overlays": [],
+  "axes": {
+   "offline.params.acoustic_hf_slope": 2.0,
+   "offline.params.acoustic_rho_arms": 0.0,
+   "offline.params.dac_output_noise_v": 0.0
+  },
+  "duration_s": 0.2,
+  "seed": 1
+ },
+ "n_toggles": 42,
+ "baseline_seed1": 0.04055851799238071,
+ "impact_seed1": {
+  "amp914.poles": -6.513026427510532e-05,
+  "amp914.saturation": 0.0,
+  "stretcher915b.resonance": -0.0008954952387467061,
+  "stretcher915b.saturation": 0.0,
+  "dx1.fm_white": -0.013822702134439264,
+  "dx1.fm_flicker": 0.0,
+  "dx1.rin": -7.4863420102336264e-06,
+  "env.thermal.drift": -5.875623029977239e-06,
+  "env.mech.mech": -0.009079903074462811,
+  "env.mech.correlation": 0.00018926566986843252,
+  "pol.jones.pol_birefringence_drift": -1.0433341344255609e-05,
+  "pol.jones.pol_crosstalk": -1.3184799295178073e-05,
+  "pol.jones.pol_smf_drift": -1.6986160889860547e-05,
+  "path.phase.phase": -0.009569446728255288,
+  "path.phase.group_delay": 0.0,
+  "path.beams.emission_time": -0.01382270213443907,
+  "path.beams.polarization": -6.636091016573586e-05,
+  "pol.polarizer.pol_drift_before_polarizer": -1.6986160889860547e-05,
+  "pol.polarizer.pol_extinction": -2.2943356567925455e-05,
+  "pol.per.per_crosscoupling": -0.00012618967521738078,
+  "pdb.offset.offset": 0.0,
+  "pdb.offset.drift": 0.0,
+  "pdb450c.shot_noise": -1.3522107753002888e-05,
+  "pdb450c.electronic_noise": -1.2847315022788963e-05,
+  "pdb450c.rin": -1.0226804318218263e-05,
+  "pdb450c.offset_drift": 0.0,
+  "pdb450c.optical_imbalance": 0.0,
+  "pdb450c.per_crosscoupling": -0.00012618967521738078,
+  "pdb450c.visibility_hf_averaging": -2.4276870226595804e-05,
+  "pdb450c.saturation": 0.0,
+  "dsc1.in_bw.enabled": -0.00018728579437905096,
+  "dsc1.adc.quantization": -9.781949001232138e-06,
+  "dsc1.adc.noise": -1.358432824655198e-05,
+  "dsc1.adc.saturation": 0.0,
+  "dsc1.pid.feedback": 0.13222827640347973,
+  "dsc1.pid.p_term": 4.2705490969956184e-05,
+  "dsc1.pid.i_term": 0.13235426349112078,
+  "dsc1.pid.d_term": 0.0004852952246771694,
+  "dsc1.dac.quantization": -0.0002896523144821153,
+  "dsc1.dac.saturation": 0.0,
+  "dsc1.out_bw.enabled": -0.00016777193712886468,
+  "chk.lockD_stability.enabled": 0.0
+ },
+ "errors": {},
+ "mattered": [
+  "dsc1.pid.i_term",
+  "dsc1.pid.feedback",
+  "dx1.fm_white",
+  "path.beams.emission_time",
+  "path.phase.phase",
+  "env.mech.mech"
+ ],
+ "stats": {
+  "baseline": {
+   "mean": 0.040955241397365366,
+   "std": 0.0002871902649163655,
+   "min": 0.04055851799238071,
+   "max": 0.04119651027928158,
+   "n": 4
+  },
+  "combined": {
+   "mean": 0.038959279140686365,
+   "std": 0.0004973370958472306,
+   "min": 0.0383749125973023,
+   "max": 0.039488954954360576,
+   "n": 4
+  },
+  "dsc1.pid.i_term": {
+   "mean": 0.17228143804384133,
+   "std": 0.01515281801855273,
+   "min": 0.1582258808565994,
+   "max": 0.1931491381930325,
+   "n": 4
+  },
+  "dsc1.pid.feedback": {
+   "mean": 0.17227509501317181,
+   "std": 0.01520915505849425,
+   "min": 0.15814941240850952,
+   "max": 0.19325050534132623,
+   "n": 4
+  },
+  "dx1.fm_white": {
+   "mean": 0.02725922166774442,
+   "std": 0.0003526208375772202,
+   "min": 0.026735815857941443,
+   "max": 0.027484101701274258,
+   "n": 4
+  },
+  "path.beams.emission_time": {
+   "mean": 0.027259221667744676,
+   "std": 0.00035262083757728904,
+   "min": 0.026735815857941637,
+   "max": 0.02748410170127471,
+   "n": 4
+  },
+  "path.phase.phase": {
+   "mean": 0.03115776176037928,
+   "std": 0.00017169300228440465,
+   "min": 0.03098907126412542,
+   "max": 0.03135908834077635,
+   "n": 4
+  },
+  "env.mech.mech": {
+   "mean": 0.03165935278394669,
+   "std": 0.0001923766429316937,
+   "min": 0.031478614917917896,
+   "max": 0.03185289012742899,
+   "n": 4
+  }
+ }
+}

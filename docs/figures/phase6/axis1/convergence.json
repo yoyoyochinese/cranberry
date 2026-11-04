@@ -1,0 +1,351 @@
+{
+ "A_koh_10m": {
+  "chunk": {
+   "passed": true,
+   "values": {
+    "chunk_samples": [
+     262144,
+     87382
+    ],
+    "max_abs_diff": 0.0
+   },
+   "criterion": "bit-identical series and final state (G11)"
+  },
+  "f_sim": {
+   "passed": true,
+   "values": {
+    "x2": {
+     "i.port0.sigma_total_rad": {
+      "reference": 0.009342244403309587,
+      "value": 0.00934908177152503,
+      "change": 6.837368215443368e-06,
+      "tolerance": 0.001
+     },
+     "i.port0.std_loop_rad": {
+      "reference": 0.009033367034173121,
+      "value": 0.009120214110608921,
+      "change": 8.684707643579967e-05,
+      "tolerance": 0.001
+     }
+    }
+   },
+   "criterion": "|q(k\u00b7f_sim) \u2212 q(f_sim)| <= tolerance/3 (PLAN \u00a76.4)"
+  }
+ },
+ "A_dx1_lab_10m": {
+  "chunk": {
+   "passed": true,
+   "values": {
+    "chunk_samples": [
+     262144,
+     87382
+    ],
+    "max_abs_diff": 0.0
+   },
+   "criterion": "bit-identical series and final state (G11)"
+  },
+  "f_sim": {
+   "passed": false,
+   "values": {
+    "x2": {
+     "i.port0.sigma_total_rad": {
+      "reference": 0.18674518941444015,
+      "value": 0.18686563380474677,
+      "change": 0.00012044439030661769,
+      "tolerance": 0.005
+     },
+     "i.port0.std_loop_rad": {
+      "reference": 0.18059553510946955,
+      "value": 0.18232966737622947,
+      "change": 0.001734132266759919,
+      "tolerance": 0.005
+     }
+    }
+   },
+   "criterion": "|q(k\u00b7f_sim) \u2212 q(f_sim)| <= tolerance/3 (PLAN \u00a76.4)"
+  }
+ },
+ "A_dx1_lab_fcopt_10m": {
+  "chunk": {
+   "passed": true,
+   "values": {
+    "chunk_samples": [
+     262144,
+     87382
+    ],
+    "max_abs_diff": 0.0
+   },
+   "criterion": "bit-identical series and final state (G11)"
+  },
+  "f_sim": {
+   "passed": true,
+   "values": {
+    "x2": {
+     "i.port0.sigma_total_rad": {
+      "reference": 0.09761220495941628,
+      "value": 0.09763480176268192,
+      "change": 2.259680326564817e-05,
+      "tolerance": 0.005
+     }
+    }
+   },
+   "criterion": "|q(k\u00b7f_sim) \u2212 q(f_sim)| <= tolerance/3 (PLAN \u00a76.4)"
+  }
+ },
+ "A_dx1_lab_dsc1_10m": {
+  "chunk": {
+   "passed": true,
+   "values": {
+    "chunk_samples": [
+     262144,
+     87382
+    ],
+    "max_abs_diff": 0.0
+   },
+   "criterion": "bit-identical series and final state (G11)"
+  },
+  "f_sim": {
+   "passed": true,
+   "values": {
+    "x2": {
+     "i.port0.sigma_total_rad": {
+      "reference": 0.19141541812269716,
+      "value": 0.19112480133784734,
+      "change": -0.00029061678484981757,
+      "tolerance": 0.005
+     }
+    }
+   },
+   "criterion": "|q(k\u00b7f_sim) \u2212 q(f_sim)| <= tolerance/3 (PLAN \u00a76.4)"
+  }
+ },
+ "C_10m": {
+  "chunk": {
+   "passed": true,
+   "values": {
+    "chunk_samples": [
+     262144,
+     87382
+    ],
+    "max_abs_diff": 0.0
+   },
+   "criterion": "bit-identical series and final state (G11)"
+  },
+  "f_sim": {
+   "passed": true,
+   "values": {
+    "x2": {
+     "i.port0.std_rad": {
+      "reference": 0.002050050439652518,
+      "value": 0.0021271189160857176,
+      "change": 7.706847643319976e-05,
+      "tolerance": 0.0003
+     }
+    }
+   },
+   "criterion": "|q(k\u00b7f_sim) \u2212 q(f_sim)| <= tolerance/3 (PLAN \u00a76.4)"
+  }
+ },
+ "C_dsc1_100m": {
+  "chunk": {
+   "passed": true,
+   "values": {
+    "chunk_samples": [
+     262144,
+     87382
+    ],
+    "max_abs_diff": 0.0
+   },
+   "criterion": "bit-identical series and final state (G11)"
+  },
+  "f_sim": {
+   "passed": false,
+   "values": {
+    "x2": {
+     "i.port0.std_rad": {
+      "reference": 0.0033502539530422225,
+      "value": 0.0034799624619243933,
+      "change": 0.00012970850888217086,
+      "tolerance": 0.0003
+     }
+    }
+   },
+   "criterion": "|q(k\u00b7f_sim) \u2212 q(f_sim)| <= tolerance/3 (PLAN \u00a76.4)"
+  }
+ },
+ "P_liu_lab_10m": {
+  "chunk": {
+   "passed": true,
+   "values": {
+    "chunk_samples": [
+     65536,
+     21846
+    ],
+    "max_abs_diff": 0.0
+   },
+   "criterion": "bit-identical series and final state (G11)"
+  },
+  "f_sim": {
+   "passed": false,
+   "values": {
+    "x2": {
+     "ii.port1.sigma_total_rad": {
+      "reference": 0.07121481680864927,
+      "value": 0.06926721571758562,
+      "change": -0.0019476010910636499,
+      "tolerance": 0.003
+     },
+     "ii.port1.std_loop_rad": {
+      "reference": 0.030748311820291065,
+      "value": 0.030513445311985233,
+      "change": -0.0002348665083058317,
+      "tolerance": 0.003
+     }
+    },
+    "x4": {
+     "ii.port1.sigma_total_rad": {
+      "reference": 0.07121481680864927,
+      "value": 0.06743217256641544,
+      "change": -0.003782644242233832,
+      "tolerance": 0.003
+     },
+     "ii.port1.std_loop_rad": {
+      "reference": 0.030748311820291065,
+      "value": 0.030336626717786155,
+      "change": -0.00041168510250490925,
+      "tolerance": 0.003
+     }
+    }
+   },
+   "criterion": "|q(k\u00b7f_sim) \u2212 q(f_sim)| <= tolerance/3 (PLAN \u00a76.4)"
+  }
+ },
+ "P_liu_lab_dsc1_100m": {
+  "chunk": {
+   "passed": true,
+   "values": {
+    "chunk_samples": [
+     65536,
+     21846
+    ],
+    "max_abs_diff": 0.0
+   },
+   "criterion": "bit-identical series and final state (G11)"
+  },
+  "f_sim": {
+   "passed": false,
+   "values": {
+    "x2": {
+     "ii.port1.sigma_total_rad": {
+      "reference": 0.1134502111888754,
+      "value": 0.11591996573061719,
+      "change": 0.002469754541741795,
+      "tolerance": 0.003
+     },
+     "ii.port1.std_loop_rad": {
+      "reference": 0.09232177044117086,
+      "value": 0.09762297673350356,
+      "change": 0.0053012062923327025,
+      "tolerance": 0.003
+     }
+    },
+    "x4": {
+     "ii.port1.sigma_total_rad": {
+      "reference": 0.1134502111888754,
+      "value": 0.11408443233196552,
+      "change": 0.0006342211430901273,
+      "tolerance": 0.003
+     },
+     "ii.port1.std_loop_rad": {
+      "reference": 0.09232177044117086,
+      "value": 0.09706213846744573,
+      "change": 0.004740368026274866,
+      "tolerance": 0.003
+     }
+    }
+   },
+   "criterion": "|q(k\u00b7f_sim) \u2212 q(f_sim)| <= tolerance/3 (PLAN \u00a76.4)"
+  }
+ },
+ "P_het_lab_100m": {
+  "chunk": {
+   "passed": true,
+   "values": {
+    "chunk_samples": [
+     65536,
+     21846
+    ],
+    "max_abs_diff": 0.0
+   },
+   "criterion": "bit-identical series and final state (G11)"
+  },
+  "f_sim": {
+   "passed": false,
+   "values": {
+    "x2": {
+     "ii.port1.sigma_total_rad": {
+      "reference": 0.7289817341385868,
+      "value": 0.725230507195658,
+      "change": -0.0037512269429288425,
+      "tolerance": 0.003
+     }
+    }
+   },
+   "criterion": "|q(k\u00b7f_sim) \u2212 q(f_sim)| <= tolerance/3 (PLAN \u00a76.4)"
+  }
+ },
+ "P_P3_lab_100m": {
+  "chunk": {
+   "passed": true,
+   "values": {
+    "chunk_samples": [
+     65536,
+     21846
+    ],
+    "max_abs_diff": 0.0
+   },
+   "criterion": "bit-identical series and final state (G11)"
+  },
+  "f_sim": {
+   "passed": false,
+   "values": {
+    "x2": {
+     "ii.port1.sigma_total_rad": {
+      "reference": 0.9235639696028608,
+      "value": 0.9298147879550847,
+      "change": 0.0062508183522238525,
+      "tolerance": 0.003
+     }
+    }
+   },
+   "criterion": "|q(k\u00b7f_sim) \u2212 q(f_sim)| <= tolerance/3 (PLAN \u00a76.4)"
+  }
+ },
+ "D_lab": {
+  "chunk": {
+   "passed": true,
+   "values": {
+    "chunk_samples": [
+     65536,
+     21846
+    ],
+    "max_abs_diff": 0.0
+   },
+   "criterion": "bit-identical series and final state (G11)"
+  },
+  "f_sim": {
+   "passed": false,
+   "values": {
+    "x2": {
+     "lock.lockD.err.std": {
+      "reference": 0.04837328339364374,
+      "value": 0.0575266664287373,
+      "change": 0.009153383035093561,
+      "tolerance": 0.002
+     }
+    }
+   },
+   "criterion": "|q(k\u00b7f_sim) \u2212 q(f_sim)| <= tolerance/3 (PLAN \u00a76.4)"
+  }
+ }
+}

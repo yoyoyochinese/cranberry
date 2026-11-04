@@ -1,0 +1,125 @@
+{
+ "case": "A_nom",
+ "quantity": "i.port0.sigma_total_rad",
+ "point": {
+  "base": "presets/bench/refA_fiber_bench.yaml",
+  "overlays": [],
+  "axes": {
+   "offline.params.L_sq_fiber_m": 10.0,
+   "offline.params.lo_route": "fiber_matched",
+   "offline.params.eta_fiber_out": 0.98
+  },
+  "duration_s": 0.05,
+  "seed": 1,
+  "extra": {
+   "pipeline": [
+    {
+     "name": "mi",
+     "params": {
+      "t_settle_s": 0.015
+     }
+    }
+   ]
+  }
+ },
+ "n_toggles": 37,
+ "baseline_seed1": 0.009342244403309587,
+ "impact_seed1": {
+  "koheras.fm_white": -0.008695109193482434,
+  "env.thermal.fiber.drift": 1.2147909849921645e-08,
+  "mech.mech": 2.3232037548750334e-05,
+  "sp.phase": -8.910275912693902e-05,
+  "sp.group_delay": 0.0,
+  "fc.laser_lowpass": -0.005308714689415276,
+  "ba.emission_time": -0.0014799422518387752,
+  "pd1.shot_noise": 5.588432248210262e-09,
+  "pd1.electronic_noise": 9.537486529709316e-10,
+  "adc1.quantization": 5.623735517198969e-09,
+  "adc1.saturation": 0.0,
+  "pid1.feedback": 0.00016822537476454506,
+  "pid1.i_term": 0.00016822537476454506,
+  "dac1.quantization": -3.142475812553669e-09,
+  "dac1.saturation": 0.0,
+  "bhdbeat.shot_noise": -1.5247294818667226e-05,
+  "adc2.quantization": -1.5550650118295595e-08,
+  "adc2.saturation": 0.0,
+  "pid2.feedback": 0.015565007292000006,
+  "pid2.i_term": 0.015565007292000006,
+  "dac2.quantization": -1.5778336878366495e-08,
+  "dac2.saturation": 0.0,
+  "pid2s.feedback": -3.7541197195779114e-06,
+  "pid2s.i_term": -3.7541197195779114e-06,
+  "dac2s.quantization": -3.533112327954238e-06,
+  "dac2s.saturation": 0.0,
+  "fs2.resonance": -2.63823489588845e-06,
+  "fs2.saturation": 0.0,
+  "optics.enabled": 0.0,
+  "bhd_det.qe": 0.0,
+  "bhd_det.circuit_noise": 0.0,
+  "mm.enabled": 0.0,
+  "frontend.circuit_noise": 0.0,
+  "frontend.freq_response": 0.0,
+  "esa_zs.radiometer_noise": 0.0,
+  "esa_spec.radiometer_noise": 0.0,
+  "esa_spec.subtract_circuit_noise": 0.0
+ },
+ "errors": {},
+ "mattered": [
+  "pid2.feedback",
+  "pid2.i_term",
+  "koheras.fm_white",
+  "fc.laser_lowpass",
+  "ba.emission_time"
+ ],
+ "stats": {
+  "baseline": {
+   "mean": 0.00935127569520353,
+   "std": 1.0692657157796364e-05,
+   "min": 0.009342244403309587,
+   "max": 0.009366355524979787,
+   "n": 4
+  },
+  "combined": {
+   "mean": 0.009260989257215173,
+   "std": 9.067526638131516e-06,
+   "min": 0.009253141644182648,
+   "max": 0.009273123710377038,
+   "n": 4
+  },
+  "pid2.feedback": {
+   "mean": 0.08767445010003616,
+   "std": 0.052750199972746784,
+   "min": 0.024907251695309593,
+   "max": 0.15252396293767706,
+   "n": 4
+  },
+  "pid2.i_term": {
+   "mean": 0.08767445010003616,
+   "std": 0.052750199972746784,
+   "min": 0.024907251695309593,
+   "max": 0.15252396293767706,
+   "n": 4
+  },
+  "koheras.fm_white": {
+   "mean": 0.0006288819946796951,
+   "std": 1.5885152791056918e-05,
+   "min": 0.0006144352618730592,
+   "max": 0.0006471352098271514,
+   "n": 4
+  },
+  "fc.laser_lowpass": {
+   "mean": 0.004033152649962395,
+   "std": 2.765235341981954e-06,
+   "min": 0.004030348952170215,
+   "max": 0.0040368146813537405,
+   "n": 4
+  },
+  "ba.emission_time": {
+   "mean": 0.00787009038320088,
+   "std": 8.881043026248041e-06,
+   "min": 0.007862302151470811,
+   "max": 0.007882775440379474,
+   "n": 4
+  }
+ }
+}
