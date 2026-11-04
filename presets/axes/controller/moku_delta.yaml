@@ -1,6 +1,9 @@
 # Controller axis: Liquid Instruments Moku:Delta PID (devices/moku_delta.yaml; 14-bit DAC, T16 §4.5). Output range
 # ±0.5 V into 50 Ω unless a 10 Vpp path exists (DECISIONS Open, D53); the 915B-class stretcher then uses only its
 # ±0.5 V share (bad_moku_pid_05V).
+# Stability check (D82 lesson, D85-1 WP6-AB): chk.lock_stability stays continuous here. pid0f / pid1f run Tustin at
+# their block rate h = 1/f_sim (1 µs); for F_common's pure-I fine stage Tustin keeps the exact −90° phase and |C| is
+# within (ωh)²/12 = 0.3 % at 30 kHz (tests/integration/test_p6_ab_overlays.py), unlike the DSC1 law (ωh/2 phase lead).
 offline:
   params:
     out_range_v: 0.5

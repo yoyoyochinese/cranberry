@@ -5,6 +5,18 @@ offline:
     out_range_v: 4.0               # D35 CV limit −4…+4 V
     latency_s: 5.7e-6              # 00_summary §2.1 (τ 5.7 µs)
     dac_bits: 12                   # DSC1 p.2 (12-bit output)
+  # D82 lesson (D85-1 WP6-AB): the stability check must model the controller law the time loop runs. With this
+  # overlay pid0f / pid1f run the DSC1 law (backward-Euler integral including e[n], backward difference; DSC1 p.19)
+  # at their block rate, rate_div 1 → h = 1/f_sim (F_common sets no rate_div; the device's own 500 kHz update is not
+  # imposed by this overlay), so chk.lock_stability uses discretisation dsc1 with that h. F_common's fine stage is
+  # pure I: the dsc1 law adds the proportional term K_i·h/2 (phase lead ωh/2, ≈ 3 % of the I term at 10 kHz, 1 µs).
+  # The TEC stage keeps the continuous law: pid0s runs the dsc1 law at h = tec_rate_div/f_sim = 10 ms, whose extra
+  # K_i·h/2 is ωh/2 ≤ 1 % of its I term at the crossover f_12 ≤ 0.3 Hz (stages are an unkeyed list: not overlaid).
+  blocks:
+    - name: chk.lock_stability
+      params:
+        discretisation: dsc1
+        h_s: !expr "1.0 / run.f_sim_hz"   # = rate_div / f_sim of pid0f / pid1f (rate_div 1)
 pipeline:
   - name: adc0
     params: {device: dsc1, bits: 16, range_v: [-4.0, 4.0]}

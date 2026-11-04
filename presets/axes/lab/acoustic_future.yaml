@@ -1,0 +1,37 @@
+# Lab axis (future presets F_*: the F_common port fibres F0/F1 and LO delivery fibres LO0/LO1): the Ref D table-shaped
+# acoustic phase noise of lab/acoustic.yaml, transferred to the future spools (D85-1). Same table, same split rule and
+# the same axes; read lab/acoustic.yaml for the shape, its extrapolation and the per-arm split.
+#
+# PROVENANCE: calibrated on the Ref D measurement after the blind comparison (D81, D85-1).
+# TRANSFER (assumption): the per-arm Ref D noise is applied to every port / LO fibre:
+#   * acoustic_gamma = 1: S = (L/13.2 m)·T, i.e. the Ref D noise per metre of fibre (a 100 m spool gets 7.6× the
+#     Ref D two-arm sum); appropriate if the pickup is distributed along the fibre;
+#   * acoustic_gamma = 0: each fibre gets one Ref D arm's share T/2 whatever its length; appropriate if the pickup
+#     is in the coil / mounts (spooled fibres in a box), the reading this overlay was introduced to test.
+# The distribution (env.mech.dist) and free-space (env.mech.fs_*) blocks keep their two-pole models. The port
+# correlation (rho_ports, D13 pair axis) and the spatial structure of F0/F1 are unchanged. F_common's two-pole axes
+# (h_ref_spool_rad2_hz, mech_gamma) stay because env.mech.dist / env.mech.fs_* still use mech_gamma / their own h_ref.
+offline:
+  params:
+    acoustic_scale: !sweep_log [0.1, 10.0, 5]
+    acoustic_gamma: !choice [0.0, 1.0]
+    acoustic_L_ref_m: 13.2                      # Ref D L_a1 + L_a2 at refD_nominal (lab/acoustic.yaml)
+    acoustic_arm_scale: !expr "acoustic_scale * (0.5 if acoustic_gamma == 0 else 1.0)"
+pipeline:
+  - name: env.mech.ports
+    params: &acoustic
+      mech_shape: table
+      gamma: !expr "offline.params.acoustic_gamma"
+      L_ref_m: !expr "offline.params.acoustic_L_ref_m"
+      psd_table:
+        - [10.0, !expr "offline.params.acoustic_arm_scale * 6.32e-4"]     # assumption: f^−1.5 below 100 Hz
+        - [100.0, !expr "offline.params.acoustic_arm_scale * 2.0e-5"]     # COMPARISON §3 (A)
+        - [300.0, !expr "offline.params.acoustic_arm_scale * 3.6e-6"]     # COMPARISON §3 (A)
+        - [1000.0, !expr "offline.params.acoustic_arm_scale * 6.7e-7"]    # COMPARISON §3 (A)
+        - [3000.0, !expr "offline.params.acoustic_arm_scale * 9.0e-8"]    # COMPARISON §3 (A)
+        - [30000.0, !expr "offline.params.acoustic_arm_scale * 9.0e-10"]  # assumption: f^−2 above 3 kHz
+      table_f_min_hz: 10.0
+      table_f_max_hz: 30000.0
+      table_per_decade: 4
+  - name: env.mech.lo
+    params: *acoustic

@@ -1,0 +1,49 @@
+# Lab axis (future presets F_*): the multimode 915B response of lab/multimode915b applied to the F_common port
+# stretchers pzt0 / pzt1 and to chk.lock_stability (D85-1). Read lab/multimode915b.yaml for the model, the mode
+# list and the provenance.
+#
+# PROVENANCE: calibrated on the Ref D measurement after the blind comparison (D81, D85-1).
+# ASSUMPTION: the port stretchers are 915B-class (the same coil / PZT as Ref D's 8669-1), so the Ref D side modes
+# transfer unchanged; F_common's pzt_f_res_hz / pzt_q become the main mode (around 25 kHz here). Another stretcher
+# type needs its own mode list; keep this overlay as the 915B choice (D34). Only the mode list changes: the gain
+# pzt_k_rad_per_v (range / CV range) and the loop design f_u are untouched, so a side mode near f_u (5.3 kHz vs the
+# f_u axis 1–30 kHz) can make the fine loop unstable: chk.lock_stability flags it (D75, never pruned).
+offline:
+  params:
+    pzt_f_res_hz: !sweep [2.2e+4, 2.8e+4, 5]    # main mode around 25 kHz (replaces F_common's 5–60 kHz axis)
+    pzt_q: !sweep_log [10.0, 300.0, 4]          # main-mode Q (Ref D time-loop fit 25)
+    mm2_f_hz: !sweep [5.2e+3, 5.5e+3, 4]        # lab/multimode915b: same axes and fit values
+    mm2_q: !sweep_log [8.0, 40.0, 3]
+    mm2_r: !sweep [-0.15, 0.15, 7]
+    mm3_f_hz: !sweep [9.7e+3, 1.01e+4, 3]
+    mm3_q: !sweep_log [10.0, 100.0, 3]
+    mm3_r: !sweep [-0.1, 0.1, 5]
+    mm4_f_hz: !sweep [3.95e+4, 4.05e+4, 3]
+    mm4_q: !sweep_log [10.0, 300.0, 4]
+    mm4_r: !sweep [-0.3, 0.3, 7]
+    mm1_r: !expr "1.0 - mm2_r - mm3_r - mm4_r"
+  blocks:
+    - name: chk.lock_stability                  # parallel sum (all modes carry r); the TEC stage keeps modes: []
+      params:
+        modes: &modes915b
+          - {f_hz: !expr "offline.params.pzt_f_res_hz", q: !expr "offline.params.pzt_q", r: !expr "offline.params.mm1_r"}
+          - {f_hz: !expr "offline.params.mm2_f_hz", q: !expr "offline.params.mm2_q", r: !expr "offline.params.mm2_r"}
+          - {f_hz: !expr "offline.params.mm3_f_hz", q: !expr "offline.params.mm3_q", r: !expr "offline.params.mm3_r"}
+          - {f_hz: !expr "offline.params.mm4_f_hz", q: !expr "offline.params.mm4_q", r: !expr "offline.params.mm4_r"}
+pipeline:
+  - name: lock0.stack
+    stack:
+      actuators:
+        - name: act0f
+          seq:
+            - name: pzt0
+              params:
+                modes: *modes915b
+  - name: lock1.stack
+    stack:
+      actuators:
+        - name: act1f
+          seq:
+            - name: pzt1
+              params:
+                modes: *modes915b

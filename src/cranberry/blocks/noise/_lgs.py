@@ -9,6 +9,8 @@ output has the one-sided PSD |H(i2πf)|² (conv §7) with H(s) = C (s − A)⁻�
 * :func:`resonance`  band pass, peak at f0, quality q, area ∫S df = area (technical / mechanical peaks)
 * :func:`flicker`    OU sum ≈ h/f on [f_min, f_max]: corners f_k = f_min·r^k, r = 10^(1/m), each with
   S0_k = h·(2 ln r/π)/f_k (Σ_k → h/f in the continuum limit; ripple set by m OUs per decade, G11)
+* :func:`table_fit`  OU sum ≈ a tabulated PSD (:func:`loglog_interp`) on [f_min, f_max]: the flicker corner
+  grid, weights S0_k ≥ 0 from a non-negative least-squares fit of the relative error (D85-1)
 * :func:`cascade`    series connection with a first-order biproper filter (correlation shaping ρ(f))
 
 Discretisation is exact (Van Loan): x_{n+1} = Φ x_n + L w_n, Φ = e^{Ah}, L Lᵀ = ∫_0^h e^{As}B q Bᵀ e^{Aᵀs} ds
@@ -28,15 +30,17 @@ from __future__ import annotations
 
 import math
 from collections import namedtuple
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numba
 import numpy as np
 import scipy.linalg
+import scipy.optimize
 
 from cranberry.core.rng import DrawBuffer, substream
 
-__all__ = ["Section", "lowpass", "two_pole", "resonance", "flicker", "cascade", "section_psd", "Bank",
+__all__ = ["Section", "lowpass", "two_pole", "resonance", "flicker", "loglog_interp", "table_fit", "cascade", "section_psd", "Bank",
            "BankC", "bank_step", "bank_step_nb", "EMPTY_BANK"]
 
 _Q = 0.5
@@ -75,13 +79,51 @@ def resonance(f0_hz: float, q: float, area: float) -> Section:
     return Section(np.array([[0.0, w0], [-w0, -w0 / q]]), np.array([0.0, w0]), np.array([0.0, k / q]))
 
 
+def _corners(f_min_hz: float, f_max_hz: float, per_decade: int) -> tuple[float, np.ndarray]:
+    """(ratio r, corners f_min·r^k ≤ f_max) of the OU grid (``per_decade`` corners per decade)."""
+    r = 10.0 ** (1.0 / per_decade)
+    n = int(math.floor(math.log(f_max_hz / f_min_hz) / math.log(r) + 1e-9)) + 1
+    return r, f_min_hz * r ** np.arange(n)
+
+
 def flicker(h: float, f_min_hz: float, f_max_hz: float, per_decade: int) -> list[Section]:
     # ponytail: plain OU sum; within ~1 decade of f_min / f_max the PSD falls below h/f (−6 % one decade
     # in, −50 % at the edge); ≥ 2 per decade gives < 1 % ripple inside. Add end-corner weights if needed.
-    r = 10.0 ** (1.0 / per_decade)
-    n = int(math.floor(math.log(f_max_hz / f_min_hz) / math.log(r) + 1e-9)) + 1
+    r, fk = _corners(f_min_hz, f_max_hz, per_decade)
     c = 2.0 * math.log(r) / math.pi
-    return [lowpass(f_min_hz * r**k, h * c / (f_min_hz * r**k)) for k in range(n)]
+    return [lowpass(float(f), h * c / float(f)) for f in fk]
+
+
+def loglog_interp(table) -> Callable[[np.ndarray], np.ndarray]:
+    """S(f) from rows [[f_hz, S], ...] (f increasing, S > 0): linear in (log f, log S) between rows, the end
+    segments' power laws extended beyond the first and the last row."""
+    t = np.asarray(table, dtype=float)
+    if t.ndim != 2 or t.shape[0] < 2 or t.shape[1] != 2 or np.any(t <= 0) or np.any(np.diff(t[:, 0]) <= 0):
+        raise ValueError("psd table must be >= 2 rows [f_hz, S] with f strictly increasing and f, S > 0")
+    x, y = np.log(t[:, 0]), np.log(t[:, 1])
+    k0, k1 = (y[1] - y[0]) / (x[1] - x[0]), (y[-1] - y[-2]) / (x[-1] - x[-2])
+
+    def s(f):
+        lf = np.log(np.asarray(f, dtype=float))
+        out = np.interp(lf, x, y)
+        out = np.where(lf < x[0], y[0] + k0 * (lf - x[0]), out)
+        return np.exp(np.where(lf > x[-1], y[-1] + k1 * (lf - x[-1]), out))
+
+    return s
+
+
+def table_fit(target, f_min_hz: float, f_max_hz: float, per_decade: int) -> list[Section]:
+    """OU sections Σ_k S0_k/(1 + (f/f_k)²) on the :func:`flicker` corner grid with S0_k ≥ 0 minimising the
+    relative error to ``target(f)`` on 16 log-spaced points per corner over [f_min, f_max] (NNLS). Outside:
+    flat below f_min, ∝ f⁻² above f_max (the OU roll-off). Inside, the error is the corner-grid ripple plus
+    the rounding of table kinks over about one corner spacing; slopes steeper than f⁻² cannot be followed.
+    Zero weights are dropped."""
+    _, fk = _corners(f_min_hz, f_max_hz, per_decade)
+    fg = np.geomspace(f_min_hz, f_max_hz, 16 * len(fk))
+    a = 1.0 / (1.0 + (fg[:, None] / fk[None, :]) ** 2) / np.asarray(target(fg), dtype=float)[:, None]
+    norm = np.linalg.norm(a, axis=0)
+    w, _ = scipy.optimize.nnls(a / norm, np.ones(len(fg)), maxiter=50 * len(fk))
+    return [lowpass(float(f), float(x)) for f, x in zip(fk, w / norm) if x > 0.0]
 
 
 def cascade(sec: Section, f_hz: float, num0: float, num1: float) -> Section:

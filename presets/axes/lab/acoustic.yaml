@@ -1,0 +1,46 @@
+# Lab axis (Ref D base: refD / refD_nominal): table-shaped acoustic / vibration phase noise of a fibre interferometer
+# on the lab table (D85-1, `segment_mech_noise` with mech_shape: table). The future presets use lab/acoustic_future.
+#
+# PROVENANCE: calibrated on the Ref D measurement after the blind comparison (D81, D85-1). Not blind: the shape
+# is the measured free-running phase PSD of Ref D (predictions/refD/comparison/COMPARISON.md §3 (A), round 1,
+# gain off, converted on the fringe with V0²/2): 2e-5 rad²/Hz at 100 Hz, 3.6e-6 at 300 Hz, 6.7e-7 at 1 kHz,
+# 9e-8 at 3 kHz (f^−1.4…−1.8). Values outside 100 Hz–3 kHz are ASSUMPTIONS:
+#   * below 100 Hz the 100–300 Hz slope (≈ f^−1.5) continues to 10 Hz (6.32e-4); flat below 10 Hz (the OU sum's
+#     lowest corner). The 1.5 s records do not resolve < 100 Hz (COMPARISON §4); there the thermal drift and the
+#     loop gain (|S|² ≪ 1e-2) dominate anyway.
+#   * above 3 kHz f^−2 to 30 kHz (9e-10) and beyond (the OU roll-off), consistent with the measured free-running
+#     spectrum staying under the 50–200 kHz floor (7e-9 V²/Hz ⇒ 2.2e-9 rad²/Hz, COMPARISON §1, which is the laser
+#     FM through ΔL), and with the f⁻² region of T08 §2.5.
+# SPLIT PER ARM (assumption): the measured PSD is that of φ_lo − φ_pr, i.e. the SUM of both arms; the arms are taken
+# as uncorrelated (mech_rho_0 = 0) and the sum is split by the length rule γ of this overlay:
+#   * acoustic_gamma = 1 (pickup ∝ fibre length): S_i = (L_i/L_ref)·T with L_ref = 13.2 m = L_a1 + L_a2 at
+#     refD_nominal (2.1 + 11.1 m), so S_a1 + S_a2 = T at the nominal ΔL (S_a1 : S_a2 = 11.1 : 2.1);
+#   * acoustic_gamma = 0 (length-independent pickup, e.g. by the 915B coil / the couplers): each arm T/2.
+# acoustic_scale (≥ 0.1×–10×) scales the whole table (the calibration point is 1). The two-pole axes of refD
+# (h_ref_rad2_hz, mech_f_c_hz, mech_gamma) are unused with the table and pinned so a sweep does not repeat points.
+offline:
+  params:
+    acoustic_scale: !sweep_log [0.1, 10.0, 5]   # amplitude axis, 1 = the Ref D calibration (D85-1)
+    acoustic_gamma: !choice [0.0, 1.0]          # 0: length-independent coil pickup, 1: ∝ L (split rule above)
+    acoustic_L_ref_m: 13.2                      # L_a1 + L_a2 at refD_nominal (refD.yaml topology)
+    acoustic_arm_scale: !expr "acoustic_scale * (0.5 if acoustic_gamma == 0 else 1.0)"   # per-arm share of the sum
+    mech_rho_0: 0.0                             # split assumption: arms uncorrelated
+    h_ref_rad2_hz: 0.04                         # unused with mech_shape: table (refD_nominal value)
+    mech_f_c_hz: 1000.0                         # unused with mech_shape: table (refD_nominal value)
+    mech_gamma: 1.0                             # unused: env.mech reads acoustic_gamma here
+pipeline:
+  - name: env.mech
+    params:
+      mech_shape: table
+      gamma: !expr "offline.params.acoustic_gamma"
+      L_ref_m: !expr "offline.params.acoustic_L_ref_m"
+      psd_table:                                # [f_hz, S_rad2_hz] at L_ref (measured: 100 Hz – 3 kHz; header)
+        - [10.0, !expr "offline.params.acoustic_arm_scale * 6.32e-4"]     # assumption: f^−1.5 below 100 Hz
+        - [100.0, !expr "offline.params.acoustic_arm_scale * 2.0e-5"]     # COMPARISON §3 (A)
+        - [300.0, !expr "offline.params.acoustic_arm_scale * 3.6e-6"]     # COMPARISON §3 (A)
+        - [1000.0, !expr "offline.params.acoustic_arm_scale * 6.7e-7"]    # COMPARISON §3 (A)
+        - [3000.0, !expr "offline.params.acoustic_arm_scale * 9.0e-8"]    # COMPARISON §3 (A)
+        - [30000.0, !expr "offline.params.acoustic_arm_scale * 9.0e-10"]  # assumption: f^−2 above 3 kHz
+      table_f_min_hz: 10.0
+      table_f_max_hz: 30000.0                   # ≪ f_N = 500 kHz; the table ends on f^−2 (mech.py tolerance note)
+      table_per_decade: 4
