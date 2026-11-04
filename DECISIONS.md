@@ -729,6 +729,46 @@
   2. 較正した値（音響雑音、915B のモード）は `*_nominal` に入れない。`refD_nominal` などブラインド予測の元の値は変えず、較正値は名前付きの設定（`presets/bench/refD_lab.yaml`）と上書き用の設定（`lab/*`）に置く。
 - 日付: 2026-11-04 / Phase 6
 
+### D92 P5 の 2 層ロック（WP6-C、D85-5 の実装）
+- 決定:
+  1. `photon_counting_fringe`: ゲートごとに λ± = r[qe(μ(1 ± V cos X)/2 + b) + dark]、クリック 1 − e^{−λ}（飽和なしならポアソン）、正規化した最尤推定 X̂ を窓ごとに保持。r は最後のクリックからの不感・回復。`f_gate_hz`・`cal_fraction`・`window_mode` は構造。`in_b`・`bg_in`・`gate_in` は任意。状態の群 `cnt`。
+  2. 上書き用の設定 `lock/dual_band_slow`（4 つの将来の構成）: 速い層は Liu ロックのまま、遅い層は弱いシード（squeezer の前／後）のクリックから。遅い補正は速いループの設定値へ（主、F_k の上のアクチュエータはプローブに見えて速いループに打ち消されるため。範囲 ±0.9 K ≈ ±64°）、REF_k のストレッチャは選択肢 `dbs_target`。G_k の上のストレッチャは squeezed 光に損失を足すので出さない。遅いループの遅延 T_int + τ_L（`chk.dbs_stability`）、f_c·T_int = 0.1 [AE]。`liu1` を置き換えるので `probe/detect_*`・L-A-seed とは組み合わせられない。
+  3. 光子数の見積もりの確認: ゲートあたりの情報は検出光子 3.19（qe 0.93 で μ = 3.43）で最大、10 mrad に 8.55×10³ ゲート、全ポートを毎フレーム較正して 45.6 ms（F_wg6・F_bor6）、54.7 ms（F_liu20）、137 ms（F_wg100）。推定量はクラメール・ラオの限界に達する（飽和の少数カウントで 1.23 倍）。
+  4. 結果（F_liu20、30 s、3 seed、レビュー前）: 成分 2 が 59.9 ± 11.5 → 18.4 ± 0.5 mrad（窓の遅延を入れた解析で 18.7、ノートの 14 は遅延を無視）。成分 1 も 49.7 → 9.8 mrad（E41 の代理信号の偏りが消える）。合計 122.6 → 93.5 mrad、残りはレーザーの相関の崩れ（成分 3、90.3）。
+  5. 未モデル化（Open）: シードのデータゲートへの漏れ、較正スロットが別の振り分けスイッチの位相を見ること、GBS の干渉計。
+- 日付: 2026-11-04 / Phase 6
+
+### D93 P7 のロックしたままの同定と抽象制御インターフェースの拡張（WP6-I、D85-7 の実装）
+- 決定:
+  1. `excitation`（out = in + x、stepped_sine・multisine（Schroeder 位相）・chirp・prbs・white、amplitude は √2×RMS、`amp_f_corner_hz`）。1 回のロックしたランで全周波数。
+  2. `loop_identification`（フック `measure.loop_identification`）: x を道具変数にした比。minus_l（加算点: L̂ = −resp/ref、S、T）、plant（P7 の文字どおり: P̂ = resp/x、L̂ = −P̂·C₁）。stepped はロックイン、他は相互スペクトル。余裕はコヒーレンス ≥ 閾値の点で。
+  3. インターフェース（D55 の後方互換の拡張）: `engage`/`disengage(loop_id=None)`、`acquire(..., injections_on=False)`、`measure_loop_gain`（基底クラスでは NotImplementedError）。`SimController` に `excitations` と `RunSpec.topology` の注入（これまで refD・F_* で組み立てられなかった不具合を修正）。`hardware/moku.py` の `MokuDeltaController` は通信なしの雛形（FRA ＋ PID の制御行列で加算、L̂ = −H/(g+H)、係数の単位 dB／線形は UNVERIFIED、1 dB の誤りで L̂ に 12 %）。
+  4. 上書き用の設定 `ident/*`: 波形（`in_lock_stepped`・`in_lock_multisine`）と注入点（`wire_refD`・`wire_refA`・`wire_F`（速い制御器の出力の加算点、制御器の上書きと組み合わせ可）・`p7_literal`）。
+  5. 検証（refD_nominal、1–30 kHz）: 雑音なしで厳密な z 領域と 1e−4、安定判定（dsc1）と 2.0 %・2.2°。雑音あり 0.1 V でコヒーレンス ≥ 0.988、判定と 4.3 %・2.3°。f_u 2089 Hz（モデル 2111）、位相余裕 77.8°（78.7°）、f_180 と利得余裕は共振付近の追加掃引で 16.79 kHz・12.9 dB（厳密 16.78・12.79）。励起の最適振幅 0.1–0.3 V（縞の非線形の偏りは 2J₁(A)/A − 1 どおり）。F_wg6: wire_F 2.0 %・3.6°、p7_literal 1.1 %・3.6°（TEC の保持は 1 Hz よりずっと下だけ）。
+- 日付: 2026-11-04 / Phase 6
+
+### D94 軸 1 の構成とプローブの上書き用の設定（WP6-X、D85-9・D85-12・D85-15・D86 の実装）
+- 決定:
+  1. 名前付きのベンチ構成 `presets/bench/`: (a) `refA_fiber_bench`（SQ を PM ファイバ 1–100 m、LO はファイバで整合／自由空間、ファイバ損失 0.5 dB/km、結合 0.98 × 出射結合 UNVERIFIED）、(b) `refC_fiber_bench`（1–100 m、導管なし）、(c) `pulsed_wg_1port`（F_wg6_nominal ＋ demux/none、ポート長 1–100 m）、(d) `refD_lab`（D89 の点で固定、refD_nominal は不変、D91-2）。制御器 `bench/dsc1_refA`・`moku_delta_refA`・`dsc1_refC`・`moku_delta_refC`（F 系は既存の `controller/*`）。
+  2. Ref A ＋ファイバ: プローブ（+1 MHz）の静的位相 2πf_shΔτ を lock 2 の復調位相で吸収（しないと 100 m 付近で傾きの符号が反転、悪い構成として残す）。EOM だけの lock 2（±0.45 rad）は数十 m で範囲外になるので、ファイバストレッチャへの肩代わり（K23）を入れる（ストレッチャの値は 915B 型の仮の値、UNVERIFIED）。
+  3. DSC1 は Ref A 型の OPA ロックには遅すぎる（−180° が約 32 kHz、2 MHz の復調不可、12 bit の LSB が EOM で 1.75 mrad）。悪い構成として残す。Moku:Delta では復調器の LPF が制限（−180° 0.4–0.5 MHz）。Ref C は DSC1・Moku の両方で安定にロック（1 MHz のディザは外部）。
+  4. `probe/actuator_pathlength`: プローブの stretcher・strain に g = 1 + f·Δν/ν0、dT・tec に g(k_T + 2πΔνR)L、偏りの選択（R・R′・悪い implicit）、ホップの偏り 2π(1/g − 1)。`probe/bad_kT_kappa_independent` は悪い構成（R が −2.3〜+6.0 ps/(km·K) に振れる）。
+  5. `probe/two_tone`（P8）: ±δν、2δν = m·f_rep/(N_b + n_guard)（m 偶数）の格子、軸 r と ΔL_0 の残り。時間ループの偏りは −atan(r tan E) と 1 mrad 以内で一致、格子上では全ポート共通で指標 (ii) で打ち消す。直交偏光のプローブの群複屈折は E に入っていない（Open）。
+  6. `probe/detect_heterodyne_refshift`: AOM を参照側に置き、`probe/freq_*` とどちらの順でも組み合わせられる。既存の `probe/detect_heterodyne` は不変。`probe/freq_*` で参照が 0 Hz のままの既存の不整合は記録だけ。
+- 結果（Ref A ＋ファイバ、fpga_generic、50 ms × 3 seed、レビュー前）: σ_total は 1 / 10 / 100 m でファイバ整合 9.4 / 9.5 / 10.9 mrad、自由空間 9.0 / 6.0 / 20.6 mrad（自由空間の 10 m 付近はフィルタキャビティの遅延の補償）。DSC1 では 0.3–1.5 mrad 悪い。DX1 の線幅では遅延の項が約 400 倍（フィルタキャビティの項 155 mrad）で、LO の遅延整合 ≲ 1 ns とフィルタキャビティの再設計が要る。
+- 日付: 2026-11-04 / Phase 6
+
+### D95 P6 のロックの設定値によるポート位相の指定（WP6-P、D85-6 の実装）
+- 決定:
+  1. `phase_program`（`rf.<name>.port<k>`／`ctrl.<name>.vset<k>`、`ctrl.<name>.target<k>`・`.index`、表かランダム（Zhong の一様、または固定ステップの有界な歩み）、step／ramp、DDS の量子化（Moku 1e-6°）、`sign`）。`step_response` はフック `measure.step_response`。
+  2. 後方互換の追加: `demodulator.in_program`（トグルの外、アブレーションで消えない）、`metric_ii.setpoint_slot`、`lock_supervisor.slip_center_slot`。
+  3. 上書き用の設定 `program/p6_steps`（`probe/detect_heterodyne` の後に、`squeezer` のフックの seq に足してその場に入れる）。悪い構成: `detect_dither` ＋ `p6_steps`（ロック点が動かない）、`program/p6_steps_dc`（DC の設定値）。`run.duration_s` は dwell の軸に追従できない（t_settle + 30·dwell 以上を与える）。
+  4. 検証（F_wg6）: ヘテロダインの RF 位相の指定は K を半分にしても X_k − π/2 = p_k を 1.5 mrad 以内（Θ は 8.4 mrad 以内）。DC の設定値は arcsin((K_cal/K) sin p) に動く（+0.33／−0.21 rad）。ディザは動かない。整定は f_u ≤ 1 kHz で ln(|Δ|/tol)/(2πf_u) どおり、1.5 kHz で共振により劣化、3 kHz で不安定。
+  5. 残り: 指標 (i) の指定分の補正、Moku の復調位相をロック中に変えたときの乱れ（UNVERIFIED）。
+- 日付: 2026-11-04 / Phase 6
+
+- D92–D95 の新しいブロックは、結果を使う前に新しい文脈の Phase 5 レビューを受ける（D85）。
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）
