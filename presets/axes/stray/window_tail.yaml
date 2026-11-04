@@ -1,0 +1,49 @@
+# Stray axis (Phase 6 P2 / P3 / P8; D85-4, D85-10; notes/lit-madsen2022.md §4.2 N2): the port-k probe is switched off
+# during the GBS measurement windows, and its distributed backscatter keeps arriving for 2τ_k = 2 n_g L_k/c after it
+# switches off (window_stray_light). Offline table + CHK stray_light_limit only (future presets; F_common's stray1
+# parameter set). The time-loop gating itself is the gate_schedule / gated_hold overlays (D85-2): this file reads only
+# its own win_* params, so a gate overlay (applied after it) ties the two together with e.g.
+#   win_period_s: !expr "<the gate overlay's period param>"
+# without either file depending on the other.
+offline:
+  params:
+    win_period_s: !sweep_log [1.0e-5, 1.0e-2, 4]   # window period 10 µs – 10 ms (D85-10; Borealis 100 µs, M-SI)
+    win_duty_lock: !sweep [0.1, 0.9, 5]   # lock (probe-on) fraction 0.1–0.9 (D85-10; Borealis 65/100 µs, SI reading)
+    win_phase_s: 0.0                      # lock-window start; shifts window and slots together (no effect on the numbers)
+    win_edge_s: !sweep_log [1.0e-8, 3.0e-7, 3]   # probe switching ramp (AOM rise) [AE] UNVERIFIED
+    win_eps_off: !sweep_log [1.0e-6, 1.0e-4, 3]  # probe extinction when off [AE] UNVERIFIED (F_common eps_aom = 1e-5 inside)
+    win_slot_period_s: !expr "t_frame_s"  # GBS slots once per frame (D46)
+    win_limit_statistic: !choice [mean, max]   # T17 limit on the window mean or on the worst slot (just after switch-off)
+  blocks:
+    - block: window_stray_light       # P2 tail table of the port-k fibre (T10 eq. (8); D85-4)
+      name: winstray1
+      params:
+        p_on_avg_w: !expr "offline.params.p_pr_avg_w"   # probe P̄ while the lock window is on
+        eps_off: !expr "offline.params.win_eps_off"
+        period_s: !expr "offline.params.win_period_s"
+        duty_lock: !expr "offline.params.win_duty_lock"
+        phase_s: !expr "offline.params.win_phase_s"
+        edge_s: !expr "offline.params.win_edge_s"
+        slot_period_s: !expr "offline.params.win_slot_period_s"
+        n_g: !expr "offline.params.n_g"
+        # the stray1 parameter set of F_common (stray_light_table)
+        probe: {freq_offset_hz: !expr "offline.params.probe_freq_offset_hz", linewidth_hz: !expr "offline.params.probe_linewidth_hz",
+                polarization: pm_orthogonal, eps_xt: !expr "offline.params.eps_xt_pm", t_perp: !expr "offline.params.t_perp_pbs"}
+        brillouin: {g_b_m_per_w: 5.0e-11, a_eff_m2: 8.0e-11, nu_b_hz: 1.08e+10, dnu_b_hz: 3.0e+7}   # T07 §5 values
+        rayleigh: {b_r_per_m: !expr "offline.params.b_r_per_m"}
+        L_m: !expr "offline.params.L_k_m"
+        alpha_per_m: !expr "offline.params.alpha_pm_db_per_km / 1000 * log(10) / 10"
+        gamma_per_w_m: 1.3e-3          # T06 SMF stand-in
+        f_R: 0.18                      # T06
+        raman_model: blow_wood         # D49
+        lambda0_m: !expr "offline.params.lambda0_m"
+        temperature_k: 295.0           # D27
+        t_gate_s: !expr "offline.params.t_gate_s"
+        reflections: []
+        reflection_z_m: []
+        gbs_filter: {shape: flat, fwhm_hz: !expr "offline.params.gbs_filter_fwhm_hz"}
+        wdm_isolation_lin: 1.0
+        mode: {shape: gaussian, t_fwhm_s: !expr "offline.params.tau_mode_s"}
+        limit: {photons_per_mode_max: !expr "offline.params.stray_n_mode_max", statistic: !expr "offline.params.win_limit_statistic",
+                source: "T17 §6 (−10 dB → −9.95 dB), D46 Open"}
+        toggles: {stray_rayleigh: true, stray_brillouin: true, stray_raman: true, stray_reflections: true}

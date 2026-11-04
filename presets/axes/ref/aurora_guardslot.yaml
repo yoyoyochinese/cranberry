@@ -1,0 +1,61 @@
+# Reference axis (Phase 6 P1, BAD variant kept for comparison; D85-11, D34; notes/lit-aghaeerad2025.md §4.2–§4.3): the
+# Aurora-type forward reference pulse sits in a GUARD SLOT before every block of every port, every frame. The guard slot
+# must exist (n_guard: 1, as demux/guard_slot), so L_k grows by (N_b + 1)/N_b (×2 at N_b = 1: F_wg6 / F_bor6) and the D78
+# linewidth requirement Δν ≤ σ²/(2πRΔτ_31) tightens by the same factor (CHK forward_ref_guard_slot reports both). The
+# pulse is one slot from the first data slot of every block, so its edges, the neighbour port's leaked guard pulse and the
+# detector's afterpulses / recovery act on every frame. The primary placement is ref/aurora_calframe (same axes).
+# Every hardware value below is UNVERIFIED (the Aurora SI is not available, D85-14): sweep axes with documented ranges.
+offline:
+  params:
+    fref_placement: guard_slot
+    n_guard: 1                            # the guard slot the reference occupies (demux/guard_slot, D62-3)
+    fref_p_peak_w: !sweep_log [1.0e-9, 1.0e-3, 4]   # reference peak power reaching the GBS input of port k (after the reference
+                                          # tap) [AE] UNVERIFIED: 1 nW – 1 mW (Aurora power not in the paper, lit-aghaeerad2025 §5)
+    fref_t_pulse_s: !sweep_log [1.0e-10, 1.0e-8, 3]   # reference pulse length (modulator-carved) [AE] UNVERIFIED
+    fref_freq_offset_hz: 0.0              # same laser, same frequency as the squeezed light (P1)
+    fref_eps_mod: !sweep_log [1.0e-9, 1.0e-3, 4]      # carving-modulator extinction 30–90 dB (90 dB = cascaded / shuttered) [AE]
+                                          # UNVERIFIED (F_common eps_aom 1e-5 inside). The CW leak ε_mod·P_pk is present in
+                                          # every frame whatever the placement and dominates on the OPO presets
+    fref_edge_tau_s: !sweep_log [1.0e-10, 1.0e-8, 3]  # 1/e time of the pulse edges / tail [AE] UNVERIFIED
+    det_qe_gbs: 0.93                      # GBS SNSPD detection efficiency (Liu, notes/pulsed-opo-source.md §L 本文)
+    det_p_afterpulse: !choice [0.0, 1.0e-3, 1.0e-2]   # afterpulse probability per click [AE] UNVERIFIED (0 = none, TES-like)
+    det_tau_afterpulse_s: !choice [1.0e-8, 1.0e-7, 1.0e-6]   # afterpulse delay 1/e time [AE] UNVERIFIED
+    det_recovery_s: !choice [4.3e-8, 1.0e-5, 2.0e-5]  # SNSPD 43 ns (Liu, pulsed-opo-source.md) / TES 10–20 µs (Madsen M p.9)
+    fref_sigma_target_rad: 0.01           # D78 table column used for the linewidth report (report only)
+  blocks:
+    - block: forward_ref_stray_table  # P1 forward reference → GBS counters of port k (D85-4)
+      name: frefstray1
+      params:
+        placement: !expr "offline.params.fref_placement"
+        p_peak_w: !expr "offline.params.fref_p_peak_w"
+        t_ref_s: !expr "offline.params.fref_t_pulse_s"
+        freq_offset_hz: !expr "offline.params.fref_freq_offset_hz"
+        eps_mod: !expr "offline.params.fref_eps_mod"
+        edge_tau_s: !expr "offline.params.fref_edge_tau_s"
+        er_dmx_db: !expr "offline.params.dmx_er_db"
+        qe_det: !expr "offline.params.det_qe_gbs"
+        p_afterpulse: !expr "offline.params.det_p_afterpulse"
+        tau_afterpulse_s: !expr "offline.params.det_tau_afterpulse_s"
+        det_recovery_s: !expr "offline.params.det_recovery_s"
+        t_rep_s: !expr "1.0 / offline.params.f_rep_hz"
+        N_b: !expr "offline.params.N_b"
+        n_guard: !expr "offline.params.n_guard"
+        K: !expr "offline.params.K_ports"
+        t_cal_s: !expr "offline.params.t_cal_s"
+        t_gate_s: !expr "offline.params.t_gate_s"
+        gbs_filter: {shape: flat, fwhm_hz: !expr "offline.params.gbs_filter_fwhm_hz"}
+        mode: {shape: gaussian, t_fwhm_s: !expr "offline.params.tau_mode_s"}
+        L_m: !expr "offline.params.L_k_m"
+        alpha_per_m: !expr "offline.params.alpha_pm_db_per_km / 1000 * log(10) / 10"
+        gawbs: {cladding_diameter_m: 1.25e-4, v_l_m_s: 5996.0, v_s_m_s: 3740.0, n_modes: 12,   # T07 §4.1; London et al. R0,7
+                gamma_om_per_w_m: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0e-3, 0.0, 0.0, 0.0, 0.0, 0.0], linewidth_hz: 4.3e+6,
+                mode_sum_factor: 1.0}  # (UNVERIFIED typical, as bad_copropagating_probe)
+        gamma_per_w_m: 1.3e-3          # T06 SMF stand-in
+        f_R: 0.18                      # T06
+        raman_model: blow_wood         # D49
+        lambda0_m: !expr "offline.params.lambda0_m"
+        temperature_k: 295.0           # D27
+        sigma_target_rad: !expr "offline.params.fref_sigma_target_rad"
+        lock_ratio_R: 1.0              # D78 table (R = 1; nominal R ≈ 1.02)
+        limit: {photons_per_mode_max: !expr "offline.params.stray_n_mode_max", source: "T17 §6 (−10 dB → −9.95 dB), D46 Open"}
+        toggles: {mod_leak: true, edges: true, demux_crosstalk: true, forward_scatter: true, afterpulse: true}
