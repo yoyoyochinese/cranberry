@@ -14,13 +14,14 @@ kind                           error signal                                     
 ``dc_fringe``                  #5 DC fringe (T15 eq. (3) superset, Ref D)                    ``dc_fringe``
 ``demodulator``                I/Q demodulation + LPF + offset                              ``demod``
 ``rf_reference``               RF phase noise of AOM drives / demod references              ``demod``
+``photon_counting_fringe``     SNSPD clicks of a weak in-band fringe (Phase 6 P5, D85-5)    ``photon_counting``
 =============================  ==========================================================  ===============
 
 Signal representation (baseband vs ``rf_rate_mode``), sensor noise and dither harmonics: ``_common``.
 Contract: core.block (factory interface, reads/writes, losses(), bands(), toggles, D34 no defaults).
 """
 
-from cranberry.blocks.err import coherent, dc_fringe, demod, qnl  # noqa: F401  (registers the kinds)
+from cranberry.blocks.err import coherent, dc_fringe, demod, photon_counting, qnl  # noqa: F401  (registers the kinds)
 from cranberry.blocks.err._common import amplitude_gains_from_table, amplitude_gains_opa, amplitude_gains_opo
 from cranberry.blocks.err.dc_fringe import fringe_lock_point, gamma_coh_from_ledger
 from cranberry.blocks.err.qnl import qnl_band_integrals, radiometer_mc

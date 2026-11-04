@@ -1,0 +1,229 @@
+# Lock axis: two-layer (dual-band) lock of P5 (Pittaluga et al. 2021; D85-5; notes/lit-pittaluga2021.md §3.3–§4.3).
+# Applies to every future base preset (F_wg100, F_wg6, F_bor6, F_liu20: F_common names). Phase 6 WP6-C.
+#
+#   fast layer  unchanged: the L-Liu proxy lock of F_common (liu1 → adc1 → pid1f → stretcher F1, TEC offload), or any
+#               probe overlay that keeps the liu1 / adc1 names (probe/sep_wdm, freq_*, ...).
+#   slow layer  weak in-band seeds of port 0 and port k travel the squeezed path (dseed0 / dseed1) in calibration slots
+#               and interfere at the GBS input; photon_counting_fringe (pcf1) counts the two outputs with the GBS SNSPDs
+#               over dbs_t_int_s, X̂_s − π/2 drives a slow integrator (dbs1.pid, f_c = dbs_fc_x_tint / T_int, the note's
+#               f_c ≈ 1/(10 T_int)) that moves the fast lock point of port k. Port 0 is the reference (metric (ii) is
+#               relative to it), so port k alone carries the slow layer.
+#
+# Where the slow correction goes (choice axis dbs_target):
+#   setpoint       (primary) the slow output is summed into the fast detector signal before adc1 (an analog set-point
+#                  offset, equivalent to a digital one within an ADC LSB): the fast loop then holds X_pr = π/2 − u/K
+#                  and the stretcher of F_k carries the correction to the squeezed light. Physically right because the
+#                  correction must enter where the fast sensor is blind: any actuator on F_k (the TEC or the stretcher
+#                  of the offload stack) is seen by the probe and undone by the fast loop within 1/f_u. It needs no
+#                  hardware and adds no loss on the squeezed path; the range is the DC fringe (|u| < K, here
+#                  ±0.9 K ≈ ±64° of phase) and the gain is 1/K (drifts with probe power and visibility: a slow-loop gain
+#                  error, no bias). Drifts beyond ±64° (hours of common-point temperature ramp) would need an offload.
+#   ref_stretcher  a stretcher on the reference branch REF_k (outside the squeezed path, lossless): the fast loop follows
+#                  it one-to-one, linear, range = the stretcher's. Costs one actuator per port and its own strain noise
+#                  enters the common-point path (not modelled: the actuator has no noise term here).
+#   (P5 literally actuates a λ1-only section; ours is G_k, squeezed only, which puts the stretcher loss on the squeezed
+#   light: not offered, see lit-pittaluga2021 §4.2 (c).)
+#
+# Seed injection point (choice axis dbs_seed_inject): before_squeezer (the seeds cross PUMP / XTAL like the squeezed
+# light, in θ-units as L-A-seed; they then see the time-multiplexed squeezer-side noise that enters metric (ii), M6-08)
+# or after_squeezer (injected at the start of UP: PUMP / XTAL are invisible to the slow layer).
+#
+# Loop delay and order (D55-1, D61-2): the slow blocks sit in the liu1 seq, after the path model and before the fast
+# detector, so each loop closes once: pcf1 → dbs1.pid → dbs1.sum → (fast loop) → stretcher F_k → path model (the fast
+# loop's own delay_buffer dl1f closes it: τ_L), and pcf1 → dbs1.pid → dbs1.dl → REF_k stretcher → path model (dbs1.dl,
+# τ_s = 0: 1/f_sim). The photon_counting_fringe window is modelled explicitly (window average, centroid T/2, held one
+# window: ≈ T_int), so the slow loop delay is T_int + τ_L (chk.dbs_stability; τ_L ≥ 1/f_sim covers both targets). The
+# fast loop is unchanged: dbs1.sum sits between liu1 and adc1 in pipeline order and adds no delay to it.
+#
+# Ledger (M6-02): the common-point window row env.dist.window (band [1/t_cal_s, 1/T_rec] that a short run cannot
+# contain) is suppressed by the slow loop's type-1 sensitivity f²/(f² + f_c²) (f⁻² band with the f_lo flattening; the
+# T08 1 kHz corner ≫ 1/T_rec is dropped) and the branch-drift window term by 1/(1 + (f_c t_cal)²) (a ramp under a type-1
+# loop leaves a static offset, removed with the mean) [AE]. Valid when T_rec ≳ a few 1/f_c (counting noise in that band
+# is not in the row); a run with T_rec ≥ t_cal_s has the row at 0 and shows the slow loop in the time loop alone.
+#
+# Not modelled: the seeds' leakage into the data gates (switch tail μ·ε_tail, lit-pittaluga2021 §3.3 condition 2: an
+# offline number), the demux switch phase seen by the calibration slot at another time than the squeezed slot (§5 Q3),
+# the GBS interferometer (the fringe is port k against port 0 at the GBS input, §5 Q4). Combinations: the overlay
+# replaces liu1 by a seq (liu1, dbs1.sum), so it does not combine with overlays that also replace liu1
+# (probe/detect_heterodyne, probe/detect_dither, presets/locks/L-A-seed.yaml).
+offline:
+  params:
+    dbs_target: !choice [setpoint, ref_stretcher]
+    dbs_seed_inject: !choice [before_squeezer, after_squeezer]
+    dbs_mu_per_gate: !sweep_log [0.1, 30.0, 4]   # seed photons per gate at the GBS detectors, both outputs (§3.3: the
+                                          # information per gate peaks at ≈ 3.2 detected, 3.4 with qe 0.93) [AE]
+    dbs_cal_fraction: !sweep_log [0.01, 1.0, 3]  # fraction of the frames whose port-k slot carries a calibration gate
+                                          # (1 = every frame: the "parallel" case of §3.3; 1/31 ≈ ports in turn) [AE]
+    dbs_t_int_s: !sweep_log [0.01, 30.0, 4]      # counting window (P5: 50–100 ms; §3.3: 45–140 ms for 10 mrad) [AE]
+    dbs_dark_cps: !sweep_log [1.0, 1.0e+4, 3]    # SNSPD dark-count rate UNVERIFIED (Liu's value not in the notes)
+    dbs_dark_per_gate: !expr "dbs_dark_cps * t_gate_s"
+    det_qe_gbs: 0.93                      # GBS SNSPD detection efficiency (Liu, notes/pulsed-opo-source.md §L 本文; as ref/aurora_*)
+    dbs_visibility: 0.95                  # seed-seed fringe visibility at the GBS input [AE] (§3.3 example value)
+    dbs_dead_time_s: 1.0e-8               # SNSPD dead time [AE] UNVERIFIED
+    dbs_recovery_s: 1.1e-8                # recovery 1/e time [AE]: ≈ 95 % at 43 ns (Liu SNSPD recovery, pulsed-opo-source.md)
+    dbs_f_gate_hz: !expr "1.0 / t_frame_s"   # one port-k slot per frame (seed slot next to the block, §3.3 condition 1)
+    dbs_phi_offset_rad: !pi_frac 0.5      # seed-preparation phase of port k against port 0 (EOM on the seed line before
+                                          # injection): X_s = Θ_k + π/2, so locking X_s = π/2 holds Θ_k = 0
+    dbs_fc_x_tint: 0.1                    # f_c·T_int (§3.3: f_c ≈ 1/(10 T_int); phase margin 90° − 360°·0.1 = 54°) [AE]
+    dbs_f_c_hz: !expr "dbs_fc_x_tint / dbs_t_int_s"
+    dbs_ref_range_rad: 32.5               # REF_k stretcher half range at ±out_range_v (915B-like, as pzt_range_rad) [AE]
+    dbs_g_setpoint: !expr "-1.0 if dbs_target == 'setpoint' else 0.0"
+    dbs_ref_k_rad_per_v: !expr "dbs_ref_range_rad / out_range_v if dbs_target == 'ref_stretcher' else 0.0"
+    dbs_k_plant: !expr "1.0 / liu_k_v if dbs_target == 'setpoint' else dbs_ref_range_rad / out_range_v"   # |dX_s/du| [rad/V]
+    dbs_ki_per_s: !expr "2 * pi * dbs_f_c_hz / dbs_k_plant"
+    dbs_u_max_v: !expr "0.9 * liu_k_v if dbs_target == 'setpoint' else out_range_v"   # set point stays inside the fringe
+    dbs_in_a: !expr "'beam.dseed1.phi' if dbs_seed_inject == 'before_squeezer' else 'beam.dseedu1.phi'"
+    dbs_in_b: !expr "'beam.dseed0.phi' if dbs_seed_inject == 'before_squeezer' else 'beam.dseedu0.phi'"
+    # common-point window row under the slow loop (header "Ledger"); f_c = f_lo is regularised (removable singularity)
+    dbs_fcw: !expr "dbs_f_c_hz if abs(dbs_f_c_hz - mech_f_lo_hz_dist) > 1.0e-3 * mech_f_lo_hz_dist else 1.001 * mech_f_lo_hz_dist"
+    dbs_win_band_per_h: !expr "(dbs_fcw * (atan(1.0 / (t_rec_s * dbs_fcw)) - atan(f_win_lo_hz / dbs_fcw)) - mech_f_lo_hz_dist * (atan(1.0 / (t_rec_s * mech_f_lo_hz_dist)) - atan(f_win_lo_hz / mech_f_lo_hz_dist))) / (dbs_fcw**2 - mech_f_lo_hz_dist**2)"
+    dbs_cp_window_var_rad2: !expr "2 * ((L_prs_m / 1000.0)**mech_gamma + (L_refk_m / 1000.0)**mech_gamma) * h_ref_dist_rad2_hz * max(0.0, dbs_win_band_per_h) + (k_T_rad_per_m_K * (L_prs_m - L_refk_m) * dr_T_dist_k_per_s)**2 * max(0.0, t_cal_s**2 - t_rec_s**2) / 12 / (1 + (dbs_f_c_hz * t_cal_s)**2)"
+  blocks:
+    - name: env.dist.window
+      params:
+        variance_rad2: !expr "offline.params.dbs_cp_window_var_rad2"
+        source: "M6-02 window row × the dual-band slow loop's type-1 sensitivity (lock/dual_band_slow header)"
+    # slow loop: L = (2π f_c/s)·e^{−s(T_int + τ_L)} (fast loop ≈ 1 at f_c ≪ f_u; window sinc magnitude dropped:
+    # errs on the unstable side)
+    - block: loop_stability_check
+      name: chk.dbs_stability
+      params:
+        k0: !expr "offline.params.dbs_k_plant"
+        kp: 0.0
+        ki_per_s: !expr "offline.params.dbs_ki_per_s"
+        kd_s: 0.0
+        delay_s: !expr "offline.params.dbs_t_int_s + offline.params.latency_s"
+        poles_hz: []
+        modes: []
+        f_grid_hz: [!expr "1.0e-3 * offline.params.dbs_f_c_hz", !expr "1.0e+3 * offline.params.dbs_f_c_hz", 20001]
+        toggles: {enabled: true}
+topology:
+  segments:
+    - {id: REF1, drivers: {stretcher: uniform}}   # REF_k actuator (dbs_target: ref_stretcher; k = 0 otherwise)
+  beams:
+    - {id: dseed0, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: gbs,
+       path: [{segment: PUMP, direction: 1}, {segment: XTAL, direction: 1}, {segment: UP, direction: 1},
+              {segment: DMX0, direction: 1}, {segment: D0, direction: 1}, {segment: F0, direction: 1, axis: slow},
+              {segment: G0, direction: 1}]}
+    - {id: dseed1, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: gbs,
+       path: [{segment: PUMP, direction: 1}, {segment: XTAL, direction: 1}, {segment: UP, direction: 1},
+              {segment: DMX1, direction: 1}, {segment: EM1, direction: 1}, {segment: D1, direction: 1},
+              {segment: F1, direction: 1, axis: slow}, {segment: G1, direction: 1}]}
+    - {id: dseedu0, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: gbs,
+       path: [{segment: UP, direction: 1}, {segment: DMX0, direction: 1}, {segment: D0, direction: 1},
+              {segment: F0, direction: 1, axis: slow}, {segment: G0, direction: 1}]}
+    - {id: dseedu1, source: laser, freq_offset_hz: 0.0, jones_in: [1, 0], power_w: 0.0, observer: gbs,
+       path: [{segment: UP, direction: 1}, {segment: DMX1, direction: 1}, {segment: EM1, direction: 1},
+              {segment: D1, direction: 1}, {segment: F1, direction: 1, axis: slow}, {segment: G1, direction: 1}]}
+  coef:
+    - {id: REF1.stretcher.all.phase, segment: REF1, driver: stretcher, beam: "*", effect: phase, value: 1.0}
+    - {id: REF1.stretcher.all.group_delay, segment: REF1, driver: stretcher, beam: "*", effect: group_delay, value: 0.0}
+pipeline:
+  - !replace
+    name: liu1
+    seq:
+      - block: photon_counting_fringe       # slow-layer sensor: seed k vs seed 0 at the GBS SNSPDs (D85-5)
+        name: pcf1
+        params:
+          in_a: !expr "offline.params.dbs_in_a"
+          in_b: !expr "offline.params.dbs_in_b"
+          # bg_in / gate_in not wired (optional slots: probe stray light; the gate_schedule mask of calibration frames)
+          out: v.pcf1
+          f_gate_hz: !expr "offline.params.dbs_f_gate_hz"
+          cal_fraction: !expr "offline.params.dbs_cal_fraction"
+          window_mode: time
+          window_t_s: !expr "offline.params.dbs_t_int_s"
+          mu_per_gate: !expr "offline.params.dbs_mu_per_gate"
+          visibility: !expr "offline.params.dbs_visibility"
+          qe: !expr "offline.params.det_qe_gbs"
+          dark_per_gate: !expr "offline.params.dbs_dark_per_gate"
+          bg_per_gate: 0.0                  # probe stray light in the calibration gate: stray1 photons/mode (≲ 1e−5, D80) ≪ μ
+          phi_offset_rad: !expr "offline.params.dbs_phi_offset_rad"
+          setpoint_rad: !pi_frac 0.5        # side of the fringe (maximum information, §3.3)
+          dead_time_s: !expr "offline.params.dbs_dead_time_s"
+          recovery_s: !expr "offline.params.dbs_recovery_s"
+          toggles: {counting_noise: true, saturation: true, dark: true, background: true, dead_time: true}
+      - block: pid                          # slow integrator (e = X̂_s − π/2; dX_s/du = −k_plant for both targets)
+        name: dbs1.pid
+        params:
+          in: v.pcf1
+          out: ctrl.dbs1.pid.u
+          device: fpga_generic
+          anti_windup: clamp
+          kp: 0.0
+          ki_per_s: !expr "offline.params.dbs_ki_per_s"
+          kd_s: 0.0
+          omega_is_rad_per_s: 0.0
+          omega_ds_rad_per_s: 0.0
+          ki2_per_s2: 0.0
+          setpoint_v: 0.0
+          offset_v: 0.0
+          u_min_v: !expr "-offline.params.dbs_u_max_v"
+          u_max_v: !expr "offline.params.dbs_u_max_v"
+          toggles: {feedback: true, p_term: false, i_term: true, d_term: false}
+      - block: delay_buffer               # closes the REF_k path once (D55-1): slow latency τ_s = 0 [AE]
+        name: dbs1.dl
+        params: {in: ctrl.dbs1.pid.u, out: delay.dbs1.out, method: linear, tau_s: 0.0}
+      - block: pzt_fiber_stretcher          # REF_k stretcher (dbs_target: ref_stretcher), polarity −1: dX_s/du = −k
+        name: dbs1.act
+        params:
+          in: delay.dbs1.out
+          gain_mode: direct
+          k_rad_per_v: !expr "offline.params.dbs_ref_k_rad_per_v"
+          polarity: -1.0
+          modes: []                         # [AE] no resonance near the 0.01–10 Hz slow band
+          discretisation: zoh
+          prewarp_hz: 1.0                   # unused (no modes); a null would be stripped by the merge
+          drive_min_v: !expr "-offline.params.out_range_v"
+          drive_max_v: !expr "offline.params.out_range_v"
+          hysteresis_frac: 0.0
+          segment: REF1
+          driver: stretcher
+          n_sub: 1
+          sub: [0, 1]
+          ring_len: 0
+          insertion_loss_lin: 1.0           # outside the squeezed path: lossless (a null would be stripped by the merge)
+          loss_applies_to: [gbs, bhd]
+          loss_source: "actuator on the reference branch, outside the squeezed path: lossless [AE]"
+          toggles: {resonance: false, hysteresis: false, saturation: true, insertion_loss: false}
+      - block: liu_probe_interferometer   # unchanged F_common liu1
+        name: liu1
+        params:
+          mode: homodyne_dc
+          in_pr: beam.pr1.phi
+          in_ref: beam.ref1.phi
+          out: v.liu1
+          p_pr_avg_w: !expr "offline.params.p_pr_avg_w"
+          p_ref_w: !expr "offline.params.p_ref_w"
+          duty: !expr "offline.params.probe_duty"
+          visibility: !expr "offline.params.liu_visibility"
+          coupler_sign: 1.0
+          v_off_v: 0.0
+          responsivity_a_per_w: !expr "offline.params.liu_responsivity_a_per_w"
+          gain_v_per_a: !expr "offline.params.liu_gain_v_per_a"
+          i_n_a_rthz: !expr "offline.params.liu_i_n_a_rthz"
+          toggles: {shot_noise: true, electronic_noise: true, gating: true}
+      - block: adder                      # set-point offset of the fast loop (dbs_target: setpoint; gain 0 otherwise)
+        name: dbs1.sum
+        params:
+          ins: [v.liu1, ctrl.dbs1.pid.u]
+          gains: [1.0, !expr "offline.params.dbs_g_setpoint"]
+          out: v.liu1s
+          unit: V
+  - name: adc1
+    params: {in: v.liu1s}
+measure:
+  decompose:                            # F_common groups + the slow layer's counting noise (loop sensor: component 1)
+    groups:
+      locked_path_residual: [env.thermal.F0.drift, env.thermal.F1.drift, env.mech.ports.mech, env.mech.fs_lock.mech,
+                             liu0.shot_noise, liu0.electronic_noise, liu1.shot_noise, liu1.electronic_noise,
+                             adc0.quantization, adc1.quantization, dac0f.quantization, dac1f.quantization,
+                             pcf1.counting_noise]
+    validity:
+      - {slot: act.pzt0.sat, abs_max: 0.5}
+      - {slot: act.pzt1.sat, abs_max: 0.5}
+      - {slot: act.tec0.sat, abs_max: 0.5}
+      - {slot: act.tec1.sat, abs_max: 0.5}
+      - {slot: lock.sup0.n_loss, abs_max: 0.5}
+      - {slot: lock.sup1.n_loss, abs_max: 0.5}
+      - {slot: ctrl.dbs1.pid.sat, abs_max: 0.5}
