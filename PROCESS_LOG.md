@@ -134,3 +134,4 @@
 - 手順 1（`docs/phase6_prompt.md`）: P1–P7 と Luo 2025 の PDF がすべて `refs/` にあることを確認。新しい文脈の担当 4 人が文献ノート `notes/lit-*.md` を並行して作成中、1 人が既存の機能（(A)・(B)、軸 1・軸 2 の構成、§8 の道具）を調査中。
 - 文献ノート 8 本（`notes/lit-aghaeerad2025.md`・`madsen2022`・`nardelli2026`・`svarc2023`・`pittaluga2021`・`luo2025`・`zhong2021`・`kashiwazaki2023`）を統合。Luo 2025 から P8（対称な 2 トーンの参照光）を提案。P4 (a) の照合: 位相だけの駆動の場合はコードと一致、光路長の駆動の場合はコードに無い（`reviews/scripts/p6_p4a_check.py`）。
 - skill: grilling（grill-me の後継、Phase 6 手順 3）。理由: P1–P8 と (A)(B) に要る新しいブロック・既存ブロックの変更・抽象制御インターフェースの拡張は戻すのが高くつく設計の判断（AGENTS.md）。結果: 回答待ち。
+- skill: anthropic-skills:research-papers（事実調査の担当、Phase 6 手順 3 の前提）。理由: 熱光学係数の波長依存性の一次資料。結果: R ≈ +0.3 ± 0.6 ps/(km·K)（符号は決まらない）、現行のプリセットの k_T と κ_τ の組み合わせは R を約 10 倍大きく見積もる（`notes/fact-p6-thermo-optic-moku.md`）。役に立った。
