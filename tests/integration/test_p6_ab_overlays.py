@@ -75,17 +75,26 @@ def test_refd_overlays_short_run_locks():
 
 
 @pytest.mark.parametrize("overlays", [("lab/acoustic_future",), ("lab/multimode915b_future",),
-                                      ("lab/acoustic_future", "lab/multimode915b_future", "controller/dsc1")])
+                                      ("lab/acoustic_future", "lab/multimode915b_future", "controller/dsc1")],
+                         ids=["acoustic", "multimode", "both+dsc1"])
 def test_future_overlays_build(overlays):
-    res = fs.build_check(fs.nominal("F_liu20"), overlays,
-                         params={"acoustic_scale": 1.0, "acoustic_gamma": 0.0, "pzt_f_res_hz": 2.52e4, "pzt_q": 25.0,
-                                 **MM} if any("multimode" in o for o in overlays) else
-                         {"acoustic_scale": 1.0, "acoustic_gamma": 0.0})
+    """F_liu20_nominal + the future overlays at one point of their axes (pinned with expand: overlays are applied after
+    a config's own offline.params, so fs.load(params=...) would not pin them), three reference-mode samples."""
+    settle0 = [{"name": "mi", "params": {"t_settle_s": 0.0}}, {"name": "mii", "params": {"t_settle_s": 0.0}}]
+    base = fs.load(fs.nominal("F_liu20"), run={"duration_s": 3.0e-6}, overlays=overlays, pipeline=settle0)
+    point = {"acoustic_scale": 1.0, "acoustic_gamma": 0.0, "pzt_f_res_hz": 2.52e4, "pzt_q": 25.0, **MM}
+    axes = {k: [v] for k, v in ((f"offline.params.{k}", v) for k, v in point.items()) if k in config.sweep_markers(base)}
+    (pt,) = expand(base, axes)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        res = run(pt.spec, mode="reference")
     assert 1 in res.metrics.metric_ii
     if "lab/multimode915b_future" in overlays:
         c = fs.block(res, "chk.lock_stability")
         assert len(c.params["modes"]) == 4 and all("r" in m for m in c.params["modes"])
-        assert find(res.spec.pipeline, "pzt1").params["modes"] == c.params["modes"]
+        assert find(pt.spec.pipeline, "pzt1").params["modes"] == c.params["modes"]
+    if "lab/acoustic_future" in overlays:
+        assert find(pt.spec.pipeline, "env.mech.lo").params["psd_table"][1][1] == pytest.approx(1e-5)  # γ = 0: T/2
 
 
 def _pid_response(disc, ki, f, f_sim):
