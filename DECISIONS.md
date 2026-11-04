@@ -646,6 +646,14 @@
 - 決定: `lock_supervisor` に `slip_center_rad`（`true_in` があるとき必須）。refD は loop_sign × coupler_sign から決める（+1 → 0、−1 → π）。F_common の `sup0`・`sup1` は 0（従来と同じ）。凍結した予測の `sup.n_slip` は `n_slip_meaningful` が false の点では使えないまま。
 - 日付: 2026-11-01 / Phase 5
 
+### D84 Phase 6 の開始と調査の 2 軸（ユーザ回答）
+- 決定:
+  1. Ref D の比較で見つかった構造（(A) 実験室の音響の位相雑音、(B) 914 → 915B の複数のモード）を、Phase 6 の探索の前に設定の選択肢として足す（既存のプリセットは残す、D34）。
+  2. 探索は 2 軸で行う。軸 1: GBS の装置なしで、レーザー（CW／パルス）＋ 光路 ＋ BHD で squeezing を位相安定に改善する系（Ref A: Hirota et al.、Ref C: Verclas et al. の型）。次に試す実験になる可能性が高い。軸 2: 最終的に GBS の系に組み込む構成（`docs/phase6_prompt.md` の P1–P7 を含む）。
+  3. 各構成に構成図とシミュレーション結果のグラフを付ける。
+  4. 追加の参考文献: `refs/2026-11-04_extra_refs/`（P1–P7 の PDF と Luo et al., arXiv 2504.05660）。
+- 日付: 2026-11-04 / Phase 6
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）
