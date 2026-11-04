@@ -10,6 +10,8 @@ Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 * ``iir``, ``lpf``, ``hpf``, ``band_split`` (``filters.py``): biquad cascades
 * ``adder``, ``ramp``, ``sine_injection`` (``signals.py``)
 * ``lock_supervisor`` (``supervisor.py``): lock-loss detection, fringe slips, re-acquisition
+* ``gated_hold`` (``gated_hold.py``, WP6-G): error passed only inside a gate window; zero / hold / noise_only outside,
+  ``settle_s`` blanking after each gate edge
 
 Shared plumbing (one step function for the reference and the kernel, driver slots, losses):
 ``_kit.py``. Contract: core.block (factory interface, reads/writes, losses(), bands(), toggles,

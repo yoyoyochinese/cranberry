@@ -1,0 +1,158 @@
+# Gate axis P3 (Nardelli et al. 2026, notes/lit-nardelli2026.md §3.1, §4.2; D85-2, D85-3): chopped WDM probe with an
+# anti-synchronised detector (GBS) window on the L-Liu loops of the future presets (F_wg100, F_wg6, F_bor6, F_liu20).
+# Use it with the WDM probe overlays, in this order: [probe/sep_wdm, probe/freq_1THz, gate/chopper_wdm]
+# (P3's 8 nm ≈ 1 THz reference, WDM separation; gate/chopper_p3 sets P3's 6 kHz chopper).
+#
+# P3's scheme: the probe chopper (duty D_pr = 50 %) and the detector chopper (D_det = 25 %) run in antiphase; the
+# servo responds only to the error averaged by a digital low pass below the chopper rate (no hold: during the
+# probe-off half the error signal is the detector noise alone, i.e. liu_k with in_gate = 0). Here: gate_schedule gw
+# (anti_sync: the detector window centred in the probe-off time, settle = (1 − D_pr − D_det)/(2 f_ch) = P3's 180°),
+# probe power gated through liu in_gate (delayed by the probe flight τ_pr,k), and adc → [adc, lpf] in place, pid*f
+# reading the filtered error. The LPF pole is added to chk.lock_stability and to chk.gated_stability.
+#
+# The chopper-rate window to explore (P3 Fig. 3): too slow → the loop band (f_u < f_lpf < f_ch) misses the drift;
+# too fast → blade timing jitter (gate_jitter_s, no model in P3: an axis) and the backscatter round trip:
+# f_ch ≤ (1 − D_pr − D_det) / [2 (2 n_g L_k/c + t_edge)] (CHK gate_round_trip of chk.gated_stability; 1.27 km ≈ 10 kHz).
+# Metrics (i)/(ii) and the decomposition use the detector window only (mask gate.gw.meas); D_det = 25 % is also the
+# GBS frame utilisation (D46: GBS every frame), which this overlay does not rescale.
+#
+# probe/detect_heterodyne with a frequency overlay (checked for WP6-G): detect_heterodyne writes
+# probe_freq_offset_hz = liu_f_shift_hz, so with probe/freq_1THz the overlay applied LAST wins (the other's value is
+# silently replaced). P3's "1 THz WDM probe + 160 MHz heterodyne" needs a separate key for the beat frequency and a
+# reference ref_k at the probe's frequency (topology overlay); no block is missing. Composition with adc overlays as
+# in gate/borealis_window (adc0/adc1 become seqs here).
+offline:
+  params:
+    gate_f_ch_hz: !sweep_log [1.0e+3, 1.0e+5, 9]   # chopper rate (P3: 4–10 kHz tested, 6 kHz best, p.142)
+    gate_period_s: !expr "1.0 / gate_f_ch_hz"
+    gate_lock_fraction: 0.5                         # probe chopper duty D_pr (P3 p.140)
+    gate_duty_det: 0.25                             # detector chopper duty D_det (P3 p.140)
+    gate_det_settle_s: !expr "(1.0 - gate_lock_fraction - gate_duty_det) / (2.0 * gate_f_ch_hz)"   # centred (180°)
+    gate_edge_s: 2.0e-6                             # blade crossing time t_edge [AE] UNVERIFIED (not in P3)
+    gate_jitter_s: !sweep [0.0, 1.0e-6, 3]          # blade timing jitter (P3 p.142: noise at 8–10 kHz, no model) [AE]
+    gate_leak: 0.0                                  # mechanical chopper: opaque (P3 p.140; an AOM/EOM: ≤ 60 dB)
+    gate_lpf_hz: !expr "0.3 * gate_f_ch_hz"         # digital low pass below f_ch (P3 p.141: value not given) [AE]
+    tau_pr0_s: !expr "(n_g * (L_prsrc_m + L_prs_m + L_0_m) + 1.0003 * L_d_m) / 299792458.0"   # chopper → det_0
+    tau_prk_s: !expr "(n_g * (L_prsrc_m + L_prs_m + L_k_m) + 1.0003 * L_d_m) / 299792458.0"   # chopper → det_k
+  blocks:
+    - name: chk.lock_stability                      # the in-loop LPF lags the loop (as liu_demod_lpf_hz would)
+      params:
+        poles_hz: [!expr "offline.params.gate_lpf_hz"]
+    - block: gated_loop_stability_check
+      name: chk.gated_stability
+      params:
+        k0: !expr "offline.params.liu_k_v * offline.params.pzt_k_rad_per_v"
+        kp: 0.0
+        ki_per_s: !expr "2 * pi * offline.params.f_u_hz / (offline.params.liu_k_v * offline.params.pzt_k_rad_per_v)"
+        kd_s: 0.0
+        delay_s: !expr "offline.params.latency_s + offline.params.lock_extra_delay_s"
+        poles_hz: [!expr "offline.params.gate_lpf_hz"]
+        modes: [{f_hz: !expr "offline.params.pzt_f_res_hz", q: !expr "offline.params.pzt_q"}]
+        stages:
+          - kp: 0.0
+            ki_per_s: !expr "2 * pi * offline.params.f_12_hz * offline.params.pzt_k_rad_per_v / offline.params.tec_k_rad_per_v_k"
+            kd_s: 0.0
+            k_act: !expr "offline.params.tec_k_rad_per_v_k / offline.params.pzt_k_rad_per_v"
+            poles_hz: [!expr "1 / (2 * pi * offline.params.tec_tau_th_s)"]
+            modes: []
+        f_grid_hz: [1.0e-6, 1.0e+8, 400001]
+        pid_discretisation: tustin
+        f_sim_hz: !expr "run.f_sim_hz"
+        period_s: !expr "offline.params.gate_period_s"
+        lock_fraction: !expr "offline.params.gate_lock_fraction"
+        gate_delay_s: !expr "offline.params.tau_prk_s"
+        settle_s: 0.0
+        hold_mode: zero
+        off_gain: !expr "sqrt(offline.params.gate_leak)"   # probe-only gating: the fringe amplitude ∝ √(leak) when off
+        meas_delay_s: !expr "offline.params.gate_det_settle_s"
+        meas_duty: !expr "offline.params.gate_duty_det"
+        round_trip: {n_g: !expr "offline.params.n_g", L_m: !expr "offline.params.L_k_m",
+                     t_edge_s: !expr "offline.params.gate_edge_s", duty_det: !expr "offline.params.gate_duty_det"}
+        toggles: {enabled: true}
+
+pipeline:
+  - !replace
+    name: path.lock
+    seq:
+      - block: lock_error
+        name: path.lock
+        params: {locks: all}
+      - block: gate_schedule
+        name: gw
+        params:
+          detector_gate: anti_sync
+          write_phase: true                     # chopper wheel phase gate.gw.phase
+          period_s: !expr "offline.params.gate_period_s"
+          lock_fraction: !expr "offline.params.gate_lock_fraction"
+          phase: !expr "offline.params.gate_lock_fraction + offline.params.gate_det_settle_s / offline.params.gate_period_s"
+                                                # t = 0 at the start of a detector window [AE]
+          edge_s: !expr "offline.params.gate_edge_s"
+          timing_jitter_s: !expr "offline.params.gate_jitter_s"
+          leak: !expr "offline.params.gate_leak"
+          duty_det: !expr "offline.params.gate_duty_det"
+          settle_s: !expr "offline.params.gate_det_settle_s"
+          toggles: {gating: true, jitter: true, edges: true, leak: true}
+      - block: delay_buffer
+        name: gd0
+        params: {in: gate.gw.lock, out: delay.gd0.out, method: linear, tau_s: !expr "offline.params.tau_pr0_s"}
+      - block: delay_buffer
+        name: gd1
+        params: {in: gate.gw.lock, out: delay.gd1.out, method: linear, tau_s: !expr "offline.params.tau_prk_s"}
+  - name: liu0
+    params: {in_gate: delay.gd0.out}
+  - name: liu1
+    params: {in_gate: delay.gd1.out}
+  - !replace
+    name: adc0
+    seq:
+      - block: adc
+        name: adc0
+        params:
+          in: v.liu0
+          out: v.adc0
+          device: fpga_generic
+          noise_vrms: 0.0
+          avg_samples: 1
+          toggles: {quantization: true, noise: false, saturation: true}
+      - block: lpf
+        name: glpf0
+        params: {in: v.adc0, out: v.glpf0, unit: V, order: 1, f_c_hz: !expr "offline.params.gate_lpf_hz",
+                 method: bilinear, toggles: {enabled: true}}
+  - !replace
+    name: adc1
+    seq:
+      - block: adc
+        name: adc1
+        params:
+          in: v.liu1
+          out: v.adc1
+          device: fpga_generic
+          noise_vrms: 0.0
+          avg_samples: 1
+          toggles: {quantization: true, noise: false, saturation: true}
+      - block: lpf
+        name: glpf1
+        params: {in: v.adc1, out: v.glpf1, unit: V, order: 1, f_c_hz: !expr "offline.params.gate_lpf_hz",
+                 method: bilinear, toggles: {enabled: true}}
+  - name: lock0.stack
+    stack:
+      stages:
+        - name: stage0f
+          seq:
+            - name: pid0f
+              params: {in: v.glpf0}
+  - name: lock1.stack
+    stack:
+      stages:
+        - name: stage1f
+          seq:
+            - name: pid1f
+              params: {in: v.glpf1}
+  - name: mi
+    params: {mask_slot: gate.gw.meas}
+  - name: mii
+    params: {mask_slot: gate.gw.meas}
+
+measure:
+  decompose:
+    mask_slot: gate.gw.meas

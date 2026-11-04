@@ -43,7 +43,8 @@ Offline stage and measurement (WP-F4)
       ``rep_rate_tail_check``) their events go to ``RunResult.events``. A ``loop_unstable`` event
       (:data:`INVALIDATING_CHK`) makes ``RunResult.valid`` False; the point is kept (D34, D75).
     * **Measurement** (after the loop): when the pipeline holds ``metric_i`` / ``metric_ii`` probes,
-      their slots are added to ``measure.record`` (if recording) and ``meas.metrics.evaluate_metrics``
+      their slots (and their optional ``mask_slot``, WP6-G) are added to ``measure.record`` (if recording) and
+      ``meas.metrics.evaluate_metrics``
       fills ``RunResult.metrics`` (``metrics.json``); the out-of-band ledger variance enters there, in
       ``phase_to_quadrature`` only (G05).
 
@@ -827,6 +828,8 @@ def evaluate_measurements(
                             return None
                         c2, s2 = (np.asarray(series[f"{slot}.{k}"], dtype=float) for k in ("cos2", "sin2"))
                         keep = t_rec[: c2.size] >= b.t_settle_s
+                        if b.mask_slot is not None:  # WP6-G: the measurement window only
+                            keep &= np.asarray(series[b.mask_slot], dtype=float).ravel()[: c2.size] > 0.5
                         return c2[keep], s2[keep]
         return None
 
@@ -974,6 +977,7 @@ def run(
             raise KeyError(f"measure.record needs {missing} (D34: no defaults)")
         slots = list(rec_cfg["slots"])
         slots += [s for b in probes for p in b.pairs if (s := b.slot(p.port)) not in slots]
+        slots += list(dict.fromkeys(b.mask_slot for b in probes if b.mask_slot and b.mask_slot not in slots))  # WP6-G
         slots += [s for s in validity_slots if s not in slots]
         if "antialias" not in rec_cfg and int(rec_cfg["decim"]) > 1:
             global _ALIAS_WARNED

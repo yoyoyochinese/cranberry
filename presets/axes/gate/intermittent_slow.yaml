@@ -1,0 +1,139 @@
+# Gate axis P8 (Luo et al. 2025, notes/lit-luo2025.md §1.3, §3.4, §4.2; D85-15): the intermittent slow loop with hold
+# on the L-Liu loops of the future presets (F_wg100, F_wg6, F_bor6, F_liu20). Luo locks its signal-band loop only while
+# the MOT is prepared and holds the stretcher voltage during entanglement generation [L p.4]; here the Liu probe of each
+# port is on only in short lock windows at a slow rate (ms–s), the fine controller holds in between (gated_hold zero +
+# the I-only pid*f = exact hold), and the GBS measures in the long hold windows (no probe stray light there). The TEC
+# stage keeps offloading the held PZT drive. What it shows: the drift accumulated over a hold of ≈ T_c (thermal ramp
+# r_T k_T L_k, the f⁻² mechanical noise) against the reacquisition after each window (gate_settle_s blanking, the
+# loop's settling within D_lock T_c). Metrics in the hold (measurement) windows only (mask gate.gw.meas).
+#
+# Not represented here (no block missing, D85-15): Luo's two-tone probe (±δν, bias cancelled to first order: topology
+# overlay with beams pr1p/pr1m and two liu blocks + adder) and the full-time far-detuned fast loop under the
+# intermittent one (P8-a: probe/freq_1THz-type WDM loop + a second sensor). Combine with gate/borealis_si for the
+# Borealis time scale; the window time scales of Luo are not given (UNVERIFIED), so they are axes.
+#
+# Wiring and composition: as gate/borealis_window (blocks inserted in place with !replace; adc0/adc1 become seqs).
+offline:
+  params:
+    gate_period_s: !sweep_log [1.0e-3, 1.0, 4]     # slow cycle T_c [AE] (MOT cycle class, UNVERIFIED in Luo)
+    gate_lock_fraction: !sweep [0.05, 0.5, 4]      # lock (MOT preparation) fraction [AE] UNVERIFIED
+    gate_edge_s: 1.0e-7                            # AOM / switch rise [AE]
+    gate_jitter_s: 0.0
+    gate_leak: !expr "eps_aom"                     # AOM off-state leak (F_common) [AE] UNVERIFIED
+    gate_settle_s: !sweep_log [1.0e-6, 1.0e-4, 3]  # controller blanking after the window opens (switch / APD settling,
+                                                   # Luo's MEMS switch) [AE]
+    tau_pr0_s: !expr "(n_g * (L_prsrc_m + L_prs_m + L_0_m) + 1.0003 * L_d_m) / 299792458.0"
+    tau_prk_s: !expr "(n_g * (L_prsrc_m + L_prs_m + L_k_m) + 1.0003 * L_d_m) / 299792458.0"
+  blocks:
+    - block: gated_loop_stability_check
+      name: chk.gated_stability
+      params:
+        k0: !expr "offline.params.liu_k_v * offline.params.pzt_k_rad_per_v"
+        kp: 0.0
+        ki_per_s: !expr "2 * pi * offline.params.f_u_hz / (offline.params.liu_k_v * offline.params.pzt_k_rad_per_v)"
+        kd_s: 0.0
+        delay_s: !expr "offline.params.latency_s + offline.params.lock_extra_delay_s"
+        poles_hz: []
+        modes: [{f_hz: !expr "offline.params.pzt_f_res_hz", q: !expr "offline.params.pzt_q"}]
+        stages:
+          - kp: 0.0
+            ki_per_s: !expr "2 * pi * offline.params.f_12_hz * offline.params.pzt_k_rad_per_v / offline.params.tec_k_rad_per_v_k"
+            kd_s: 0.0
+            k_act: !expr "offline.params.tec_k_rad_per_v_k / offline.params.pzt_k_rad_per_v"
+            poles_hz: [!expr "1 / (2 * pi * offline.params.tec_tau_th_s)"]
+            modes: []
+        f_grid_hz: [1.0e-6, 1.0e+8, 400001]
+        pid_discretisation: tustin
+        f_sim_hz: !expr "run.f_sim_hz"
+        period_s: !expr "offline.params.gate_period_s"
+        lock_fraction: !expr "offline.params.gate_lock_fraction"
+        gate_delay_s: !expr "offline.params.tau_prk_s"
+        settle_s: !expr "offline.params.gate_settle_s"
+        hold_mode: zero
+        off_gain: 0.0
+        meas_delay_s: !expr "offline.params.gate_edge_s"
+        toggles: {enabled: true}
+
+pipeline:
+  - !replace
+    name: path.lock
+    seq:
+      - block: lock_error
+        name: path.lock
+        params: {locks: all}
+      - block: gate_schedule
+        name: gw
+        params:
+          detector_gate: complement
+          write_phase: false
+          period_s: !expr "offline.params.gate_period_s"
+          lock_fraction: !expr "offline.params.gate_lock_fraction"
+          phase: !expr "offline.params.gate_lock_fraction"   # t = 0 at the start of a hold (measurement) window [AE]
+          edge_s: !expr "offline.params.gate_edge_s"
+          timing_jitter_s: !expr "offline.params.gate_jitter_s"
+          leak: !expr "offline.params.gate_leak"
+          toggles: {gating: true, jitter: true, edges: true, leak: true}
+      - block: delay_buffer
+        name: gd0
+        params: {in: gate.gw.lock, out: delay.gd0.out, method: linear, tau_s: !expr "offline.params.tau_pr0_s"}
+      - block: delay_buffer
+        name: gd1
+        params: {in: gate.gw.lock, out: delay.gd1.out, method: linear, tau_s: !expr "offline.params.tau_prk_s"}
+  - name: liu0
+    params: {in_gate: delay.gd0.out}
+  - name: liu1
+    params: {in_gate: delay.gd1.out}
+  - !replace
+    name: adc0
+    seq:
+      - block: adc
+        name: adc0
+        params:
+          in: v.liu0
+          out: v.adc0
+          device: fpga_generic
+          noise_vrms: 0.0
+          avg_samples: 1
+          toggles: {quantization: true, noise: false, saturation: true}
+      - block: gated_hold
+        name: gh0
+        params: {in: v.adc0, gate: delay.gd0.out, out: v.gh0, unit: V, mode: zero,
+                 settle_s: !expr "offline.params.gate_settle_s", toggles: {gating: true}}
+  - !replace
+    name: adc1
+    seq:
+      - block: adc
+        name: adc1
+        params:
+          in: v.liu1
+          out: v.adc1
+          device: fpga_generic
+          noise_vrms: 0.0
+          avg_samples: 1
+          toggles: {quantization: true, noise: false, saturation: true}
+      - block: gated_hold
+        name: gh1
+        params: {in: v.adc1, gate: delay.gd1.out, out: v.gh1, unit: V, mode: zero,
+                 settle_s: !expr "offline.params.gate_settle_s", toggles: {gating: true}}
+  - name: lock0.stack
+    stack:
+      stages:
+        - name: stage0f
+          seq:
+            - name: pid0f
+              params: {in: v.gh0}
+  - name: lock1.stack
+    stack:
+      stages:
+        - name: stage1f
+          seq:
+            - name: pid1f
+              params: {in: v.gh1}
+  - name: mi
+    params: {mask_slot: gate.gw.meas}
+  - name: mii
+    params: {mask_slot: gate.gw.meas}
+
+measure:
+  decompose:
+    mask_slot: gate.gw.meas

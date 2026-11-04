@@ -6,6 +6,7 @@ Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 
 * ``eom_phase``, ``dither_modulator``, ``aom_shift`` (``modulators.py``)
 * ``probe_pulser`` (``probe_pulser.py``, WP-B8: Liu-type probe gating, per-port stray-light gating)
+* ``gate_schedule`` (``gate_schedule.py``, WP6-G: periodic lock / measurement windows ``gate.<name>.lock`` / ``.meas``)
 
 Contract: core.block (factory interface, reads/writes, losses(), bands(), toggles, D34 no defaults).
 """

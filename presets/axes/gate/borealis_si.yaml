@@ -1,0 +1,7 @@
+# Gate point: the Borealis window, SI reading (lock light 65 µs / squeezed light 35 µs at 10 kHz, [M-SI p.22];
+# notes/lit-madsen2022.md §0-2, D85-10). A point of the gate_period_s / gate_lock_fraction axes of gate/borealis_window
+# (and gate/intermittent_slow); apply it after that overlay. Not a default (D34).
+offline:
+  params:
+    gate_period_s: 1.0e-4
+    gate_lock_fraction: 0.65

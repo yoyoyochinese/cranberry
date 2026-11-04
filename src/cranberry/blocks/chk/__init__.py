@@ -9,6 +9,8 @@ Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 * ``demux_feasibility``
 * ``grid_edge_monitor``
 * ``loop_stability_check``
+* ``gated_loop_stability_check`` (WP6-G): Floquet stability of a periodically gated loop, residual in the measurement
+  window, Dick (frequency-conversion) term, backscatter round-trip limit
 
 Contract: core.block (factory interface, reads/writes, losses(), bands(), toggles, D34 no defaults).
 """
