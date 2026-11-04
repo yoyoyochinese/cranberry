@@ -257,7 +257,7 @@ def test_detect_heterodyne_refshift_keeps_probe_offset():
         assert spec.offline["params"]["probe_freq_offset_hz"] == 1e12
         assert beams["pr1"].freq_offset_hz == 1e12 and beams["ref1"].freq_offset_hz == 1e12 - 8e7
         assert find(spec.pipeline, "liu1").params["mode"] == "heterodyne"
-    # the issue it fixes: probe/detect_heterodyne after probe/freq_1THz turns the probe into an 80 MHz probe
-    old = config.load(ROOT / "presets/future/F_liu20_nominal.yaml", overlays=["probe/freq_1THz", "probe/detect_heterodyne"])
-    assert old.offline["params"]["probe_freq_offset_hz"] == 8e7
+    # D96-5: probe/detect_heterodyne (AOM on the probe side) now also keeps the 1 THz line, plus its shift
+    het = config.load(ROOT / "presets/future/F_liu20_nominal.yaml", overlays=["probe/freq_1THz", "probe/detect_heterodyne"])
+    assert het.offline["params"]["probe_freq_offset_hz"] == 1e12 + 8e7
     go(load("presets/future/F_liu20_nominal.yaml", ovs, drop_esa=False))

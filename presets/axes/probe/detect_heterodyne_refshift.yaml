@@ -9,14 +9,18 @@
 # The reference's offset only enters its static phase 2π f_off τ_b (absorbed in the lock point) and nothing else in
 # F_common (its REF / REF_k coefficients are wildcard); the demodulator, the sensor noise (white near the carrier, ×2
 # after demodulation, T14 §2.2) and the loop are those of probe/detect_heterodyne. Keep liu_demod_lpf_hz ≫ f_u.
+# D96-5: F_common now writes probe_freq_offset_hz = probe_line_offset_hz + liu_f_shift_hz (the AOM on the probe side,
+# probe/detect_heterodyne). This overlay keeps the AOM on the reference arm, so it restates the probe offset as the line
+# alone and puts the reference at line − f_shift.
 offline:
   params:
     liu_f_shift_hz: 8.0e+7         # AOM shift [AE] (80 MHz class, as probe/detect_heterodyne)
+    probe_freq_offset_hz: !expr "probe_line_offset_hz"   # AOM on the reference arm: the probe beam carries only the line
     liu_demod_lpf_hz: 3.0e+5       # [AE] ≫ f_u, < f_N = 500 kHz (as probe/detect_heterodyne)
 topology:
   beams:
-    - {id: ref0, freq_offset_hz: !expr "offline.params.probe_freq_offset_hz - offline.params.liu_f_shift_hz"}
-    - {id: ref1, freq_offset_hz: !expr "offline.params.probe_freq_offset_hz - offline.params.liu_f_shift_hz"}
+    - {id: ref0, freq_offset_hz: !expr "offline.params.probe_line_offset_hz - offline.params.liu_f_shift_hz"}
+    - {id: ref1, freq_offset_hz: !expr "offline.params.probe_line_offset_hz - offline.params.liu_f_shift_hz"}
 pipeline:
   - !replace
     name: liu0

@@ -1,5 +1,7 @@
 # Fibre axis: SMF with the probe in the SAME polarization (apply after fiber/smf.yaml; D32, T10 §3.3): the reciprocal
 # backward probe then sees the forward phase exactly (T09 test 2), but its backscatter lands in the squeezed mode.
+# D96-4: replacing fiber/smf's probe Jones vectors is the point of this overlay.
+overrides: [fiber/smf]
 topology:
   beams:
     - {id: pr0, jones_in: [1, 0], jones_out: [1, 0]}
