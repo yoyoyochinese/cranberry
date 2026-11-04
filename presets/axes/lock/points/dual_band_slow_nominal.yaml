@@ -1,10 +1,24 @@
 # One point of every axis of lock/dual_band_slow (apply AFTER it; a file's own keys lose to its overlays, D74-7).
-# Not an optimum and not a default (D34): the representative values the axis comments name.
+# Not an optimum and not a default (D34): the representative values the axis comments name. Physically sound variants
+# (reviews/phase6_wp6c_p.md C-1..C-4): seed after the squeezer, pump on in the calibration slot (b' counted),
+# calibration frames. The pre-review idealisation is lock/points/dual_band_slow_ideal; the guard-slot variant
+# lock/points/dbs_cal_guard (apply after this file).
 offline:
   params:
     dbs_target: setpoint                  # primary (lock/dual_band_slow header)
-    dbs_seed_inject: before_squeezer      # the seed sees every squeezed-path section
-    dbs_mu_per_gate: 3.43                 # information optimum with qe 0.93 (2 × 1.594 / 0.93; lit-pittaluga2021 §3.3)
-    dbs_cal_fraction: 1.0                 # every frame ("parallel", §3.3)
+    dbs_seed_inject: after_squeezer       # no phase-sensitive gain; the tap loss is registered (dbs.loss)
+    dbs_seed_model: psa                   # used by before_squeezer only
+    dbs_seed_prep: quadrature
+    dbs_seed_balance: equal_output
+    dbs_sq_r: 1.8                         # F_liu20 r_0 (T17 §2.6); F_bor6 0.53
+    dbs_L_seed_m: 1.0                     # as L_pump_m [AE] UNVERIFIED
+    dbs_inj_tap: 0.01                     # 1 % tap: 0.044 dB on the squeezed light [AE]
+    dbs_cal_slot: cal_frames              # no extra slot, L_k unchanged
+    dbs_cal_fraction: 0.2                 # the GBS keeps 80 % of the frames (the cost of guard at N_b = 4); N_b gates per
+                                          # calibration frame → 0.8 gates per frame on F_liu20 [AE]
+    dbs_cal_pump: pumped                  # per-slot / per-frame pump gate not demonstrated (UNVERIFIED): b' counted
+    dbs_sqvac_eta: 0.63                   # F_liu20_nominal η_gbs·qe (review C-2: 0.59–0.68) [AE]
+    dbs_sqvac_overlap: 1.0                # the whole squeezed-vacuum mode inside the gate (conservative) [AE]
+    dbs_mu_per_gate: 4.2                  # information optimum with b' ≈ 1.7 (review C-2; 3.43 without background)
     dbs_t_int_s: 0.05                     # P5's 50 ms (f_c = 2 Hz)
     dbs_dark_cps: 100.0                   # [AE] UNVERIFIED axis centre (log)

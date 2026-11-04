@@ -20,10 +20,16 @@
 #
 # Set points that follow the program: mii setpoint_slot (metric (ii) = deviation from the programmed Θ_k − Θ_0) and the
 # slip centre of sup0/sup1 (lock.L<k>.err moves with p_k). Metric (i) (BHD, Δ_k) is NOT corrected: it moves by −p_k.
+# Settle mask (review P-1): the set points jump with the command, the lock follows within 1/f_u, so mii takes only the
+# samples prog marks settled (ctrl.prog.settled = 0 for prog_settle_s after every switch): metric (ii), its noise levels
+# and runner.decompose are the error the GBS sees on settled data, the transients are in step_response. mii mask_slot is
+# taken by this file; after a gate overlay, wire the gate's measurement slot into prog mask_in (product) in a combined
+# overlay (detection × gate already needs one, D96-9).
 # Wiring in place (D90-3): prog is appended to the `squeezer` hook seq, which runs before liu0, so nothing is added at
 # the end of the pipeline and the loop delay is unchanged (lock_extra_delay_s unchanged). The demodulator low pass stays
-# outside chk.lock_stability (detect_heterodyne note). step_response `sr` reports per switch rise / overshoot / settling
-# (to prog_tol_rad), static bias, actuator use, slips and the cross-port consistency (measure.step_response.p6).
+# outside chk.lock_stability (detect_heterodyne note). step_response `sr` reports per switch rise / overshoot (along the
+# unwrapped path, flagged ambiguous when the record cannot resolve it), settling (to max(prog_tol_rad, 3σ)), static
+# bias, actuator use, slips and the cross-port consistency (measure.step_response.p6); the record must be point-sampled.
 offline:
   params:
     prog_n_settings: 30            # Zhong p.6, Fig. 4(a)
@@ -32,7 +38,15 @@ offline:
     prog_seed: 0
     prog_quantum_rad: 1.7453292519943295e-08       # 1e−6° (Moku:Delta lock-in / laser lock box demodulation phase)
     prog_slew_rad_per_s: 1.0e+3    # ramp mode only [AE]
-    prog_tol_rad: 0.01             # settling tolerance [AE] (D78 10 mrad class)
+    prog_tol_rad: 0.01             # settling tolerance floor [AE] (D78 10 mrad class)
+    prog_tol_sigma: 3.0            # settling tolerance = max(prog_tol_rad, 3 σ of the port's locked error before the first
+                                   # switch): on port k the lock noise alone is ≈ 10 mrad, so a fixed 10 mrad makes the
+                                   # settling time the dwell or NaN, set by noise (review P-4); 0 = fixed tolerance [AE]
+    prog_max_step_rad: 2.827433388230814   # 0.9π: uniform settings redrawn when a port's step exceeds it (review P-5);
+                                   # π = the unguarded Zhong table (bad: steps near π start next to the unstable zero)
+    prog_settle_s: !expr "log(prog_max_step_rad / prog_tol_rad) / (2 * pi * f_u_hz)"   # settle mask after each switch
+                                   # (review P-1): first-order lock at f_u from the largest step to prog_tol_rad
+                                   # (0.90 ms at f_u = 1 kHz); a longer transient (resonance, f_u ≥ 1.5 kHz) leaks in
   blocks:
     - block: step_response
       name: sr
@@ -45,6 +59,7 @@ offline:
         actuator_range: {"0": !expr "offline.params.out_range_v", "1": !expr "offline.params.out_range_v"}
         slips: {"0": lock.sup0.n_slip, "1": lock.sup1.n_slip}
         tol_rad: !expr "offline.params.prog_tol_rad"
+        tol_sigma: !expr "offline.params.prog_tol_sigma"
 pipeline:
   - name: squeezer
     seq:
@@ -58,6 +73,8 @@ pipeline:
           dwell_s: !expr "offline.params.prog_dwell_s"
           step_rad: !choice [null, 0.39269908169872414, 0.7853981633974483, 1.5707963267948966]   # null, π/8, π/4, π/2
           seed: !expr "offline.params.prog_seed"
+          max_step_rad: !expr "offline.params.prog_max_step_rad"
+          settle_s: !expr "offline.params.prog_settle_s"
           mode: step
           output: rf_phase
           sign: -1.0
@@ -87,7 +104,7 @@ pipeline:
             - name: sup1
               params: {slip_center_slot: ctrl.prog.target1}
   - name: mii
-    params: {setpoint_slot: {"0": ctrl.prog.target0, "1": ctrl.prog.target1}}
+    params: {setpoint_slot: {"0": ctrl.prog.target0, "1": ctrl.prog.target1}, mask_slot: ctrl.prog.settled}
 measure:
   step_response:
     p6: {block: sr}

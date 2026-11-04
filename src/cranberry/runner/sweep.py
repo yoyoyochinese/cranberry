@@ -134,8 +134,10 @@ def _db_axis(tree: Any, name: str) -> tuple[tuple[Any, ...], str, str] | None:
     return (p, key, db[0]) if db else None
 
 
-def expand(spec: RunSpec, axes: Mapping[str, Sequence[Any]] | None = None) -> list[SweepPoint]:
-    """Expand the axes of ``spec`` (+ explicit ``axes``) into single-run specs (module docstring)."""
+def expand(spec: RunSpec, axes: Mapping[str, Sequence[Any]] | None = None,
+           limit: int | None = None) -> list[SweepPoint]:
+    """Expand the axes of ``spec`` (+ explicit ``axes``) into single-run specs (module docstring); ``limit``: only
+    the first ``limit`` points of the grid (the full product of many axes is not built, e.g. for a first point)."""
     source = input_tree(spec)
     tree = source if source is not None else spec_to_tree(spec)
     grid: dict[str, list[Any]] = {}
@@ -178,7 +180,7 @@ def expand(spec: RunSpec, axes: Mapping[str, Sequence[Any]] | None = None) -> li
             FrozenExpressionsWarning, stacklevel=2,
         )
     points: list[SweepPoint] = []
-    for combo in itertools.product(*(grid[n] for n in names)):
+    for combo in itertools.islice(itertools.product(*(grid[n] for n in names)), limit):
         values = dict(zip(names, combo))
         point_tree = copy.deepcopy(tree)
         for name, value in values.items():

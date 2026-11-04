@@ -77,7 +77,7 @@ def first_point(spec: RunSpec) -> RunSpec:
         return spec
     from cranberry.runner.sweep import expand
 
-    return expand(spec)[0].spec
+    return expand(spec, limit=1)[0].spec
 
 
 def build_check(preset: str, overlays: tuple[str, ...], params: dict[str, Any] | None = None):

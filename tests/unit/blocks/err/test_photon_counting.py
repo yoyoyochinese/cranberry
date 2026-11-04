@@ -8,14 +8,15 @@ import numpy as np
 import pytest
 from scipy.optimize import minimize_scalar
 
-from cranberry.blocks.err.photon_counting import fisher_per_gate
+from cranberry.blocks.err.photon_counting import fisher_per_gate, sqvac_background
 from cranberry.core.compile import run_compiled, run_reference
 from cranberry.core.layout import SlotLayout
 from cranberry.core.pipeline import build, spec_from_obj
 from cranberry.core.state import Params, State
 
 FS = 1.0e6
-ON = {"counting_noise": True, "saturation": True, "dark": True, "background": True, "dead_time": False}
+ON = {"counting_noise": True, "saturation": True, "dark": True, "background": True, "dead_time": False,
+      "squeezed_vacuum": True}
 
 
 def phase(name, x):
@@ -27,7 +28,7 @@ def pcf(toggles=None, mode="gates", win=1000, f_gate=FS, cal=1.0, in_b="v.b", ga
     p = {"in_a": "v.a", "in_b": in_b, "bg_in": None, "gate_in": gate_in, "out": "v.pcf", "f_gate_hz": f_gate,
          "cal_fraction": cal, "window_mode": mode, "mu_per_gate": 3.2, "visibility": 0.95, "qe": 0.93,
          "dark_per_gate": 1e-3, "bg_per_gate": 0.0, "phi_offset_rad": 0.0, "setpoint_rad": math.pi / 2,
-         "dead_time_s": 4.3e-8, "recovery_s": 1e-8, "toggles": {**ON, **(toggles or {})}}
+         "dead_time_s": 4.3e-8, "recovery_s": 1e-8, "sqvac_per_gate": 0.0, "toggles": {**ON, **(toggles or {})}}
     p["window_t_s" if mode == "time" else "window_n_gates"] = win
     p.update(kw)
     return {"block": "photon_counting_fringe", "name": "pcf", "params": p}
@@ -147,13 +148,67 @@ def test_dead_time():
 def test_estimator_bias_and_variance_vs_cramer_rao(mu, x, g):
     """Asymptotic regime (≳ 50 empty gates per output and window): the MLE is unbiased and reaches the CRB. Deep in
     saturation (μ = 12: e^{−5.6} empty gates) G = 2000 leaves ≈ 7 empties per window and the variance is ≈ 1.23 × the
-    CRB (small-count regime), hence G = 20000 there."""
+    CRB (small-count regime), hence G = 20000 there. The bound is the μ-unknown one (the normalised estimator does not
+    know m = qe μ/2): 2×2 Fisher matrix in (m, X); at π/2 it equals the μ-known 1/F_XX, off π/2 it is larger (+7.5 % at
+    +0.3 rad, review C-5), which the 10 % tolerance would otherwise hide."""
     w = windows(pipe(x=x, win=g, mu_per_gate=mu), 1500, g)
-    crb = 1.0 / (g * fisher_per_gate(0.5 * 0.93 * mu, 0.95, x, 1e-3))
+    crb = cramer_rao_mu_unknown(0.5 * 0.93 * mu, 0.95, x, 1e-3) / g
+    if abs(x - math.pi / 2) > 0.1:
+        assert crb > 1.05 / (g * fisher_per_gate(0.5 * 0.93 * mu, 0.95, x, 1e-3))
     err = w[:, 3] - x
     sem = math.sqrt(crb / len(err))
     assert abs(err.mean()) < 4 * sem + 0.05 * math.sqrt(crb)        # unbiased within statistics
     assert err.var() == pytest.approx(crb, rel=0.1)                # efficient: reaches the CRB
+
+
+def cramer_rao_mu_unknown(m, vis, x, dark):
+    """Var(X̂) bound per gate with m unknown: [F⁻¹]_XX of the click model λ± = m(1 ± V cos X) + d."""
+    f = np.zeros((2, 2))
+    for s in (1.0, -1.0):
+        lam = m * (1.0 + s * vis * math.cos(x)) + dark
+        g = np.array([1.0 + s * vis * math.cos(x), -s * m * vis * math.sin(x)])
+        f += np.outer(g, g) / math.expm1(lam)
+    return float(np.linalg.inv(f)[1, 1])
+
+
+def test_squeezed_vacuum_background():
+    """b' of the review's table (C-2: r = 1.8, η·qe 0.59 / 0.68 → 1.678 / 1.773; 0 without squeezing or overlap); in the
+    block it adds b' clicks per output and, being known, is subtracted: X̂ = X exactly with expected counts."""
+    assert sqvac_background(1.8, 0.59) == pytest.approx(1.678, abs=1e-3)
+    assert sqvac_background(1.8, 0.68) == pytest.approx(1.773, abs=1e-3)
+    assert sqvac_background(0.0, 0.7) == pytest.approx(0.0, abs=1e-15)
+    assert sqvac_background(1.8, 0.7, 0.0) == pytest.approx(0.0, abs=1e-15)
+    bp = sqvac_background(1.8, 0.63)
+    g = 400
+    w = windows(pipe(x=1.2, win=g, mu_per_gate=0.0, dark_per_gate=0.0, sqvac_per_gate=bp,
+                     toggles={"counting_noise": False}), 2, g, compiled=False)
+    assert w[-1, 1] / g == pytest.approx(-math.expm1(-bp), rel=1e-12)
+    w = windows(pipe(x=1.2, win=g, sqvac_per_gate=bp, toggles={"counting_noise": False}), 2, g, compiled=False)
+    assert w[-1, 3] == pytest.approx(1.2, abs=1e-9)
+    w = windows(pipe(x=1.2, win=g, mu_per_gate=0.0, dark_per_gate=0.0, sqvac_per_gate=bp,
+                     toggles={"counting_noise": False, "squeezed_vacuum": False}), 2, g, compiled=False)
+    assert np.all(w[-1, :2] == 0.0)
+
+
+def test_unequal_seed_intensities():
+    """ia_in / ib_in: λ± = qe μ(I_a + I_b ± 2V√(I_a I_b) cos X)/2 + dark; balanced (½, ½) equals the unwired block; the
+    estimator, not told the contrast 2√(I_a I_b)/(I_a + I_b), reads cos X̂ scaled by it (no bias at π/2)."""
+    def run(ia, ib, x):
+        objs = [phase("a", x), phase("b", 0.0), phase("ia", ia), phase("ib", ib),
+                pcf(win=50, ia_in="v.ia", ib_in="v.ib", toggles={"counting_noise": False})]
+        blk, st, pr = make(objs)
+        run_reference(blk, st, pr, 100)
+        return float(st["cnt.pcf.n1"]), float(st["cnt.pcf.x_hat"])
+    n_bal, x_bal = run(0.5, 0.5, 1.0)
+    w = windows(pipe(x=1.0, win=50, toggles={"counting_noise": False}), 2, 50, compiled=False)
+    assert n_bal == pytest.approx(w[-1, 1], rel=1e-12) and x_bal == pytest.approx(1.0, abs=1e-9)
+    ia, ib = 0.9, 0.1
+    n1, xh = run(ia, ib, 1.0)
+    lam = 0.93 * 3.2 * (0.5 * (ia + ib) + math.sqrt(ia * ib) * 0.95 * math.cos(1.0)) + 1e-3
+    assert n1 == pytest.approx(50 * -math.expm1(-lam), rel=1e-12)
+    c = 2 * math.sqrt(ia * ib) / (ia + ib)
+    assert math.cos(xh) == pytest.approx(c * math.cos(1.0), rel=1e-9)
+    assert run(ia, ib, math.pi / 2)[1] == pytest.approx(math.pi / 2, abs=1e-9)
 
 
 def test_photon_budget_lit_pittaluga():

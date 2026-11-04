@@ -1,0 +1,9 @@
+# Calibration-slot option (a) of lock/dual_band_slow (reviews/phase6_wp6c_p.md C-3): one seed per frame in a guard slot.
+# The slot must exist, so this point also sets n_guard: 1 (as demux/guard_slot): L_k, t_frame and Δτ_k grow by
+# (N_b + 1)/N_b in F_common (component 3 and the D78 linewidth requirement follow); chk.dbs_cal reports it. Apply AFTER
+# lock/dual_band_slow and its point (e.g. dual_band_slow_nominal).
+offline:
+  params:
+    n_guard: 1                            # the guard slot the seed occupies (demux/guard_slot, D62-3)
+    dbs_cal_slot: guard
+    dbs_cal_fraction: 1.0                 # the seed in every frame's guard slot

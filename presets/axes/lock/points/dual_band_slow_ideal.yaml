@@ -1,0 +1,22 @@
+# The pre-review (D92-4) point of lock/dual_band_slow, kept as the IDEAL / BAD comparison (D34; reviews/phase6_wp6c_p.md
+# C-1..C-3): the seed before the squeezer as an exact θ-unit copy of the squeezed light (ideal_copy: no phase-sensitive
+# gain, no seed phase noise), a free calibration slot next to every block at no cost (ideal_free) and no squeezed vacuum
+# in the calibration gate (overlap 0 → b' = 0). Apply AFTER lock/dual_band_slow (alone or after dual_band_slow_nominal).
+offline:
+  params:
+    dbs_target: setpoint
+    dbs_seed_inject: before_squeezer
+    dbs_seed_model: ideal_copy
+    dbs_seed_prep: quadrature
+    dbs_seed_balance: equal_output
+    dbs_sq_r: 1.8
+    dbs_L_seed_m: 1.0
+    dbs_inj_tap: 0.01
+    dbs_cal_slot: ideal_free
+    dbs_cal_fraction: 1.0                 # every frame ("parallel", §3.3)
+    dbs_cal_pump: pumped
+    dbs_sqvac_eta: 0.63
+    dbs_sqvac_overlap: 0.0                # b' = 0 (the pre-review bg_per_gate 0)
+    dbs_mu_per_gate: 3.43                 # information optimum with qe 0.93 (2 × 1.594 / 0.93; lit-pittaluga2021 §3.3)
+    dbs_t_int_s: 0.05
+    dbs_dark_cps: 100.0
