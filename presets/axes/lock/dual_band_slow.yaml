@@ -85,6 +85,12 @@
 # the GBS interferometer (the fringe is port k against port 0 at the GBS input, §5 Q4), a lock of the seed-pump relative
 # phase (before_squeezer). Combinations: the overlay replaces liu1 by a seq (liu1, dbs1.sum), so it does not combine with
 # overlays that also replace liu1 (probe/detect_heterodyne, probe/detect_dither, presets/locks/L-A-seed.yaml).
+# Composition with a gate overlay (axis 2, D96-9): apply the gate first, then this file and its point, then
+# lock/dual_band_slow_gate_wire (it puts the gate's probe-power slot back on the liu1 inside this file's seq). This file
+# replaces liu1 wholesale, so it declares the gates' liu1 in_gate as an intended discard (overrides below); without the
+# wire file the fast probe would stay on in the measurement windows (tests/integration/test_phase6_dual_band.py checks
+# the wired combination).
+overrides: [gate/borealis_window, gate/chopper_wdm, gate/intermittent_slow]
 offline:
   params:
     dbs_target: !choice [setpoint, ref_stretcher]
@@ -366,7 +372,12 @@ pipeline:
           gains: [1.0, !expr "offline.params.dbs_g_setpoint"]
           out: v.liu1s
           unit: V
-  - name: adc1
+  # The summed signal enters the controller input stage in_bw1 (F_common: in_bw1 → adc1), so the controller's analogue
+  # input pole (ctrl_in_pole_hz, e.g. controller/dsc1's 120 kHz) stays in the fast loop of port k as it is in
+  # chk.lock_stability and in port 0. (Axis-2 fix: the first version fed adc1 directly and skipped in_bw1; identical for
+  # ctrl_in_pole_hz = inf, where in_bw1 is the identity.) adc1 keeps F_common's input, so a gate overlay's restated adc1
+  # (which reads v.in_bw1) composes after this file.
+  - name: in_bw1
     params: {in: v.liu1s}
 measure:
   decompose:                            # F_common groups + the slow layer's counting noise (loop sensor: component 1)

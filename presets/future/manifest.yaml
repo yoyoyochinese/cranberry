@@ -99,6 +99,9 @@ combinations:
   - {base: F_liu20, overlays: [probe/detect_heterodyne_refshift, probe/freq_1THz]}
   - {base: F_wg6, overlays: [demux/none, probe/two_tone]}
   - {base: F_liu20, overlays: [probe/two_tone, probe/two_tone_copol]}   # X-7 co-polarised P8 variant
+  # Phase 6 axis 2: a gate under the P5 slow layer (combined wiring, D96-9)
+  # (with the nominal point in between: tests/integration/test_phase6_dual_band.py)
+  - {base: F_liu20, overlays: [gate/borealis_window, gate/borealis_si, lock/dual_band_slow, lock/dual_band_slow_gate_wire]}
 
 # deliberately bad configurations (00_summary §2.5; each file states what it demonstrates)
 bad: [bad_all_fiber_NF, bad_ln_switch_tree, bad_mw_probe_samepol, bad_orth_pm_no_tec, bad_smf_orth, bad_bor_100MHz,

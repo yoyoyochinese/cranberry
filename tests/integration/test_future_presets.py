@@ -369,3 +369,20 @@ def test_opo_detuning_coefficient_follows_x_ss(base, x_ss):
     src = fs.block(res, "src")
     cs, cp, _ = src.angle_coefficients(x_ss)
     assert fs.params(res)["c_len_sq_per_kappa"] == pytest.approx((cs + 2 * cp) * src.kappa_c, abs=5e-4)
+
+
+def test_lo_delivery_lock_metric_i_set_point():
+    """Axis-2 fix: L-LOdeliv rotates each LO_k by π/2 (its auxiliary lock sits on the zero crossing of cos), so metric (i)
+    is evaluated at set point 0 (≡ −π/2 ± π/2 mod π). Evaluated at F_common's −π/2 it sat on the quadrature wrap
+    boundary (σ ≈ 1.5 rad). After the aux lock's pull-in (t_settle 1 s) metric (i) is ≈ 0.1 rad and metric (ii) is the
+    baseline's."""
+    settle = [{"name": "mi", "params": {"t_settle_s": 1.0}}, {"name": "mii", "params": {"t_settle_s": 1.0}}]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        lo = run(fs.load(fs.nominal("F_liu20"), run={"duration_s": 1.5, "seed": 1},
+                         overlays=("presets/locks/L-LOdeliv.yaml",), pipeline=settle))
+        base = run(fs.load(fs.nominal("F_liu20"), run={"duration_s": 1.5, "seed": 1}, pipeline=settle))
+    q, qb = lo.summary(), base.summary()
+    assert q["i.port1.sigma_total_rad"] < 0.2 and q["i.port0.sigma_total_rad"] < 0.2
+    assert q["i.port1.sigma_total_rad"] < 0.5 * qb["i.port1.sigma_total_rad"]
+    assert q["ii.port1.std_loop_rad"] == pytest.approx(qb["ii.port1.std_loop_rad"], rel=0.05)
