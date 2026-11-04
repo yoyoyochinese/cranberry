@@ -167,3 +167,21 @@ def test_base_interface_default_measure_loop_gain():
 
     with pytest.raises(NotImplementedError):
         Old().measure_loop_gain("l", "stepped_sine", [1.0], amplitude=1.0)
+
+
+def test_measure_loop_gain_refine_coarse_margin(ctl):
+    """Phase 5 review I-3: a margin flagged coarse is re-swept with refine_n points around it and merged."""
+    ctl.engage()
+    kw = dict(amplitude=0.05, settle_s=2e-3, dwell_s=12e-3, t_start_s=1e-3)
+    res = ctl.measure_loop_gain("lock0.fast", "stepped_sine", [500.0, 2.0e3, 8.0e3], margin_dphase_max_deg=1.0, **kw)
+    assert res["f_u_coarse"] and "refined" not in res
+    n0 = len(ctl.log_record()["ops"])
+    res = ctl.measure_loop_gain("lock0.fast", "stepped_sine", [500.0, 2.0e3, 8.0e3], margin_dphase_max_deg=1.0,
+                                refine_n=5, **kw)
+    assert len(ctl.log_record()["ops"]) == n0 + 2                     # coarse run + one refinement run
+    f = res["refined"]["f_hz"]
+    assert f.size > 3 and np.all(np.diff(f) > 0) and f.min() == 500.0 and f.max() == 8.0e3
+    zi = np.exp(-2j * np.pi * f / FS)
+    np.testing.assert_allclose(res["refined"]["l_hat"], K * zi / (1 - zi), rtol=1e-9)
+    assert res["f_u_hz"] == pytest.approx(K * FS / (2 * math.pi), rel=0.02)
+    assert res["coarse_margins"]["f_u_coarse"]

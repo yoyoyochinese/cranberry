@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from cranberry import config
-from cranberry.config.yaml_io import load_yaml
+from cranberry.config.yaml_io import Choice, Sweep, SweepLog, load_yaml
 from cranberry.core.registry import ensure_loaded, make_block
 from cranberry.path.topology import as_topology
 from cranberry.runner.run import offline_block_specs, run
@@ -87,12 +87,58 @@ def test_refA_fiber_geometry_delay_and_loss(route):
     assert find(spec.pipeline, "dem2").params["phi_d_rad"] == pytest.approx(-math.pi / 2 - dpr)
 
 
+@pytest.mark.parametrize("route, L", [("fiber_matched", 3.0), ("free_space", 100.0)])
+@pytest.mark.parametrize("offset", ["as_built", "zero", "fc_opt", "fc_opt_p10ns"])
+def test_refA_fiber_sq_lo_offset(route, L, offset):
+    """X-3: bench/refA_sq_lo_offset sets τ_sq − τ_lo with a delay line on the longer path; the FC ledger pair and the
+    lock-2 demodulation phase follow; as_built leaves both delay lines at 0 m (the base preset's point)."""
+    spec = load(REFA, ("bench/refA_sq_lo_offset",), L_sq_fiber_m=L, lo_route=route, eta_fiber_out=0.98,
+                sq_lo_offset=offset)
+    topo, p = as_topology(spec.topology), spec.offline["params"]
+    d = topo.timing("sqz").tau_s - topo.timing("lo").tau_s
+    tau_fc = 1 / (math.pi * 3.3e6)
+    want = {"zero": 0.0, "fc_opt": math.log(2) * tau_fc, "fc_opt_p10ns": math.log(2) * tau_fc + 1e-8}.get(offset)
+    if want is None:
+        assert p["sq_dl_m"] == 0.0 and p["lo_dl_m"] == 0.0
+    else:
+        assert d == pytest.approx(want, abs=1e-13) and min(p["sq_dl_m"], p["lo_dl_m"]) == 0.0
+    pair = find(spec.pipeline, "koheras").params["oob_pairs"][0]
+    assert pair["tau_ref_s"] == pytest.approx(topo.timing("sqz").tau_s, rel=1e-12)
+    assert pair["tau_fc_s"] == pytest.approx(topo.timing("lo").tau_s, rel=1e-12)
+    extra = 2 * math.pi * 1e6 * (1.468 * L + 1.0003 * p["sq_dl_m"] - 1.0003) / C
+    assert find(spec.pipeline, "dem2").params["phi_d_rad"] == pytest.approx(-math.pi / 2 - extra)
+
+
+T_SETTLE = 0.015   # Phase 5 review X-1: lock acquisition at 100 m saturates the EOM for ≈ 10 ms in some seeds
+
+
 def test_refA_fiber_100m_runs_and_offload_holds_eom():
-    res = go(load(REFA, duration=0.02, L_sq_fiber_m=100.0, lo_route="fiber_matched", eta_fiber_out=0.98))
-    nl = res.metrics.noise_levels["i.port0"]
-    assert abs(nl["mean_loop_rad"]) < 3e-3 and nl["std_loop_rad"] < 0.03
-    assert np.max(np.abs(res.series["v.dac2"])) < 0.45   # EOM inside ±0.5 V: the stretcher offload takes the fibre drift
-    assert 0.85 < nl["eta"] < 0.9
+    """Every seed of reviews/scripts/p6_bench_smoke.py (1, 2, 3) and the preset's own: after T_SETTLE the EOM drive is
+    inside ±0.5 V (the stretcher offload holds the fibre drift) and metric (i) is the settled one; a clamp during the
+    acquisition is recorded (validity_settle + ChkWarning), at least one of these seeds has it (X-1)."""
+    saturated = []
+    for seed in (None, 1, 2, 3):
+        tree = {"extends": str(ROOT / REFA), "run": {"duration_s": 0.03, **({"seed": seed} if seed else {})},
+                "measure": {"esa": None}, "pipeline": [{"name": "mi", "params": {"t_settle_s": T_SETTLE}}]}
+        spec = expand(config.load(tree), {"offline.params.L_sq_fiber_m": [100.0],
+                                          "offline.params.lo_route": ["fiber_matched"],
+                                          "offline.params.eta_fiber_out": [0.98]})[0].spec
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            res = run(spec)
+        assert res.valid and not res.events, seed           # no clamp after T_SETTLE (measure.validity of the overlay)
+        nl = res.metrics.noise_levels["i.port0"]
+        assert abs(nl["mean_loop_rad"]) < 3e-3 and nl["std_loop_rad"] < 0.012, seed   # settled: ≈ 9 mrad for every L
+        assert 0.85 < nl["eta"] < 0.9
+        t = np.asarray(res.t_s)
+        assert np.max(np.abs(np.asarray(res.series["v.dac2"])[t >= T_SETTLE])) < 0.45, seed
+        pre = res.validity_settle["ctrl.pid2.u"]
+        clamped = np.max(np.abs(np.asarray(res.series["ctrl.pid2.u"])[t < T_SETTLE])) >= 0.999 * 0.5
+        assert (pre > 0) == clamped, seed
+        assert any("validity_settle" in str(x.message) for x in w) == (pre > 0 or res.validity_settle["ctrl.pid2s.u"] > 0)
+        assert res.summary()["validity.ctrl.pid2.u.settle_frac"] == pre
+        saturated.append(pre > 0)
+    assert any(saturated)   # the acquisition transient the settle time removes
 
 
 def test_refA_fiber_acoustic_table_equals_lab_acoustic():
@@ -207,7 +253,7 @@ def test_refD_lab_point():
 def test_actuator_pathlength_runs_with_fringe_hop():
     spec = load("presets/future/F_liu20_nominal.yaml",
                 ("probe/pol_same", "probe/freq_1THz", "probe/actuator_pathlength", "largerange/fringe_hop"),
-                drop_esa=False, bias_model="R_prime", R_s_per_m_K=3.0e-16, R_prime_s_per_m_K=5.6e-16)
+                drop_esa=False, bias_case="Rp_+0.56")
     p = spec.offline["params"]
     assert p["R_bias_s_per_m_K"] == 5.6e-16 and p["pl_g"] == pytest.approx(1 + 1.007 * 1e12 * p["lambda0_m"] / C)
     assert p["hop_bias_rad"] == pytest.approx(-2 * math.pi * 1.007 * 1e12 * p["lambda0_m"] / C, rel=0.01)
@@ -218,9 +264,23 @@ def test_bad_kT_kappa_independent_axis():
     spec = config.load(ROOT / "presets/future/F_liu20_nominal.yaml",
                        overlays=["probe/freq_1THz", "probe/actuator_pathlength", "probe/bad_kT_kappa_independent"])
     assert "offline.params.kappa_tau_s_per_m_K" in config.sweep_markers(spec)
-    pts = expand(spec, {"offline.params.R_s_per_m_K": [3e-16], "offline.params.R_prime_s_per_m_K": [5.6e-16]})
+    assert "offline.params.bias_case" not in config.sweep_markers(spec)   # fixed to implicit by the bad overlay
+    pts = expand(spec, {})
     Rs = sorted({pt.spec.offline["params"]["R_bias_s_per_m_K"] for pt in pts})
     assert len(Rs) == 2 and Rs[0] < Rs[1] and Rs[1] > 1.5e-15   # outside the glass-data range (D86)
+
+
+def test_actuator_pathlength_single_bias_axis():
+    """X-9: the bias model and its R / R′ value are one choice axis, so every grid point is distinct (9 cases)."""
+    spec = config.load(ROOT / "presets/future/F_liu20_nominal.yaml", overlays=["probe/freq_1THz", "probe/actuator_pathlength"])
+    axes = {k: v for k, v in config.sweep_markers(spec).items() if isinstance(v, (Choice, Sweep, SweepLog))}
+    assert "offline.params.bias_case" in axes
+    assert not {"offline.params.bias_model", "offline.params.R_s_per_m_K", "offline.params.R_prime_s_per_m_K"} & set(axes)
+    pts = expand(spec, {k: [v.options[0] if isinstance(v, Choice) else v.lo] for k, v in axes.items()
+                        if k != "offline.params.bias_case"})
+    got = {(pt.spec.offline["params"]["bias_model"], pt.spec.offline["params"]["R_bias_s_per_m_K"]) for pt in pts}
+    assert len(got) == len(pts) == 9
+    assert ("R", 3.0e-16) in got and ("R_prime", 5.6e-16) in got and ("R", -5.0e-16) in got
 
 
 @pytest.mark.parametrize("r,detune", [(0.1, 0.3), (0.2, 0.785)])
@@ -228,7 +288,7 @@ def test_two_tone_bias_matches_formula(r, detune):
     spec = load("presets/future/F_liu20_nominal.yaml", ("probe/two_tone",), drop_esa=False,
                 tt_r=r, tt_dL0_detune_rad=detune, tt_on_grid=True, tt_dnu_target_hz=7.0e9)
     p = spec.offline["params"]
-    assert p["tt_dnu_hz"] == 7.0e9 and p["tt_m"] % 2 == 0
+    assert p["tt_dnu_hz"] == pytest.approx(7.0e9 * p["n_g"] / p["tt_n_g_probe"]) and p["tt_m"] % 2 == 0   # fast-axis grid (X-7)
     b = -math.atan(r * math.tan(detune))
     assert p["tt_bias_rad"] == pytest.approx(b)
     res = go(spec)
@@ -239,15 +299,47 @@ def test_two_tone_bias_matches_formula(r, detune):
 
 
 def test_two_tone_grid_condition_off_grid():
-    """Off the grid, port k sees E_k = E_0 + 2πδν·port_k(N_b + n_guard)/f_rep (F_wg6: 7 GHz is not a multiple of 3 MHz)."""
+    """Off the grid, port k sees E_k = E_0 + 2πδν·(n_g,pr/n_g)·port_k(N_b + n_guard)/f_rep (F_wg6: 7 GHz is not a multiple
+    of 3 MHz); n_g,pr = n_g − c·b_g is the fast-axis group index of the (orthogonal) probe (X-7)."""
     on = load("presets/future/F_wg6_nominal.yaml", ("probe/two_tone",), drop_esa=False, tt_r=0.0, tt_dL0_detune_rad=0.0,
               tt_on_grid=True, tt_dnu_target_hz=7.0e9).offline["params"]
     off = load("presets/future/F_wg6_nominal.yaml", ("probe/two_tone",), drop_esa=False, tt_r=0.0, tt_dL0_detune_rad=0.0,
                tt_on_grid=False, tt_dnu_target_hz=7.0e9).offline["params"]
-    for p, want_cos in ((on, 1.0), (off, math.cos(2 * math.pi * 7e9 * 31 / 6e6))):
-        dk = 2 * math.pi * p["tt_dnu_hz"] * p["port_k"] * (p["N_b"] + p["n_guard"]) / p["f_rep_hz"]
+    rn = on["tt_n_g_probe"] / on["n_g"]
+    assert on["tt_n_g_probe"] == pytest.approx(on["n_g"] - C * 1.36e-12)
+    for p, want_cos in ((on, 1.0), (off, math.cos(2 * math.pi * 7e9 * rn * 31 / 6e6))):
+        dk = 2 * math.pi * p["tt_dnu_hz"] * rn * p["port_k"] * (p["N_b"] + p["n_guard"]) / p["f_rep_hz"]
         assert math.cos(dk) == pytest.approx(want_cos, abs=1e-6)
-    assert on["tt_dnu_hz"] == pytest.approx(7.002e9) and abs(math.cos(2 * math.pi * 7e9 * 31 / 6e6)) < 0.6
+    assert on["tt_dnu_hz"] == pytest.approx(7.0e9, rel=1e-3) and abs(want_cos) < 0.9
+
+
+@pytest.mark.parametrize("overlays, grid_probe_axis", [(("probe/two_tone",), True),
+                                                       (("probe/two_tone", "probe/two_tone_copol"), True),
+                                                       (("probe/two_tone",), False)],
+                         ids=["fast_fixed_grid", "copol", "fast_prefix_grid_bad"])
+def test_two_tone_group_birefringence_port2(overlays, grid_probe_axis):
+    """X-7: the fast-axis group birefringence b_g enters E (as the reference-arm equivalent delay); on the probe-axis
+    grid port 2 sees E_0 again and locks at −atan(r tan E_0); the co-polarised variant needs no correction; the pre-fix
+    grid (n_g) leaves E_2 = E_0 + 2πδν·b_g·(L_2 − L_0) mod 2π ≈ 1.40 rad on F_liu20 (bad configuration, D34)."""
+    r, det = 0.2, 0.3
+    spec = load("presets/future/F_liu20_nominal.yaml", overlays, drop_esa=False, tt_r=r, tt_dL0_detune_rad=det,
+                tt_on_grid=True, tt_dnu_target_hz=7.0e9, port_k=2, tt_grid_probe_axis=grid_probe_axis)
+    p, topo = spec.offline["params"], as_topology(spec.topology)
+    copol = "probe/two_tone_copol" in overlays
+    assert all(st.axis == ("slow" if copol else "fast") for b in ("pr1", "pr1m") for st in topo.beams[b].path
+               if st.segment == "F1")
+    assert topo.segments["BGref1"].length_m == pytest.approx(0.0 if copol else C * 1.36e-12 * p["L_k_m"])
+    e = {k: math.remainder(2 * math.pi * p["tt_dnu_hz"] * (topo.timing(f"pr{k}").tau_s - topo.timing(f"ref{k}").tau_s),
+                           2 * math.pi) for k in (0, 1)}
+    assert e[0] == pytest.approx(det, abs=1e-6)
+    if grid_probe_axis:
+        assert e[1] == pytest.approx(det, abs=1e-4)
+        res = go(spec)
+        e1 = res.series["lock.L1.err"]
+        assert np.mean(e1[len(e1) // 2:]) == pytest.approx(-math.atan(r * math.tan(det)), abs=0.03)
+    else:
+        db = math.remainder(-2 * math.pi * p["tt_dnu_hz"] * 1.36e-12 * (p["L_k_m"] - p["L_0_m"]), 2 * math.pi)
+        assert e[1] == pytest.approx(math.remainder(det + db, 2 * math.pi), abs=1e-4) and abs(db) > 1.0
 
 
 def test_detect_heterodyne_refshift_keeps_probe_offset():

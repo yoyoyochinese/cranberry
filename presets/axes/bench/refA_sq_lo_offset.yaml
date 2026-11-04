@@ -1,0 +1,10 @@
+# Bench axis (Phase 5 review X-3, D94 DX1 result): the squeezed − LO delay offset of bench/refA_fiber as a sweep axis.
+# Apply after bench/refA_fiber (refA_fiber_bench); with bench/refA_laser_dx1 it sweeps the DX1 case:
+#   python -m cranberry sweep refA_fiber_bench --overlay bench/refA_laser_dx1 --overlay bench/refA_sq_lo_offset
+# Values (bench/refA_fiber header): as_built = the route's own lengths (the base preset's point), zero = τ_sq = τ_lo,
+# fc_opt = τ_sq − τ_lo = ln2·τ_FC (66.9 ns at refA's Δν_FC = 3.3 MHz: the minimum of the laser term for any h0),
+# fc_opt_m10ns / fc_opt_p10ns = fc_opt ∓ 10 ns. The base overlay keeps sq_lo_offset as a plain value so that its own
+# sweep points (and their per-point seeds) are unchanged; this overlay adds the axis.
+offline:
+  params:
+    sq_lo_offset: !choice [as_built, zero, fc_opt, fc_opt_m10ns, fc_opt_p10ns]

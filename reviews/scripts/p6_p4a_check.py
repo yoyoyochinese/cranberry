@@ -141,7 +141,7 @@ for ov in ("freq_80MHz", "freq_7GHz", "freq_100GHz", "freq_1THz"):
     base = config.load(ROOT / "presets/future/F_liu20_nominal.yaml",
                        overlays=["probe/pol_same", f"probe/{ov}", "probe/actuator_pathlength"])
     for model in ("R", "R_prime", "implicit_kT_kappa"):
-        spec = expand(base, {"offline.params.bias_model": [model]})[0].spec   # other axes at their first (nominal) value
+        spec = expand(base, {"offline.params.bias_case": [{"R": "R_+0.3", "R_prime": "Rp_+0.56", "implicit_kT_kappa": "implicit"}[model]]})[0].spec   # other axes at their first (nominal) value
         p = spec.offline["params"]
         c = {(k.driver, k.beam): v for k, v in as_topology(spec.topology).coef.items() if k.segment == "F1" and k.effect == "phase"}
         dnu, L, g, R = p["probe_freq_offset_hz"], p["L_k_m"], p["pl_g"], p["R_bias_s_per_m_K"]

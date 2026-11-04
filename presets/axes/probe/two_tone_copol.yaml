@@ -1,0 +1,7 @@
+# Probe axis P8, co-polarised variant (Phase 5 review X-7): probe/two_tone with both tones on the SLOW axis of F_k, the
+# squeezed light's polarization (as probe/pol_same does for the single-tone probe). Apply AFTER probe/two_tone.
+# The grid is then the squeezed light's own (n_g), the group birefringence b_g and its K_τ drop out of E, and the
+# probe's Rayleigh backscatter lands in the squeezed mode (stray1 polarization `same`, T10 §3.4.3).
+offline:
+  params:
+    tt_probe_axis: slow

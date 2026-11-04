@@ -15,6 +15,12 @@
 # adc0 settings (controller/dsc1, controller/moku_delta); this point needs only parameter merges, so it combines
 # with them. The excitation is in V at the DAC input; its amplitude is set as an actuator phase.
 # Port k (lock1) is untouched.
+# Excitation amplitude: 20 mrad of PZT phase is ≈ 1.3 LSB of the 12-bit DSC1 DAC (controller/dsc1: LSB 1.95 mV ×
+# 8.125 rad/V = 15.9 mrad), which biases L̂ by 6.9 % (1.5 % without quantisation; Phase 5 review I-6): the ident block
+# logs CHK ident_amplitude_lsb below ident_min_amplitude_lsb DAC LSB. Raise ident_amplitude with controller/dsc1.
+# TODO(D91-1, Phase 5 review I-7): controller/dsc1 does not yet run pid0f / dac0f at 500 kHz (rate_div 2). When it
+# does, give ident.exc the same rate_div and set measure.record.decim to the controller's update instants, as
+# ident/wire_refD does for refD (excitation inside the digital controller, record on the PID instants).
 run:
   duration_s: !expr "offline.params.ident_duration_s"
 offline:
@@ -24,6 +30,7 @@ offline:
     ident_amplitude: !expr "0.02 / offline.params.pzt_k_rad_per_v"   # 20 mrad of PZT phase per volt of x (|S| ≈ 1) [AE]
     ident_amp_f_corner_hz: .inf       # flat: the PZT mode (Q) amplifies x near f_res; do not raise x with f
     ident_t_start_s: 0.02
+    ident_min_amplitude_lsb: 4.0      # CHK ident_amplitude_lsb below 4 DAC LSB (Phase 5 review I-6: 1.3 LSB → 6.9 % on dsc1) [AE]
   blocks:
     - block: loop_identification
       name: ident
@@ -37,6 +44,8 @@ offline:
         model_stages: all
         coherence_min: !expr "offline.params.ident_coherence_min"
         n_blocks: !expr "offline.params.ident_n_blocks"
+        dac_lsb: !expr "2 * offline.params.out_range_v / 2 ** offline.params.dac_bits"   # x is in DAC input volts (I-6)
+        min_amplitude_lsb: !expr "offline.params.ident_min_amplitude_lsb"
 pipeline:
   - name: lock0.stack
     stack:

@@ -16,23 +16,48 @@
 #     by the seq [env.thermal.fiber, mech] so the order stays writer → reader). The table-shaped lab noise (the
 #     lab/acoustic equivalent) is the companion overlay bench/refA_fiber_acoustic.yaml.
 #   * pr_bhd (the probe residual through the squeezer) co-propagates through SQ with the squeezed light, so the SQ
-#     fibre phase is common to the lock-2 sensor and to θ_sq: lock 2 (BHD probe–LO beat → EOM2 on the LO) removes it
-#     inside its band; what stays is its out-of-band part and the LO fibre (fiber_matched), which is not common.
+#     fibre phase is common to the lock-2 sensor and to θ_sq. The lock-2 sensor (bhdbeat) beats pr_bhd against
+#     beam.lo, i.e. the LO AFTER its fibre, so the LO fibre phase is common to the sensor and to θ too. Lock 2 (BHD
+#     probe–LO beat → EOM2 on the LO) removes both inside its band; what stays is their out-of-band part, for either
+#     lo_route. (Phase 5 review X-4: with the acoustics off all three seeds give 9.39 mrad at 100 m; the earlier
+#     100 m excess was the acquisition transient of X-1, not the LO fibre.)
 #   * LO–squeezed delay mismatch: the emission-time delays come from the topology (beam_assembler) and the laser's
 #     filter-cavity ledger pair reads the same lengths (refA's single-source exprs `tau_ref_s` / `fc.in_delay_s`).
 #     refA: 16.8 ns (LO later). fiber_matched: n_g·5 m + 0.3 m − 1.6 m(sq. free space) ≈ 20.1 ns for every L.
 #     free_space: (7.64 − 1.60 − 1.468·L)/c, i.e. −0.47 µs at 100 m (2π²h0·|δτ| grows ∝ L; header of refA).
-#     Since the LO filter cavity low-passes (delays) the LO's laser phase, a squeezed path somewhat LONGER than the LO
-#     path partly compensates it: free_space θ falls from 9.0 mrad (1 m) to 6.0 mrad (10 m) before the delay term takes
-#     over (20.6 mrad at 100 m; reviews/scripts/p6_bench_smoke.py, Koheras stand-in h0).
+#     Since the LO filter cavity low-passes (delays) the LO's laser phase by τ_FC = 1/(π Δν_FC) = 96.5 ns at low f, a
+#     squeezed path somewhat LONGER than the LO path partly compensates it: free_space θ falls from 9.0 mrad (1 m) to
+#     6.0 mrad (10 m) and then rises again (20.6 mrad at 100 m; reviews/scripts/p6_bench_smoke.py, Koheras stand-in
+#     h0). Of the three smoke points 10 m is the best, but the closed-form optimum (σ²(Δ) = ∫|H_FC e^{−i2πfΔ} − 1|²
+#     h0/f² df, reviews/scripts/p6_wp6x_fc_delay.py) is Δ = τ_lo − τ_sq = −66.9 ns = −ln2·τ_FC, i.e. L = 17.8 m
+#     on this route (laser term 4.84 mrad). (dσ²/dΔ = 2π²h0 for Δ > 0 and 2π²h0(1 − 2e^{−|Δ|/τ_FC}) for Δ < 0 with
+#     the one-pole H_FC, so the minimum is at |Δ| = τ_FC ln 2 for any h0.) The additive form 2π²h0|Δ| + π h0/Δν_FC
+#     of the refA header holds only at Δ = 0 or without the FC (it overestimates when the squeezed path is longer).
+#   * Squeezed − LO delay offset (sq_lo_offset, Phase 5 review X-3; the sweep axis is the companion overlay
+#     bench/refA_sq_lo_offset.yaml): as_built keeps the lengths above; the other values set τ_sq − τ_lo to 0 or to
+#     the FC optimum ln2·τ_FC (± 10 ns) with a free-space delay line on the path that must be longer (SQ_dl on the
+#     squeezed path, LO_dl on the LO; zero length for as_built). The laser's FC ledger pair
+#     (tau_ref_s, fc.in_delay_s) and the lock-2 demodulation phase follow the delay lines. The delay line's own loss is
+#     not modelled (a few m of free space; on the squeezed path it would cost transmission on a real bench).
 #   * Fibre loss on the squeezed path (loss_budget `optics`): attenuation 0.5 dB/km (Corning PANDA PM max, T12 §3.2)
 #     and coupling free space → fibre 0.98 (T12 §4.2) × fibre → free space at the BHD (UNVERIFIED axis, no source:
 #     0.98 = assumed equal to the in-coupling, 0.95 / 0.90 = worse). The LO loss does not enter (strong LO).
 #   * Lock-2 range: refA's lock 2 is EOM-only (±0.5 V at V_π 3.5 V = ±0.45 rad). With tens of metres of fibre the
-#     f⁻² acoustic / thermal phase leaves that range within a fraction of a second (100 m: 0.40 V of the ±0.5 V EOM drive after
-#     20 ms in a short run). As in Ref A's family [K23 p.3] the EOM output is offloaded to a fibre stretcher on the LO
+#     f⁻² acoustic / thermal phase leaves that range within a fraction of a second. As in Ref A's family [K23 p.3]
+#     the EOM output is offloaded to a fibre stretcher on the LO
 #     (pid2s → dac2s → dl2s → fs2 on the zero-length segment LO_fs in the LO path; refC-style offload, positive I gain
 #     2π·f_12·(π/V_π)/k_fs). EOM-only (the refA wiring, a bad configuration for long fibres) = --toggle pid2s.feedback=false.
+#     Acquisition (Phase 5 review X-1): at 100 m (fiber_matched) the EOM drive of lock 2 sits at ±0.5 V for the first
+#     ≈ 10 ms in 2 of 3 seeds, until the 100 Hz offload has taken the initial fibre excursion; metric (i) is elevated
+#     in that window. Statistics of this overlay are taken after t ≥ 15 ms (tests, reviews/scripts/p6_bench_smoke.py);
+#     the runner records the clamp fraction before the metric settle time (validity_settle, ChkWarning).
+#   * measure.validity (below): the EOM drive ctrl.pid2.u and the stretcher drive ctrl.pid2s.u at their clamp (the
+#     limits are read from the pid blocks, so the controller overlays carry over). The stretcher entry is the range
+#     check of X-5: there is no range reset of the LO stretcher (a 2π reset of the LO is invisible to the BHD lock
+#     but is not modelled), and on free_space at 100 m the squeezer fibre's thermal ramp k_T·L·r_T = 44 rad/(m·K) ×
+#     100 m × 1e−4 K/s = 0.44 rad/s uses up ±32.5 rad in ≈ 1 min after the τ_th = 300 s transient: a run that
+#     long reports valid = False with validity.ctrl.pid2s.u.frac > 0. Remedies on a bench: a 2π reset of the LO
+#     stretcher, a temperature stage, or a wider-range actuator.
 #   * Lock-2 demodulation phase: the probe pr_bhd is 1 MHz above the carrier, so the fibre adds 2π·f_sh·Δτ to its phase
 #     at the BHD; dem2.phi_d_rad absorbs it (pr_bhd_static_extra_rad below).
 #   * Not changed (recorded): the squeezed–LO mode overlap `mm` keeps refA's 0.96 (a fibre-delivered squeezed mode
@@ -43,15 +68,20 @@
 # at 1545.32 nm with an NKT Koheras Harmonik seed + EDFA + SHG (772.66 nm pump) and a 0.64 W pump into a 45 mm PPLN
 # waveguide; this overlay KEEPS THE PAPER VALUES. What would change on our bench (not modelled here):
 #   * laser: DX1 SC white FM h0 = 2.55e4 Hz²/Hz (80 kHz FWHM, D35) vs the Koheras stand-in 64 (0.2 kHz, UNVERIFIED):
-#     ×400 on every laser term. The LO filter-cavity term π·h0/Δν_FC becomes 0.024 rad² (155 mrad) and the delay term
-#     2π²h0·δτ is 0.010 rad² at refA's 20 ns and 0.24 rad² (0.49 rad) at 100 m free_space: with the DX1 the LO must be
-#     delay-matched to ≲ 1 ns and the filter cavity re-designed (Δν_FC is the tuned refA value, D65-5).
+#     ×400 on every laser term (variance; ×20 in rms). The LO filter-cavity term π·h0/Δν_FC becomes 0.024 rad²
+#     (156 mrad); the exact laser term (above) is 0.405 rad at 100 m free_space (the additive form gives 0.51).
+#     Because σ² ∝ h0, the optimum offset does not depend on h0: with the DX1 the requirement is a squeezed path
+#     ≈ 0.7·τ_FC (ln2·τ_FC = 66.9 ns; ±10 ns changes it by 1 %) LONGER than the LO path, which lowers the laser
+#     term from 156 to 97 mrad (sq_lo_offset: fc_opt), plus a filter-cavity redesign (Δν_FC is the tuned refA value, D65-5),
+#     which is the main requirement. A sub-ns LO delay match is the requirement only without a filter cavity
+#     (10 mrad needs 0.2 ns; 1 ns gives 22 mrad).
 #     bench/refA_laser_dx1.yaml switches the laser only (h0 of D35), for this comparison.
 #   * wavelength 1548.8 vs 1545.32 nm: k_ε, k_T and the responsivities change by 0.2 % (λ0 is written into refA's
 #     coefficients; not re-evaluated). A 774.4 nm pump needs its own SHG / PPLN period (no such hardware on the bench).
 #   * squeezer: no waveguide OPA, SHG or 0.64 W pump on our bench; the source block stays Ref A's (opa_waveguide).
 #   * controller: refA's "hand-made PID servo" is fpga_generic; bench/dsc1_refA.yaml and bench/moku_delta_refA.yaml
-#     are the bench controllers (the DSC1 is far too slow for a Ref A-type OPA lock: see dsc1_refA.yaml).
+#     are the bench controllers. The DSC1 is too slow for the MHz-class OPA locks of Ref A's family [K23]; in refA's
+#     own model (20 kHz design unity gain) it costs only 0.3–1.0 mrad in steady state (dsc1_refA.yaml, X-6).
 run:
   seed_mode: per_point             # D56-2 (required by sweeps; refA has no axes and sets none)
 
@@ -82,7 +112,16 @@ offline:
     lo_fs_q: 10.0                               # T15 §2.7(d) placeholder (refD_nominal) UNVERIFIED
     lo_f_12_hz: 100.0                           # EOM → stretcher crossover [AE] (≪ refA's 20 kHz unity gain; above the
                                                 # f⁻² fibre noise corner region it must follow)
-    pr_bhd_static_extra_rad: !expr "(2 * pi * 1.0e6 * (n_g_pm * L_sq_fiber_m - 1.0003 * 1.0) / 299792458.0) if pr_bhd_static_absorb else 0.0"   # f_sh [Ref A §3.1]
+    pr_bhd_static_extra_rad: !expr "(2 * pi * 1.0e6 * (n_g_pm * L_sq_fiber_m + 1.0003 * sq_dl_m - 1.0003 * 1.0) / 299792458.0) if pr_bhd_static_absorb else 0.0"   # f_sh [Ref A §3.1]; + the SQ_dl delay line
+    # squeezed − LO delay offset (header, Phase 5 review X-3): as_built | zero | fc_opt (τ_sq − τ_lo = ln2·τ_FC = 66.9 ns,
+    # the optimum of σ²(Δ), independent of h0; header) | fc_opt ∓ 10 ns
+    sq_lo_offset: as_built          # plain value (keeps the sweep points and their seeds); axis: --overlay bench/refA_sq_lo_offset
+    tau_sq0_s: !expr "(topology.segments.SHG.L_m * topology.segments.SHG.n_g + topology.segments.CMB.L_m * topology.segments.CMB.n_g + topology.segments.NC_sq.L_m * topology.segments.NC_sq.n_g + topology.segments.XTAL_sq.L_m * topology.segments.XTAL_sq.n_g + topology.segments.SQ.L_m * topology.segments.SQ.n_g) / 299792458.0"   # sqz without SQ_dl
+    tau_lo0_s: !expr "(topology.segments.LO.L_m * topology.segments.LO.n_g + topology.segments.LO_fs.L_m * topology.segments.LO_fs.n_g + topology.segments.FC.L_m * topology.segments.FC.n_g) / 299792458.0"   # lo without LO_dl
+    tau_fc_s: !expr "1.0 / (pi * pipeline.fc.params.dnu_fc_hz)"   # LO filter-cavity delay at low f (96.5 ns for refA's 3.3 MHz)
+    sq_lo_offset_s: !expr "(tau_sq0_s - tau_lo0_s) if sq_lo_offset == 'as_built' else (0.0 if sq_lo_offset == 'zero' else log(2.0) * tau_fc_s + (-1.0e-8 if sq_lo_offset == 'fc_opt_m10ns' else (1.0e-8 if sq_lo_offset == 'fc_opt_p10ns' else 0.0)))"
+    sq_dl_m: !expr "max(sq_lo_offset_s - (tau_sq0_s - tau_lo0_s), 0.0) * 299792458.0 / 1.0003"   # delay line on the squeezed path
+    lo_dl_m: !expr "max((tau_sq0_s - tau_lo0_s) - sq_lo_offset_s, 0.0) * 299792458.0 / 1.0003"   # delay line on the LO path
 
   blocks:
     - name: optics
@@ -104,8 +143,17 @@ topology:
     - {id: LO, L_m: !expr "offline.params.L_lo_m", drivers: {dT: uniform}}
     - {id: LO_fs, kind: component, L_m: 0.0, n_g: 1.0, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0, zone: table,
        n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {stretcher: uniform}}   # LO fibre stretcher (offload)
+    - {id: SQ_dl, kind: free_space, L_m: !expr "offline.params.sq_dl_m", n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0,
+       zone: table, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}   # squeezed-path delay line (sq_lo_offset)
+    - {id: LO_dl, kind: free_space, L_m: !expr "offline.params.lo_dl_m", n_g: 1.0003, beta2_s2_per_m: 0.0, beta3_s3_per_m: 0.0,
+       zone: table, n_sub: 1, spatial: lumped, pol_model: "off", pol_params: {}, drivers: {}}   # LO-path delay line (sq_lo_offset)
   beams:
-    - {id: lo, path: [{segment: LO, direction: 1}, {segment: LO_fs, direction: 1}, {segment: FC, direction: 1}]}
+    - {id: sqz, path: [{segment: SHG, direction: 1}, {segment: CMB, direction: 1}, {segment: NC_sq, direction: 1},
+                       {segment: XTAL_sq, direction: 1}, {segment: SQ, direction: 1}, {segment: SQ_dl, direction: 1}]}
+    - {id: pr_bhd, path: [{segment: PR, direction: 1}, {segment: CMB, direction: 1}, {segment: NC_sq, direction: 1},
+                          {segment: XTAL_sq, direction: 1}, {segment: SQ, direction: 1}, {segment: SQ_dl, direction: 1}]}
+    - {id: lo, path: [{segment: LO, direction: 1}, {segment: LO_dl, direction: 1}, {segment: LO_fs, direction: 1},
+                      {segment: FC, direction: 1}]}
   coef:
     # refA rows (unchanged values; the LO strain row now scales with L_lo_m instead of refA's literal 5.0)
     - {segment: PR, driver: strain, beam: "*", effect: phase, value: !expr "0.78 * 2 * pi * 1.468 / 1545.32e-9 * 5.0"}
@@ -131,7 +179,17 @@ topology:
 pipeline:
   - name: sp                        # refA's segment list + the offload stretcher point LO_fs (FC is written by `fc`)
     params:
-      segments: [SHG, PR, LO, LO_fs, CMB, NC_det, NC_sq, XTAL_det, XTAL_sq, SQ]
+      segments: [SHG, PR, LO, LO_dl, LO_fs, CMB, NC_det, NC_sq, XTAL_det, XTAL_sq, SQ, SQ_dl]
+  - name: koheras                  # FC ledger pair with the delay lines (sq_lo_offset); as_built: refA's values
+    params:
+      oob_pairs:
+        - target: FC
+          dnu_fc_hz: !expr "fc.params.dnu_fc_hz"
+          tau_fc_s: !expr "fc.params.in_delay_s"
+          tau_ref_s: !expr "offline.params.tau_sq0_s + 1.0003 * offline.params.sq_dl_m / 299792458.0"
+  - name: fc
+    params:
+      in_delay_s: !expr "offline.params.tau_lo0_s + 1.0003 * offline.params.lo_dl_m / 299792458.0"   # τ_b of `lo`
   - name: dem2                     # lock-2 demodulation phase re-tuned for the fibre (header: probe static phase)
     params:
       phi_d_rad: !expr "-pi / 2 - offline.params.pr_bhd_static_extra_rad"
@@ -213,3 +271,7 @@ pipeline:
       loss_applies_to: [lo]            # LO path (toggle off): no loss on the squeezed light
       loss_source: "LO fibre stretcher (offload), not on the squeezed path"
       toggles: {resonance: true, hysteresis: false, saturation: true, insertion_loss: false}
+measure:
+  validity:                        # header (X-1 / X-5): clamp of the EOM drive and of the LO stretcher drive
+    - {slot: ctrl.pid2.u, abs_max: !expr "0.999 * pipeline.pid2.params.u_max_v"}
+    - {slot: ctrl.pid2s.u, abs_max: !expr "0.999 * pipeline.pid2s.params.u_max_v"}

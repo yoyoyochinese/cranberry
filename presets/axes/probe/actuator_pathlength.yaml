@@ -20,7 +20,7 @@
 #     per hop (Pittaluga 2021's 2πΔν/ν0 reset bias, × f ≈ 1.007 for a stretcher; lit-pittaluga2021 §4.2(3)) in the hop
 #     direction; `hop_bias_rad` records it.
 #
-# Named BAD configuration (D86, recorded only): bias_model implicit_kT_kappa with k_T and κ_τ swept independently
+# Named BAD configuration (D86, recorded only): bias_case implicit (bias_model implicit_kT_kappa) with k_T and κ_τ swept independently
 # (probe/bad_kT_kappa_independent.yaml adds the κ_τ axis): R then spans about 10× the glass-data range and changes sign
 # over the grid (lit-svarc2023 §5.3): physically inconsistent, kept for comparison (D34).
 # Check: reviews/scripts/p6_p4a_check.py part 4 (coefficients and an ideal static lock through the path model).
@@ -28,10 +28,14 @@ offline:
   params:
     n_phase: 1.444                  # phase index n (not n_g): fused silica at 1550 nm [AE], lit-svarc2023 §5.2 / p6_p4a_check
                                     # N_PHASE; UNVERIFIED for the fibre's effective index
-    bias_model: !choice [R, R_prime, implicit_kT_kappa]   # D86: R nominal, R′ alternative, implicit = bad (header)
-    R_s_per_m_K: !choice [3.0e-16, -5.0e-16, 0.0, 9.0e-16, 1.5e-15]   # D86 / fact §1: +0.3 ps/(km·K) nominal, −0.5…+1.5
-                                    # (sign undetermined); used when bias_model = R
-    R_prime_s_per_m_K: !choice [5.6e-16, 0.0, 1.2e-15]    # D86 / fact §1: R′ = +0.56 (0.0…+1.2); used when bias_model = R_prime
+    # One choice axis for the bias model and its value (Phase 5 review X-9: separate R / R′ axes made 45 grid points of
+    # which 9 differ). Labels: R_<value> (D86 / fact §1: R = +0.3 ps/(km·K) nominal, −0.5…+1.5, sign undetermined),
+    # Rp_<value> (R′ = +0.56, 0.0…+1.2, with the strain-optic dispersion), implicit (bad: κ_τ − f·k_T/ω0, header).
+    bias_case: !choice [R_+0.3, R_-0.5, R_0, R_+0.9, R_+1.5, Rp_+0.56, Rp_0, Rp_+1.2, implicit]
+    bias_model: !expr "'implicit_kT_kappa' if bias_case == 'implicit' else ('R_prime' if (bias_case == 'Rp_+0.56' or bias_case == 'Rp_0' or bias_case == 'Rp_+1.2') else 'R')"
+    R_case_s_per_m_K: !expr "3.0e-16 if bias_case == 'R_+0.3' else (-5.0e-16 if bias_case == 'R_-0.5' else (9.0e-16 if bias_case == 'R_+0.9' else (1.5e-15 if bias_case == 'R_+1.5' else (5.6e-16 if bias_case == 'Rp_+0.56' else (1.2e-15 if bias_case == 'Rp_+1.2' else 0.0)))))"
+    R_s_per_m_K: !expr "R_case_s_per_m_K if bias_model == 'R' else 0.0"                # used when bias_model = R
+    R_prime_s_per_m_K: !expr "R_case_s_per_m_K if bias_model == 'R_prime' else 0.0"    # used when bias_model = R_prime
     nu0_hz: !expr "299792458.0 / lambda0_m"
     pl_f_disp: !expr "n_g / n_phase if bias_model == 'R' else 1.007"   # f of g = 1 + f·Δν/ν0 (header; fact §1 [AE])
     pl_g: !expr "1.0 + pl_f_disp * probe_freq_offset_hz / nu0_hz"     # g_r/g_s of the probe beams

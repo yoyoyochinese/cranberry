@@ -125,6 +125,27 @@ def test_model_comparison_and_margins():
     assert "model_f_u_hz" in out and np.all(np.isfinite(out["l_phase_deg"]))
 
 
+def test_loop_margins_worst_crossing_and_coarse_flags():
+    """I-4: f_180 / GM are those of the worst −180° (− k·360°) crossing, all listed; I-3: a crossing interval with a
+    large phase step or next to a resonance peak is marked coarse."""
+    f = np.geomspace(100.0, 1.0e5, 4000)
+    s = 2j * np.pi * f
+    w0, q = 2 * np.pi * 3.0e4, 5.0
+    lf = 2 * np.pi * 2.0e3 / s * np.exp(-s * 10e-6) * w0**2 / (s**2 + s * w0 / q + w0**2)   # I + delay + resonance
+    m = loop_margins(f, lf)
+    ph = np.unwrap(np.angle(lf))
+    cr = np.nonzero(np.diff(np.floor((ph + np.pi) / (2 * np.pi))))[0]
+    assert m["f_180_all_hz"].size == cr.size >= 2
+    i = cr[np.argmax(np.abs(lf[cr]))]                                   # loop_stability_check's choice
+    assert m["gain_margin_db"] == pytest.approx(-20 * math.log10(abs(lf[i])), abs=0.05)
+    assert m["gain_margin_db"] == pytest.approx(min(m["gain_margin_all_db"]))
+    assert m["f_180_hz"] == pytest.approx(f[i], rel=0.01) and not m["f_180_coarse"]
+    fc = np.geomspace(100.0, 1.0e5, 25)                                 # 25 points: the resonance is not resolved
+    sc = 2j * np.pi * fc
+    mc = loop_margins(fc, 2 * np.pi * 2.0e3 / sc * np.exp(-sc * 10e-6) * w0**2 / (sc**2 + sc * w0 / q + w0**2))
+    assert mc["f_180_coarse"]
+
+
 def test_moku_summing_point_reduction_and_plan():
     lt = np.array([5.0 - 2j, 1.0 + 0.5j, 0.1 - 0.3j])
     for g in (1.0, 0.5):
@@ -133,10 +154,22 @@ def test_moku_summing_point_reduction_and_plan():
         np.testing.assert_allclose(r["l_hat"], lt)
         np.testing.assert_allclose(r["s_hat"], 1 / (1 + lt))
         np.testing.assert_allclose(r["t_hat"], lt / (1 + lt))
+    # I-1: calibrated complex g(f) (route delay + coefficient) on the same frequencies is exact; a 1 dB error is not
+    # 12 % everywhere: (1 + L̂)/L̂ = (g'/g)(1 + L)/L, so L̂ → 1/(g'/g − 1) for |L| → ∞
+    f = np.array([1e3, 1e4, 1e5])
+    g_f = 0.8 * np.exp(-2j * np.pi * f * 100e-9)
+    np.testing.assert_allclose(reduce_summing_point(-g_f * lt / (1 + lt), g_f)["l_hat"], lt)
+    with pytest.raises(ValueError):
+        reduce_summing_point(-g_f * lt / (1 + lt), g_f[:2])
+    big = np.array([1e6 + 0j])
+    k = 10 ** (1 / 20)
+    l_inf = reduce_summing_point(-big / (1 + big), k)["l_hat"][0]       # true g = 1, assumed g' = +1 dB
+    assert l_inf.real == pytest.approx(1 / (k - 1), rel=1e-3)          # 8.2, not 1e6
     ctl = MokuDeltaController({"v.adc0": "In1", "ctrl.pid0f.u": "Out1"})
     plan = ctl.loop_gain_plan("lock0", "stepped_sine", [1e3, 1e4, 1e5], amplitude=0.05, settle_s=5e-3, dwell_s=25e-3,
                               error_in="v.adc0", output="ctrl.pid0f.u")
     assert plan["fra"]["points"] == 3 and "UNVERIFIED" in plan["pid_control_matrix"]["gain_unit"]
+    assert plan["fra"]["mode"] == "In/Out"   # spec p30 (I-2)
     with pytest.raises(NotImplementedError):
         ctl.acquire(1.0, ["v.adc0"])
     with pytest.raises(NotImplementedError):

@@ -36,7 +36,18 @@ For ``minus_l`` the reported coherence is min(γ²_{x,ref}, γ²_{x,resp}); for 
 Margins (:func:`loop_margins`, on the points with coherence ≥ ``coherence_min``): phase unwrapped along f and
 put on the branch with the lowest-frequency phase in (−360°, 0°] (or nearest the model there, when a model is
 given); f_u = first downward crossing of |L̂| = 1 (log–log interpolation), phase margin 180° + ∠L̂(f_u); f_180 =
-first crossing of −180°, gain margin −20 log₁₀|L̂(f_180)|. NaN when the band holds no crossing.
+the WORST crossing of −180° − k·360° (largest |L̂|, as ``loop_stability_check`` judges), gain margin
+−20 log₁₀|L̂(f_180)|; all crossings in ``f_180_all_hz`` / ``gain_margin_all_db`` (Phase 5 review I-4). NaN /
+empty when the band holds no crossing. ``f_u_coarse`` / ``f_180_coarse`` (review I-3) mark a margin interpolated
+across an interval the sweep does not resolve (phase step > ``margin_dphase_max_deg``, default 20°, or a local
+maximum of |L̂| at the interval or its neighbours: a resonance); the block then logs CHK ``ident_margin_coarse``,
+and ``SimController.measure_loop_gain(..., refine_n=N)`` re-sweeps the flagged intervals with N points and merges.
+
+Excitation amplitude (review I-6, optional ``dac_lsb`` + ``min_amplitude_lsb``): when the excitation is in DAC
+input units (the ``wire_F`` / ``p7_literal`` points), an amplitude below ``min_amplitude_lsb`` × ``dac_lsb`` logs CHK
+``ident_amplitude_lsb`` (the DAC quantisation then biases L̂: controller/dsc1, 12 bit, 20 mrad ≈ 1.3 LSB gave 6.9 %
+against 1.5 % without quantisation); ``amplitude_lsb`` is reported. For an error-point injection the LSB would
+have to be referred through the controller: not checked.
 
 Model (``model``: a ``loop_stability_check`` block name, or null): L_model = ``open_loop`` of its params on
 the same frequencies (the D82 ``dsc1`` discretisation when the block has it); ``model_stages`` ``all`` (the full
@@ -45,7 +56,8 @@ stack, for ``minus_l``) or ``first`` (stages dropped: the fast path alone, for `
 
 Params: ``excitation``, ``x``, ``response``, ``relation``, ``model_stages``, ``coherence_min``; ``reference``
 (minus_l), ``controller`` (plant), ``n_blocks`` (stepped sine), ``band_hz`` (chirp, prbs, white), ``nperseg_s``
-(white). ``model`` and, for ``plant``, ``reference`` may be absent or null (YAML overlays delete a key set to
+(white); optional ``margin_dphase_max_deg``, ``dac_lsb`` with ``min_amplitude_lsb``. ``model`` and, for
+``plant``, ``reference`` may be absent or null (YAML overlays delete a key set to
 null, so absence is the overlay spelling of "none").
 """
 
@@ -62,9 +74,11 @@ import scipy.signal
 from cranberry.blocks.chk.loop_stability import open_loop
 from cranberry.blocks.ctrl.excitation import excitation_schedule
 from cranberry.core.block import BaseBlock, Block, require
+from cranberry.core.checks import ChkLog
 from cranberry.core.registry import register_block
 
-__all__ = ["LoopIdentification", "make_loop_identification", "identify", "loop_margins", "RELATIONS"]
+__all__ = ["LoopIdentification", "make_loop_identification", "identify", "loop_margins", "measured_margins", "RELATIONS",
+           "COARSE_DPHASE_DEG"]
 
 KIND = "loop_identification"
 RELATIONS = ("minus_l", "plant")
@@ -158,11 +172,34 @@ def _branch(ph_deg: np.ndarray, ref0: float | None) -> np.ndarray:
     return ph - 360.0 * round((ph[0] - ref0) / 360.0)
 
 
-def loop_margins(f_hz: np.ndarray, l_f: np.ndarray, phase_ref0_deg: float | None = None) -> dict[str, float]:
-    """f_u, phase margin, f_180, gain margin of L on the (ascending) grid ``f_hz`` (module docstring)."""
+#: Default phase step [deg] between adjacent points above which a margin interpolated in that interval is marked
+#: coarse (Phase 5 review I-3; ``margin_dphase_max_deg`` overrides it).
+COARSE_DPHASE_DEG = 20.0
+
+
+def _coarse(mag: np.ndarray, ph: np.ndarray, j: int, dphase_max_deg: float) -> bool:
+    """The interval [j, j+1] holds a margin that a coarse grid cannot resolve: the phase moves by more than
+    ``dphase_max_deg`` across it, or |L| has a local maximum (a resonance) at one of the points j−1 … j+2."""
+    if abs(ph[j + 1] - ph[j]) > dphase_max_deg:
+        return True
+    n = mag.size
+    return any(0 < i < n - 1 and mag[i] >= mag[i - 1] and mag[i] >= mag[i + 1] for i in range(j - 1, j + 3))
+
+
+def loop_margins(f_hz: np.ndarray, l_f: np.ndarray, phase_ref0_deg: float | None = None,
+                 dphase_max_deg: float = COARSE_DPHASE_DEG) -> dict[str, Any]:
+    """f_u, phase margin, f_180, gain margin of L on the (ascending) grid ``f_hz`` (module docstring).
+
+    f_180 / gain margin are those of the WORST −180° crossing (largest |L|, any crossing of −180° − k·360°, as
+    ``loop_stability_check``'s Nyquist test counts them; Phase 5 review I-4); every crossing is listed in
+    ``f_180_all_hz`` / ``gain_margin_all_db``. ``f_u_coarse`` / ``f_180_coarse`` mark a margin interpolated in an
+    interval that the grid does not resolve (:func:`_coarse`, review I-3): refine the sweep there
+    (``SimController.measure_loop_gain(..., refine_n=...)``)."""
     f = np.asarray(f_hz, float)
     l_f = np.asarray(l_f, complex)
-    out = {"f_u_hz": math.nan, "phase_margin_deg": math.nan, "f_180_hz": math.nan, "gain_margin_db": math.nan}
+    out: dict[str, Any] = {"f_u_hz": math.nan, "phase_margin_deg": math.nan, "f_180_hz": math.nan,
+                           "gain_margin_db": math.nan, "f_180_all_hz": np.zeros(0), "gain_margin_all_db": np.zeros(0),
+                           "f_u_coarse": False, "f_180_coarse": False}
     if f.size < 2:
         return out
     mag = np.abs(l_f)
@@ -174,13 +211,19 @@ def loop_margins(f_hz: np.ndarray, l_f: np.ndarray, phase_ref0_deg: float | None
         a = -lm[i] / (lm[i + 1] - lm[i])
         out["f_u_hz"] = float(math.exp(lf[i] + a * (lf[i + 1] - lf[i])))
         out["phase_margin_deg"] = float(180.0 + ph[i] + a * (ph[i + 1] - ph[i]))
-    j = np.nonzero((ph[:-1] + 180.0) * (ph[1:] + 180.0) <= 0.0)[0]
-    j = j[ph[j] != ph[j + 1]]
-    if j.size:
-        j = int(j[0])
-        a = (-180.0 - ph[j]) / (ph[j + 1] - ph[j])
-        out["f_180_hz"] = float(math.exp(lf[j] + a * (lf[j + 1] - lf[j])))
-        out["gain_margin_db"] = float(-20.0 / math.log(10.0) * (lm[j] + a * (lm[j + 1] - lm[j])))
+        out["f_u_coarse"] = _coarse(mag, ph, i, dphase_max_deg)
+    m = np.floor((ph + 180.0) / 360.0)               # index of the −180° − k·360° band (loop_stability.nyquist_stable)
+    js = np.nonzero(np.diff(m))[0]
+    if js.size:
+        f180, gm = [], []
+        for j in js:
+            level = 360.0 * max(m[j], m[j + 1]) - 180.0
+            a = (level - ph[j]) / (ph[j + 1] - ph[j])
+            f180.append(math.exp(lf[j] + a * (lf[j + 1] - lf[j])))
+            gm.append(-20.0 / math.log(10.0) * (lm[j] + a * (lm[j + 1] - lm[j])))
+        w = int(np.argmin(gm))
+        out.update(f_180_hz=float(f180[w]), gain_margin_db=float(gm[w]), f_180_all_hz=np.array(f180),
+                   gain_margin_all_db=np.array(gm), f_180_coarse=_coarse(mag, ph, int(js[w]), dphase_max_deg))
     return out
 
 
@@ -196,10 +239,30 @@ def _controller(spec: Any, model_params: Mapping[str, Any] | None, f: np.ndarray
     return open_loop(f, q)
 
 
+def measured_margins(f: np.ndarray, lh: np.ndarray, coherence: np.ndarray, coherence_min: float,
+                     model_params: Mapping[str, Any] | None, model_stages: str = "all",
+                     dphase_max_deg: float = COARSE_DPHASE_DEG):
+    """(:func:`loop_margins` of the points with coherence ≥ ``coherence_min``, the phase [deg] on the branch of the
+    model at the lowest used point (NaN where unused), L_model on ``f`` or None, the model params used or None)."""
+    f = np.asarray(f, float)
+    ok = np.isfinite(coherence) & (coherence >= float(coherence_min))
+    lm = mp = ref0 = None
+    if model_params is not None:
+        mp = dict(model_params) if model_stages == "all" else {**model_params, "stages": []}
+        lm = open_loop(f, mp)
+        if ok.any():  # the model's own phase branch at the lowest used point
+            ref0 = float(_branch(np.degrees(np.angle(lm[ok])), None)[0])
+    ph = np.full(f.size, np.nan)
+    if ok.any():
+        ph[ok] = _branch(np.degrees(np.angle(lh[ok])), ref0)
+    return loop_margins(f[ok], lh[ok], ref0, dphase_max_deg), ph, lm, mp
+
+
 def identify(series: Mapping[str, np.ndarray], t_s: np.ndarray, schedule: Mapping[str, Any], f_sim_hz: float, *,
              relation: str, controller: Any = None, model_params: Mapping[str, Any] | None = None,
              model_stages: str = "all", coherence_min: float = 0.0, n_blocks: int = 4,
-             band_hz: Any = None, nperseg_s: float | None = None) -> dict[str, Any]:
+             band_hz: Any = None, nperseg_s: float | None = None,
+             dphase_max_deg: float = COARSE_DPHASE_DEG) -> dict[str, Any]:
     """L̂, S, T, coherence, margins and the model comparison (module docstring) from recorded series
     ``{"x", "response"[, "reference"]}`` on the common time axis ``t_s`` (samples at n/f_sim)."""
     if relation not in RELATIONS:
@@ -232,20 +295,10 @@ def identify(series: Mapping[str, np.ndarray], t_s: np.ndarray, schedule: Mappin
         c = coh["response"]
         out.update(p_hat=p, p_mag=np.abs(p), p_phase_deg=np.degrees(np.angle(p)), s_hat=s, t_hat=tt)
     out.update(l_hat=lh, l_mag=np.abs(lh), coherence=c, s_mag=np.abs(s), t_mag=np.abs(tt))
-    ok = np.isfinite(c) & (c >= float(coherence_min))
-    lm = None
-    ref0 = None
-    if model_params is not None:
-        mp = dict(model_params) if model_stages == "all" else {**model_params, "stages": []}
-        lm = open_loop(f, mp)
-        if ok.any():  # the model's own phase branch at the lowest used point
-            ref0 = float(_branch(np.degrees(np.angle(lm[ok])), None)[0])
-    ph = np.full(f.size, np.nan)
-    if ok.any():
-        ph[ok] = _branch(np.degrees(np.angle(lh[ok])), ref0)
+    margins, ph, lm, mp = measured_margins(f, lh, c, coherence_min, model_params, model_stages, dphase_max_deg)
     out["l_phase_deg"] = ph
-    out["n_used"] = int(ok.sum())
-    out.update(loop_margins(f[ok], lh[ok], ref0))
+    out["n_used"] = int(np.sum(np.isfinite(ph)))
+    out.update(margins)
     if lm is not None:
         out.update(l_model=lm, l_model_mag=np.abs(lm), l_model_phase_deg=_branch(np.degrees(np.angle(lm)), None),
                    mag_err=np.abs(lh) / np.abs(lm) - 1.0, phase_err_deg=np.degrees(np.angle(lh / lm)))
@@ -276,6 +329,9 @@ class LoopIdentification(BaseBlock):
             raise ValueError(f"block {name!r}: relation minus_l needs a reference slot")
         if params["relation"] == "plant":
             require(params, "controller", block=name)
+        if (params.get("dac_lsb") is None) != (params.get("min_amplitude_lsb") is None):
+            raise ValueError(f"block {name!r}: dac_lsb and min_amplitude_lsb go together")
+        self.chk_log = ChkLog()
 
     def bind(self, layout) -> None:
         self.kernel = _noop
@@ -304,10 +360,24 @@ class LoopIdentification(BaseBlock):
         sig = {"x": series[p["x"]], "response": series[p["response"]]}
         if p.get("reference") is not None:
             sig["reference"] = series[p["reference"]]
-        return identify(sig, t_s, sc, f_sim_hz, relation=p["relation"], controller=p.get("controller"),
-                        model_params=None if model is None else model.params, model_stages=p["model_stages"],
-                        coherence_min=float(p["coherence_min"]), n_blocks=int(p.get("n_blocks", 4)),
-                        band_hz=p.get("band_hz"), nperseg_s=p.get("nperseg_s"))
+        out = identify(sig, t_s, sc, f_sim_hz, relation=p["relation"], controller=p.get("controller"),
+                       model_params=None if model is None else model.params, model_stages=p["model_stages"],
+                       coherence_min=float(p["coherence_min"]), n_blocks=int(p.get("n_blocks", 4)),
+                       band_hz=p.get("band_hz"), nperseg_s=p.get("nperseg_s"),
+                       dphase_max_deg=float(p.get("margin_dphase_max_deg", COARSE_DPHASE_DEG)))
+        if out["f_u_coarse"] or out["f_180_coarse"]:
+            self.chk_log.warn("ident_margin_coarse", self.name,
+                              f"margin interpolated across an unresolved interval (f_u coarse {out['f_u_coarse']}, "
+                              f"f_180 coarse {out['f_180_coarse']} at {out['f_180_hz']:.4g} Hz): refine the sweep there")
+        if p.get("dac_lsb") is not None:
+            a = float(excitation.params["amplitude"])
+            out["amplitude_lsb"] = a / float(p["dac_lsb"])
+            if out["amplitude_lsb"] < float(p["min_amplitude_lsb"]):
+                self.chk_log.warn("ident_amplitude_lsb", self.name,
+                                  f"excitation amplitude {a:.4g} = {out['amplitude_lsb']:.2f} DAC LSB < "
+                                  f"{float(p['min_amplitude_lsb']):g} LSB: quantisation biases L̂ (raise the amplitude)",
+                                  amplitude=a, dac_lsb=float(p["dac_lsb"]))
+        return out
 
 
 @register_block(KIND)

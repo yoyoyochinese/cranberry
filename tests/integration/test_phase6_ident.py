@@ -86,6 +86,27 @@ def test_F_p7_literal_plant_matches_fast_path(tmp_path):
     assert np.max(np.abs(m["mag_err"])) < 0.06 and np.max(np.abs(m["phase_err_deg"])) < 5.0
 
 
+def test_F_p7_literal_tec_hold_sign_and_settling(tmp_path):
+    """Phase 5 review I-5: the TEC hold loop of p7_literal pulls a deliberate 0.3 rad error of the analyser's output
+    offset back to the held point (negative feedback, ζ = 0.71 at f_hold = 0.5/(2π τ_th)); τ_th is shortened to 20 ms
+    so that the run (≈ 10 hold time constants before the sweep starts) exercises the hold, then the sweep still
+    matches the fast path."""
+    pt = point(tmp_path, "pt", {"ident_n_freqs": 3, "ident_f_lo_hz": 1.0e3, "ident_f_hi_hz": 5.0e3,
+                                "ident_t_start_s": 0.45, "ident_offset_err_rad": 0.3, "tec_tau_th_s": 0.02})
+    spec = config.load("presets/future/F_wg6_nominal.yaml", overlays=["ident/p7_literal", "ident/in_lock_stepped", pt])
+    p = spec.offline["params"]
+    w_h = 2 * np.pi * p["ident_hold_f_hz"]
+    assert 1 / (2 * np.sqrt(w_h * p["tec_tau_th_s"])) == pytest.approx(1 / np.sqrt(2))   # validity: ζ ≥ 0.5
+    spec = dataclasses.replace(spec, measure={**spec.measure,
+                                              "record": {**spec.measure["record"], "slots": ["lock.L0.err"]}})
+    res = run(spec)
+    t, e = np.asarray(res.t_s), np.asarray(res.series["lock.L0.err"])
+    assert abs(np.mean(e[(t > 0.002) & (t < 0.005)])) > 0.2                # the offset error before the hold acts
+    assert abs(np.mean(e[(t > 0.35) & (t < 0.45)])) < 0.02                 # held: back at the lock point
+    m = res.measurements["loop_identification"]["lock0"]
+    assert np.max(np.abs(m["mag_err"])) < 0.06 and np.max(np.abs(m["phase_err_deg"])) < 5.0
+
+
 @pytest.mark.parametrize("preset, wire", [("presets/reference/refA.yaml", "ident/wire_refA"),
                                           ("presets/future/F_bor6_nominal.yaml", "ident/wire_F"),
                                           ("presets/future/F_liu20_nominal.yaml", "ident/p7_literal")])
