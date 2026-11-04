@@ -66,7 +66,7 @@ def test_manifest_covers_every_new_file():
         listed.add(o if o.startswith("presets/") else f"presets/axes/{o}.yaml")
     listed |= {"presets/future/F_common.yaml", "presets/future/points/F_common_nominal.yaml"}
     axes = {"source", "demux", "path_build", "fiber", "probe", "largerange", "lo", "bhd", "opo_lock", "controller",
-            "ports", "gate"}
+            "ports", "gate", "lock"}
     files = {str(p.relative_to(fs.ROOT)) for d in ("future", "bad", "locks") for p in (fs.ROOT / "presets" / d).rglob("*.yaml")}
     files |= {str(p.relative_to(fs.ROOT)) for a in axes for p in (fs.ROOT / "presets" / "axes" / a).glob("*.yaml")}
     files.discard("presets/future/manifest.yaml")

@@ -1,0 +1,10 @@
+# One point of every axis of lock/dual_band_slow (apply AFTER it; a file's own keys lose to its overlays, D74-7).
+# Not an optimum and not a default (D34): the representative values the axis comments name.
+offline:
+  params:
+    dbs_target: setpoint                  # primary (lock/dual_band_slow header)
+    dbs_seed_inject: before_squeezer      # the seed sees every squeezed-path section
+    dbs_mu_per_gate: 3.43                 # information optimum with qe 0.93 (2 × 1.594 / 0.93; lit-pittaluga2021 §3.3)
+    dbs_cal_fraction: 1.0                 # every frame ("parallel", §3.3)
+    dbs_t_int_s: 0.05                     # P5's 50 ms (f_c = 2 Hz)
+    dbs_dark_cps: 100.0                   # [AE] UNVERIFIED axis centre (log)

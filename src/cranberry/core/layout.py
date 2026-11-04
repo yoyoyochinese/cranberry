@@ -38,6 +38,7 @@ Slot naming scheme (contract):
   ``metric.port1.delta``   metric (i) sample                             S           rad
   ``rng.n1.buf``           pre-drawn random numbers of block ``n1``      S           1
   ``rec.recorder.buf``     runner's decimated recording buffer           S           1
+  ``cnt.pcf1.n1``          photon clicks per counting window             S           1
   =======================  ===========================================  ==========  ======
 
   ``<owner>`` is the block/segment/beam/lock id (block names may themselves contain dots, e.g.
@@ -82,6 +83,7 @@ SLOT_GROUPS: frozenset[str] = frozenset(
         "v", "dem", "ctrl", "delay", "act", "timing", "leak", "lock", "metric",
         "rng", "rec", "pol", "pow",
         "gate",  # WP6-G: gate_schedule windows (gate.<name>.lock / .meas / .phase)
+        "cnt",  # photon counters (photon_counting_fringe, Phase 6 WP6-C, D85-5)
     }
 )
 #: Slots that every layout has, written by the runner.
