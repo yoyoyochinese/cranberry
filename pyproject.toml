@@ -15,6 +15,12 @@ dependencies = [
 plot = [
     "matplotlib>=3.11.2",
 ]
+# Phase 6 optimisation (D85-13): exact pins, checked on CPython 3.14.8 (torch has cp314 wheels)
+opt = [
+    "botorch==0.18.1",
+    "gpytorch==1.15.2",
+    "torch==2.15.0",
+]
 
 [project.scripts]
 cranberry = "cranberry.__main__:main"

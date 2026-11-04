@@ -674,6 +674,20 @@
 - 新しいブロックは結果を使う前に新しい文脈の Phase 5 レビューを受ける（`docs/phase6_prompt.md` 手順 3）。
 - 日付: 2026-11-04 / Phase 6
 
+### D86 光路長アクチュエータの偏り係数 R（ユーザ回答 Q15）
+- 決定: `probe/actuator_pathlength` で R を独立の軸にする（名目 +0.3 ps/(km·K)、範囲 −0.5〜+1.5、符号は未定）。ひずみ光学係数の分散を含めた R′ = +0.56（0.0〜+1.2）を別の選択肢に。R を軸にしたうえで k_T と κ_τ を独立に振る組み合わせは「物理的に矛盾する悪い構成」として記録だけ残す。
+- 理由: 一次資料（Leviton & Frey、Rego 2023/2024、Slavík 2015）から R ≈ +0.3 ± 0.6 ps/(km·K)。現行の k_T・κ_τ は別のファイバ・被覆の値で、独立に掃引すると R が約 10 倍広くなる（`notes/fact-p6-thermo-optic-moku.md`）。
+- 日付: 2026-11-04 / Phase 6
+
+### D87 Phase 6 の道具（WP6-T、D85-13 の実装）
+- 決定:
+  1. 任意の追加依存 `opt` = botorch 0.18.1・gpytorch 1.15.2・torch 2.15.0（完全固定、CPython 3.14 で GP の当てはめと制約付き獲得関数を確認。torch.jit の FutureWarning は無害）。`plot` = matplotlib 3.11.2。`uv sync --extra plot --extra opt`。
+  2. 構成図 `viz.diagram`: (a) 信号の流れ（段ごと、雑音と記帳は既定で 1 節点に畳み `--expand` で展開、後ろ向きの読みは赤の破線）、(b) 光学配置（ビームの経路、合流・分岐、ロック → アクチュエータ → 区間の駆動）。CLI `python -m cranberry diagram <preset> [--overlay ...] --out DIR`。例は `docs/diagrams/`。各構成の図はこの道具で作る（D84-3）。
+  3. CLI の ablate・decompose・convergence は結果を表で出し、`--save` で JSON に書く。
+  4. `runner.explore`: `combine_effects`（§8 の効いた効果の組み合わせ）、`compare_seeds`（共通の seed で指標 (i)(ii)、(ii) の 4 成分、η_k、迷光、スリップ・ロック外れ・ロック時間、アクチュエータのレンジ使用率の平均・標本標準偏差・最小・最大）、`differs`（|Δ平均| > σ_a + σ_b のときだけ差を主張）。分解はグループのトグルを自分で設定するので、グループのトグルだけが違う 2 構成は同じ成分になる（関数の説明に記載）。
+  5. `runner.optimize`: 制約は c ≤ 0 で可、目的は seed 平均、制約は最悪の seed。「ロック維持」と「サーボの山」（帯域内の max |S|² − 上限）。上限と帯域はプリセットか呼び出し側で与える（D34、既定値なし）。`controller_evaluator` は `ControllerInterface` だけを通るので実機にも使える。
+- 日付: 2026-11-04 / Phase 6
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）
