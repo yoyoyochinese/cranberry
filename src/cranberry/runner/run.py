@@ -918,7 +918,7 @@ def evaluate_measurements(
             elif blk.kind == "loop_identification":
                 res[str(entry)] = _loop_ident(blk, cfg, blocks, series, t_rec, f_sim_hz, what)
             elif blk.kind == "step_response":
-                res[str(entry)] = blk.evaluate(series, t_rec, blocks)
+                res[str(entry)] = blk.evaluate(series, t_rec, blocks, record=(measure or {}).get("record"))
             else:
                 res[str(entry)] = _pulse(blk, cfg, blocks, metrics, rng, what)
         out[hook] = res

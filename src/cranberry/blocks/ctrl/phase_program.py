@@ -13,9 +13,17 @@ times_s[0] every port is 0 (unprogrammed: the lock acquires at its nominal point
                                                                     phase resolution; Moku:Delta 1e−6° = 1.745e−8 rad,
                                                                     notes/fact-p6-thermo-optic-moku.md §2) else s_k
     output dc_setpoint:  ctrl.<name>.vset<k> = v_fringe_v·sin(s_k)  (DC side-fringe set point, below; no quantisation)
-    ctrl.<name>.target<k> = c_k             (the commanded program value: the set point that metric_ii setpoint_slot and
-                                             lock_supervisor slip_center_slot follow)
+    ctrl.<name>.target<k> = −sign·c_k       (where the lock coordinate X_k − π/2 goes: the set point that metric_ii
+                                             setpoint_slot and lock_supervisor slip_center_slot follow; = c_k for the
+                                             presets' sign −1; review P-3)
     ctrl.<name>.index     = j               (−1 before the first switch)
+    ctrl.<name>.settled   = mask_in · [j < 0 or t ≥ times_s[j] + settle_s]   (settle mask, below)
+
+Settle mask (review P-1): the set points above follow the command instantly, the lock within 1/f_u, so every switching
+transient would count in metric (ii). ``settled`` is 0 for ``settle_s`` after every switch (1 before the first); wire
+it as metric_ii ``mask_slot`` so the moments, noise levels and ``runner.decompose`` take only the settled samples (the
+GBS does not use data while the phases settle). ``mask_in`` (optional slot, e.g. a ``gate_schedule`` measurement
+window) multiplies it, so both masks compose as a product. With ``enabled`` off: settled = mask_in (or 1).
 
 Wiring (P6, lit-zhong2021 §3.1-2): ``rf_phase`` feeds a ``demodulator``'s ``in_program`` (φ = φ_d + rf). With the
 heterodyne Liu probe, I = K cos(X + φ), the loop holds X = π/2 − φ: a program step moves the lock point by −Δrf, one to
@@ -27,16 +35,20 @@ K = K_cal (power / visibility drift moves it: X = arccos(−(K_cal/K) sin c_k)) 
 
 Table (structural): ``source: table`` with ``times_s`` (increasing, ≥ 0) and ``table_rad`` (len(times_s) rows ×
 len(ports) columns); or ``source: random`` with ``n_settings``, ``t_first_s``, ``dwell_s`` (switching interval: times
-t_first + j·dwell), ``step_rad`` and ``seed``: ``step_rad: null`` draws every value independently, uniform in
-[−π/2, π/2] (Zhong's 30 random settings, Fig. 4(a), mapped to quadrature angles); a number 0 < step ≤ π/2 is a random
+t_first + j·dwell), ``step_rad``, ``max_step_rad`` and ``seed``: ``step_rad: null`` draws every value independently,
+uniform in [−π/2, π/2] (Zhong's 30 random settings, Fig. 4(a), mapped to quadrature angles), redrawing a port's value
+while its step from the previous setting exceeds ``max_step_rad`` (review P-5: a step near π starts the side-of-fringe
+loop next to its unstable zero, pull-in ∝ ln(1/(π − |Δ|)), and the slip centre jumps with it; π = no guard, the
+pre-review tables, bit for bit); a number 0 < step ≤ π/2 is a random
 walk p_j = p_{j−1} ± step per port (sign drawn; reversed when it would leave [−π/2, π/2]), so every switch of every
 port is a step of exactly ``step_rad`` (step-size axis). The random table is a deterministic function of ``seed``
 (configuration, not noise: no draws at run time; ``table`` attribute).
 
 Params (D34, all required): ``ports`` (list of port indices), ``source`` (+ its keys), ``mode`` (step | ramp),
-``output`` (rf_phase | dc_setpoint), ``sign`` (±1); runtime ``slew_rad_per_s`` (ramp), ``quantum_rad`` (rf_phase),
-``v_fringe_v`` (dc_setpoint). Toggles: ``enabled`` (off: every output 0, index −1), ``quantization`` (rf_phase only).
-Slots: the outputs above, ``ctrl.<name>.x`` = [c_0 … c_{K−1}, j + 1] (internal).
+``output`` (rf_phase | dc_setpoint), ``sign`` (±1); runtime ``settle_s`` (≥ 0), ``slew_rad_per_s`` (ramp),
+``quantum_rad`` (rf_phase), ``v_fringe_v`` (dc_setpoint); optional slot ``mask_in``. Toggles: ``enabled`` (off: every
+output 0, index −1), ``quantization`` (rf_phase only). Slots: the outputs above, ``ctrl.<name>.x`` =
+[c_0 … c_{K−1}, j + 1] (internal).
 """
 
 from __future__ import annotations
@@ -60,11 +72,20 @@ OUTPUTS: dict[str, int] = {"rf_phase": 0, "dc_setpoint": 1}
 HALF_PI = 0.5 * math.pi
 
 
-def random_table(n_settings: int, n_ports: int, step_rad: float | None, seed: int) -> np.ndarray:
-    """(n_settings, n_ports) program table (module docstring: uniform for step None, ±step bounded walk otherwise)."""
+def random_table(n_settings: int, n_ports: int, step_rad: float | None, seed: int,
+                 max_step_rad: float = math.pi) -> np.ndarray:
+    """(n_settings, n_ports) program table (module docstring: uniform for step None, a port's value redrawn while its
+    step exceeds max_step_rad; ±step bounded walk otherwise)."""
     rng = np.random.default_rng(int(seed))
     if step_rad is None:
-        return rng.uniform(-HALF_PI, HALF_PI, (n_settings, n_ports))
+        out = rng.uniform(-HALF_PI, HALF_PI, (n_settings, n_ports))
+        prev = np.zeros(n_ports)
+        for j in range(n_settings):
+            for k in range(n_ports):
+                while abs(out[j, k] - prev[k]) > max_step_rad:
+                    out[j, k] = rng.uniform(-HALF_PI, HALF_PI)
+            prev = out[j]
+        return out
     out = np.zeros((n_settings, n_ports))
     prev = np.zeros(n_ports)
     for j in range(n_settings):
@@ -75,14 +96,16 @@ def random_table(n_settings: int, n_ports: int, step_rad: float | None, seed: in
     return out
 
 
-def _step(S, I, P, i_t, o_out, o_tgt, o_idx, st, times, table, sign, ps, pq, pv, h, mode, output,  # noqa: N803
-          enabled, quant):
+def _step(S, I, P, i_t, o_out, o_tgt, o_idx, o_set, i_mask, st, times, table, sign, pst, ps, pq, pv, h, mode,  # noqa: N803
+          output, enabled, quant):
     n = o_out.shape[0]
+    m_in = S[i_mask] if i_mask >= 0 else 1.0
     if not enabled:
         for k in range(n):
             S[o_out[k]] = 0.0
             S[o_tgt[k]] = 0.0
         S[o_idx] = -1.0
+        S[o_set] = m_in
         return
     t = S[i_t]
     j = int(S[st + n]) - 1  # stored as j + 1 (the state slot starts at 0)
@@ -90,6 +113,8 @@ def _step(S, I, P, i_t, o_out, o_tgt, o_idx, st, times, table, sign, ps, pq, pv,
         j += 1
     S[st + n] = j + 1
     S[o_idx] = j
+    settled = 1.0 if j < 0 or t >= times[j] + P[pst] - 1e-9 * h else 0.0
+    S[o_set] = m_in * settled
     for k in range(n):
         goal = table[j, k] if j >= 0 else 0.0
         if mode == 0:
@@ -100,7 +125,7 @@ def _step(S, I, P, i_t, o_out, o_tgt, o_idx, st, times, table, sign, ps, pq, pv,
             d = goal - c
             c += lim if d > lim else (-lim if d < -lim else d)
         S[st + k] = c
-        S[o_tgt[k]] = c
+        S[o_tgt[k]] = -sign * c  # the lock coordinate moves by −sign·c (P-3)
         s = sign * c
         if output == 0:
             if quant and P[pq] > 0.0:
@@ -120,7 +145,8 @@ class PhaseProgram(KitBlock):
 
     def __init__(self, params: Mapping[str, Any], name: str | None):
         name = name or KIND
-        require(params, "ports", "source", "mode", "output", "sign", block=name)
+        require(params, "ports", "source", "mode", "output", "sign", "settle_s", block=name)
+        params = {"mask_in": None, **params}   # optional wiring (an overlay null is stripped)
         for key, opts in (("mode", MODES), ("output", OUTPUTS)):
             if params[key] not in opts:
                 raise ValueError(f"block {name!r}: {key} must be one of {sorted(opts)}")
@@ -131,14 +157,19 @@ class PhaseProgram(KitBlock):
         if float(params["sign"]) not in (1.0, -1.0):
             raise ValueError(f"block {name!r}: sign must be +1 or -1")
         self.times, self.table = self._table(params, name)
-        runtime = (("slew_rad_per_s",) if self.mode == 1 else ()) + (
+        runtime = ("settle_s",) + (("slew_rad_per_s",) if self.mode == 1 else ()) + (
             ("quantum_rad",) if self.output == 0 else ("v_fringe_v",))
         out = "rf.{n}.port{k}" if self.output == 0 else "ctrl.{n}.vset{k}"
         self.out_slots = [out.format(n=name, k=k) for k in self.ports]
         self.target_slots = [f"ctrl.{name}.target{k}" for k in self.ports]
         self.index_slot, self.state_slot = f"ctrl.{name}.index", f"ctrl.{name}.x"
-        super().__init__(params, name, reads=("t",),
-                         writes=(*self.out_slots, *self.target_slots, self.index_slot, self.state_slot), runtime=runtime)
+        self.settled_slot = f"ctrl.{name}.settled"
+        reads = ("t",) + ((params["mask_in"],) if params["mask_in"] is not None else ())
+        super().__init__(params, name, reads=reads,
+                         writes=(*self.out_slots, *self.target_slots, self.index_slot, self.settled_slot,
+                                 self.state_slot), runtime=runtime)
+        if not float(params["settle_s"]) >= 0.0:
+            raise ValueError(f"block {name!r}: settle_s must be >= 0")
         if self.mode == 1 and not float(params["slew_rad_per_s"]) > 0.0:
             raise ValueError(f"block {name!r}: slew_rad_per_s must be > 0")
         if self.output == 0 and not float(params["quantum_rad"]) >= 0.0:
@@ -152,15 +183,18 @@ class PhaseProgram(KitBlock):
             times = np.asarray(p["times_s"], dtype=float).ravel()
             table = np.asarray(p["table_rad"], dtype=float)
         elif p["source"] == "random":
-            require(p, "n_settings", "t_first_s", "dwell_s", "step_rad", "seed", block=name)
+            require(p, "n_settings", "t_first_s", "dwell_s", "step_rad", "max_step_rad", "seed", block=name)
             n = int(p["n_settings"])
             if n < 1 or not float(p["dwell_s"]) > 0.0:
                 raise ValueError(f"block {name!r}: random needs n_settings >= 1 and dwell_s > 0")
             st = p["step_rad"]
             if st is not None and not 0.0 < float(st) <= HALF_PI:
                 raise ValueError(f"block {name!r}: step_rad must be null or in (0, π/2]")
+            if not 0.0 < float(p["max_step_rad"]) <= math.pi + 1e-12:
+                raise ValueError(f"block {name!r}: max_step_rad must be in (0, π]")
             times = float(p["t_first_s"]) + float(p["dwell_s"]) * np.arange(n)
-            table = random_table(n, len(self.ports), None if st is None else float(st), int(p["seed"]))
+            table = random_table(n, len(self.ports), None if st is None else float(st), int(p["seed"]),
+                                 float(p["max_step_rad"]))
         else:
             raise ValueError(f"block {name!r}: source must be 'table' or 'random'")
         if table.shape != (times.size, len(self.ports)) or times.size == 0:
@@ -174,13 +208,15 @@ class PhaseProgram(KitBlock):
         unit = "rad" if self.output == 0 else "V"
         return ([(s, (), np.float64, unit, 0, 0.0) for s in self.out_slots]
                 + [(s, (), np.float64, "rad", 0, 0.0) for s in self.target_slots]
-                + [(self.index_slot, (), np.float64, "1", 0, -1.0),
+                + [(self.index_slot, (), np.float64, "1", 0, -1.0), (self.settled_slot, (), np.float64, "1", 0, 1.0),
                    (self.state_slot, (len(self.ports) + 1,), np.float64, "1", 0, 0.0)])
 
     def make_args(self, layout):
         return (self.o(layout, "t"), np.array([self.o(layout, s) for s in self.out_slots], np.int64),
                 np.array([self.o(layout, s) for s in self.target_slots], np.int64), self.o(layout, self.index_slot),
+                self.o(layout, self.settled_slot), self.o(layout, self.params["mask_in"]),
                 self.o(layout, self.state_slot), self.times.copy(), np.ascontiguousarray(self.table), float(self.params["sign"]),
+                self.p(layout, "settle_s"),
                 self.p(layout, "slew_rad_per_s") if self.mode == 1 else -1,
                 self.p(layout, "quantum_rad") if self.output == 0 else -1,
                 self.p(layout, "v_fringe_v") if self.output == 1 else -1,

@@ -15,6 +15,7 @@ Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 * ``opo_angle_map``
 * ``pump_power_stabilization``
 * ``crystal_thermal``
+* ``seed_psa`` (Phase 6 fix, review C-1): a coherent seed through the squeezer's phase-sensitive gain
 
 Contract: core.block (factory interface, reads/writes, losses(), bands(), toggles, D34 no defaults).
 """

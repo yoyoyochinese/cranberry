@@ -9,7 +9,7 @@ import pytest
 
 import cranberry.path.testing as pt
 from cranberry.blocks.ctrl.phase_program import make_phase_program, random_table
-from cranberry.blocks.meas.step_response import segment_response
+from cranberry.blocks.meas.step_response import _wrap, segment_response, unwrap_path
 
 pytestmark = pytest.mark.numba
 FS = 1.0e6
@@ -19,7 +19,7 @@ TABLE = [[0.3, -0.2], [-0.5, 0.4], [1.0, 1.0]]
 
 def prog(mode="step", output="rf_phase", enabled=True, quant=False, **kw):
     p = {"ports": [0, 1], "source": "table", "times_s": TIMES, "table_rad": TABLE, "mode": mode, "output": output,
-         "sign": -1.0, "toggles": {"enabled": enabled, "quantization": quant}}
+         "sign": -1.0, "settle_s": 0.0, "toggles": {"enabled": enabled, "quantization": quant}}
     if mode == "ramp":
         p["slew_rad_per_s"] = 5e4
     if output == "rf_phase":
@@ -86,7 +86,7 @@ def test_random_tables():
     assert np.all(np.abs(uni) <= math.pi / 2) and uni.std() > 0.6
     np.testing.assert_array_equal(random_table(30, 3, None, 7), uni)  # deterministic in the seed
     blk = make_phase_program({**prog()["params"], "source": "random", "n_settings": 30, "t_first_s": 1e-3,
-                              "dwell_s": 2e-3, "step_rad": None, "seed": 7}, name="r")
+                              "dwell_s": 2e-3, "step_rad": None, "max_step_rad": math.pi, "seed": 7}, name="r")
     assert blk.table.shape == (30, 2) and blk.times[-1] == pytest.approx(1e-3 + 29 * 2e-3)
 
 
@@ -94,7 +94,7 @@ def test_validation():
     base = prog()["params"]
     for bad, msg in (({"mode": "slow"}, "mode"), ({"sign": 2.0}, "sign"), ({"table_rad": [[0.0, 0.0]]}, "shape"),
                      ({"times_s": [2e-6, 1e-6, 3e-6]}, "increasing"), ({"source": "random", "n_settings": 3,
-                      "t_first_s": 0.0, "dwell_s": 1e-3, "step_rad": 2.0, "seed": 0}, "step_rad")):
+                      "t_first_s": 0.0, "dwell_s": 1e-3, "step_rad": 2.0, "max_step_rad": math.pi, "seed": 0}, "step_rad")):
         with pytest.raises(ValueError, match=msg):
             make_phase_program({**base, **bad})
     with pytest.raises(KeyError):
@@ -155,3 +155,82 @@ def test_segment_response_first_order():
     r = segment_response(t, d * (1 - np.exp(-t / tau) * np.cos(2e4 * t)), 0.0, 0.0, d, tol)
     assert r["overshoot"] > 0.05
     assert math.isnan(segment_response(t, np.full(t.size, 0.1), 0.0, 0.0, d, tol)["settle_s"])
+
+
+# ---- Phase 5 review fixes (reviews/phase6_wp6c_p.md P-1..P-5) -----------------------------------------------------------
+
+def test_target_follows_the_lock_coordinate_for_either_sign():
+    """P-3: the lock coordinate moves by −sign·c, so target = −sign·c (= c for the presets' sign −1)."""
+    _, _, c0, c1, _ = run(sign=1.0)
+    g, _ = goal(np.arange(60) / FS)
+    np.testing.assert_array_equal(np.c_[c0, c1], -g)
+
+
+def const(name, x):
+    return {"block": "ramp", "name": name, "params": {"out": f"v.{name}", "waveform": "sawtooth", "amplitude_v": 0.0,
+                                                     "period_s": 1.0, "offset_v": x, "toggles": {"enabled": True}}}
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+def test_settle_mask(compiled):
+    """P-1: settled = 0 for settle_s after every switch (1 before the first), times mask_in; disabled: mask_in."""
+    def go(m, **kw):
+        objs = [const("m", m), prog(settle_s=3e-6, mask_in="v.m", **kw), pt.record(["ctrl.pg.settled"], 60)]
+        rec, _, _ = pt.run_and_record(objs, FS, 60, compiled=compiled)
+        return rec["ctrl.pg.settled"]
+    t = np.arange(60) / FS
+    want = np.ones(60)
+    for t0 in TIMES:
+        want[(t >= t0 - 1e-12) & (t < t0 + 3e-6 - 1e-12)] = 0.0
+    np.testing.assert_array_equal(go(1.0), want)
+    np.testing.assert_array_equal(go(0.0), np.zeros(60))          # product with mask_in
+    np.testing.assert_array_equal(go(1.0, enabled=False), np.ones(60))
+
+
+def test_random_table_max_step():
+    """P-5: the uniform table redraws a port's value while its step exceeds max_step_rad; π reproduces the old table."""
+    old = np.random.default_rng(7).uniform(-math.pi / 2, math.pi / 2, (30, 3))
+    np.testing.assert_array_equal(random_table(30, 3, None, 7), old)
+    np.testing.assert_array_equal(random_table(30, 3, None, 7, math.pi), old)
+    assert np.max(np.abs(np.diff(np.vstack([np.zeros(3), old]), axis=0))) > 0.8 * math.pi   # seed 7 has near-π steps
+    g = random_table(30, 3, None, 7, 0.8 * math.pi)
+    assert np.max(np.abs(np.diff(np.vstack([np.zeros(3), g]), axis=0))) <= 0.8 * math.pi
+    assert np.all(np.abs(g) <= math.pi / 2)
+    with pytest.raises(ValueError, match="max_step_rad"):
+        make_phase_program({**prog()["params"], "source": "random", "n_settings": 3, "t_first_s": 0.0, "dwell_s": 1e-3,
+                            "step_rad": None, "max_step_rad": 4.0, "seed": 0})
+
+
+@pytest.mark.parametrize("d", [0.4, 1.2, 1.6, 2.4, math.pi - 0.05])
+def test_theta_steps_beyond_half_pi(d):
+    """P-2: an exact first-order Θ step (period π) of any size: rise τ ln 9 and no overshoot along the unwrapped path
+    (the folded trace gave rise 0 and overshoot 0.5–1 for |Δ| ≥ π/2); settle from the folded error as before."""
+    tau, tol = 1.6e-4, 0.01
+    t = np.arange(0, 3e-3, 1e-6)
+    y = d * (1 - np.exp(-t / tau))
+    yq = d + _wrap(y - d, math.pi)                                  # what step_response folds
+    r = segment_response(t, yq, 0.0, 0.0, d, tol, path=unwrap_path(_wrap(y, math.pi), 0.0, math.pi), period=math.pi)
+    assert not r["ambiguous"]
+    assert r["rise_s"] == pytest.approx(tau * math.log(9), abs=2e-6)
+    assert r["overshoot"] == 0.0
+    assert r["settle_s"] == pytest.approx(tau * math.log(d / tol), abs=2e-6)
+
+
+def test_theta_ambiguous_path():
+    """A path the record cannot resolve (a jump > period/4 between samples, or ending on another branch) is flagged and
+    gets no rise / overshoot."""
+    t = np.arange(0, 1e-3, 1e-4)
+    y = np.where(t > 2e-4, 1.6, 0.0)                               # the whole step between two samples
+    r = segment_response(t, 1.6 + _wrap(y - 1.6, math.pi), 0.0, 0.0, 1.6, 0.01,
+                         path=unwrap_path(_wrap(y, math.pi), 0.0, math.pi), period=math.pi)
+    assert r["ambiguous"] and math.isnan(r["rise_s"]) and math.isnan(r["overshoot"]) and r["settle_s"] < 1e-3
+
+
+def test_step_response_refuses_antialiased_records():
+    """P-6: a boxcar / fir record averages the wrapped coordinates across their folds: refused."""
+    from cranberry.blocks.meas.step_response import make_step_response
+
+    sr = make_step_response({"program": "pg", "positions": {"0": "lock.L0.err"}, "position_sign": 1.0, "metric": None,
+                             "actuators": {}, "actuator_range": {}, "slips": {}, "tol_rad": 0.01, "tol_sigma": 3.0})
+    with pytest.raises(ValueError, match="antialias"):
+        sr.evaluate({}, np.zeros(3), {}, record={"decim": 10, "antialias": "boxcar"})

@@ -11,6 +11,8 @@ Block kinds (factories ``make_<kind>``, registered with ``@register_block``):
 * ``loop_stability_check``
 * ``gated_loop_stability_check`` (WP6-G): Floquet stability of a periodically gated loop, residual in the measurement
   window, Dick (frequency-conversion) term, backscatter round-trip limit
+* ``cal_slot_check`` (WP6-C fix, review C-3 / C-7): calibration-slot placement of a slow in-band layer (cost, L_k, D78,
+  SNSPD recovery into the next data slot, small counts per window)
 
 Contract: core.block (factory interface, reads/writes, losses(), bands(), toggles, D34 no defaults).
 """

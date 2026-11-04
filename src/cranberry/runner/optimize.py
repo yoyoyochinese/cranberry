@@ -205,9 +205,9 @@ def runner_evaluator(
     constraints = dict(constraints or {})
 
     def evaluate(x: Mapping[str, float]) -> tuple[float, dict[str, float]]:
-        point = expand(rs, {k: [float(v)] for k, v in x.items()})
+        point = expand(rs, {k: [float(v)] for k, v in x.items()}, limit=2)
         if len(point) != 1:
-            raise ValueError(f"runner_evaluator: the spec has sweep axes of its own ({len(point)} points)")
+            raise ValueError("runner_evaluator: the spec has sweep axes of its own (more than one point)")
         objs, cons = [], {c: -math.inf for c in constraints}
         for s in seeds:
             p = point[0].spec
