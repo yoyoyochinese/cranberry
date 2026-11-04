@@ -112,3 +112,28 @@ def test_slow_loop_check_at_the_exact_discrete_limit(tmp_path, fct, unstable):
     res = fs.build_check(fs.nominal("F_liu20"), (OV, NOM, point(tmp_path, "fc", {"dbs_fc_x_tint": fct})))
     hit = [e for e in res.events if e["source"] == "chk.dbs_stability" and e["code"] == "loop_unstable"]
     assert bool(hit) == unstable
+
+
+def test_slow_layer_keeps_the_controller_input_pole():
+    """Axis-2 fix: the set-point sum v.liu1s enters in_bw1 (the controller's analogue input pole), not adc1 directly, so
+    controller/dsc1's 120 kHz pole stays in port k's time loop as in chk.lock_stability and port 0."""
+    from cranberry.config.spec import iter_block_specs
+
+    spec = fs.first_point(fs.load(fs.nominal("F_liu20"), overlays=(OV, NOM, "controller/dsc1")))
+    blocks = {b.name: b for _, b in iter_block_specs(spec.pipeline)}
+    assert blocks["in_bw1"].params["in"] == "v.liu1s"
+    assert blocks["adc1"].params["in"] == "v.in_bw1"
+    assert blocks["in_bw1"].params["f_c_hz"] == pytest.approx(1.2e5)
+
+
+@pytest.mark.parametrize("gate", [("gate/borealis_window", "gate/borealis_si"), ("gate/chopper_wdm", "gate/chopper_p3")])
+def test_composes_with_a_gate_through_the_wire_file(gate):
+    """Axis-2 combined wiring (D96-9): gate → dual_band_slow → point → dual_band_slow_gate_wire keeps the gate's probe
+    power on the inner liu1 and the gate's adc1 reading in_bw1 ← v.liu1s."""
+    from cranberry.config.spec import iter_block_specs
+
+    spec = fs.first_point(fs.load(fs.nominal("F_liu20"), overlays=(*gate, OV, NOM, "lock/dual_band_slow_gate_wire")))
+    blocks = {b.name: b for _, b in iter_block_specs(spec.pipeline)}
+    assert blocks["liu1"].params["in_gate"] == "delay.gd1.out"
+    assert blocks["in_bw1"].params["in"] == "v.liu1s" and blocks["adc1"].params["in"] == "v.in_bw1"
+    assert "pcf1" in blocks and "gw" in blocks

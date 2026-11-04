@@ -175,3 +175,10 @@ pipeline:
       loss_applies_to: [gbs, bhd]
       loss_source: "actuator outside the squeezed path: lossless [AE]"
       toggles: {resonance: false, hysteresis: false, saturation: true, insertion_loss: false}
+  # Metric (i) set point (axis-2 fix): the auxiliary detectors read cos(φ_lom − φ_lor), so LLO0/LLO1 hold that
+  # difference at its zero crossing ±π/2, i.e. the lock rotates each LO_k by π/2 from F_common's nominal LO phase.
+  # F_common's mi set point −π/2 (the Liu locks' π/2) then evaluates metric (i) at the quadrature wrap boundary and the
+  # reported Δ_k is scrambled (σ ≈ 1.5 rad instead of ≈ 0.1 rad, runs/p6_axis2 S_*_L-LOdeliv_*). −π/2 ± π/2 ≡ 0 (mod π)
+  # for either lock sign. Metric (ii) does not involve the LO and is unchanged.
+  - name: mi
+    params: {setpoint_rad: 0.0}

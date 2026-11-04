@@ -1,0 +1,11 @@
+# Wiring of lock/dual_band_slow under a gate overlay (gate/borealis_window, gate/chopper_wdm or gate/intermittent_slow):
+# the gate overlays gate the probe power of port k through liu1's in_gate (the gate delayed by the probe flight,
+# delay.gd1.out), and lock/dual_band_slow replaces liu1 with a seq whose inner block is again named liu1. Order:
+#   [gate/<x> (+ its point), lock/dual_band_slow, lock/points/dual_band_slow_<point>, lock/dual_band_slow_gate_wire]
+# The slow set-point offset (dbs1.sum → in_bw1 → adc1) then passes through the gate's restated adc1 / gated_hold, so
+# the slow correction reaches the fast loop only in the lock windows (the fast controller holds in between).
+pipeline:
+  - name: liu1
+    seq:
+      - name: liu1
+        params: {in_gate: delay.gd1.out}
