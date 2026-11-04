@@ -717,6 +717,12 @@
   8. 残り: 上書きは外乱の PSD を検査に渡していない（安定だけを報告）。TEC の段の `rate_div` の保持は検査で無視。上書きの PID の離散化は tustin を仮定（dsc1 なら dsc1 が要る）。3 ブロックは結果を使う前に新しい文脈の Phase 5 レビュー。
 - 日付: 2026-11-04 / Phase 6
 
+### D91 DSC1 の更新レートと較正値の置き場所（ユーザ回答 Q16・Q17）
+- 決定:
+  1. `controller/dsc1` は将来の構成の pid0f/pid1f（と dac）を機器と同じ 500 kHz（`rate_div` 2）で回し、`chk.lock_stability` の h を 2 µs にする。保持の遅延 (r−1)/(2f_sim) は τ_L（5.7 µs、ADC の平均と 500 kHz の ZOH を含む）の中に数え、Ref D と同じ規則（D61、`dsc1_explicit_delay_s`）で二重に数えない。
+  2. 較正した値（音響雑音、915B のモード）は `*_nominal` に入れない。`refD_nominal` などブラインド予測の元の値は変えず、較正値は名前付きの設定（`presets/bench/refD_lab.yaml`）と上書き用の設定（`lab/*`）に置く。
+- 日付: 2026-11-04 / Phase 6
+
 ## Open
 
 - 将来のパルス光源の具体的な仕様（パルス幅、繰り返し、平均パワー、波長）（D07・D43）
