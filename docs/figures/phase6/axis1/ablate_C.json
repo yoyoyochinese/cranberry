@@ -1,0 +1,126 @@
+{
+ "case": "C",
+ "quantity": "i.port0.sigma_phase_rad",
+ "point": {
+  "base": "presets/bench/refC_fiber_bench.yaml",
+  "overlays": [],
+  "axes": {
+   "offline.params.L_fiber_m": 10.0
+  },
+  "duration_s": 0.1,
+  "seed": 1
+ },
+ "n_toggles": 42,
+ "baseline_seed1": 0.002060175664500609,
+ "impact_seed1": {
+  "laser.fm_white": -1.0110563880256964e-05,
+  "env.thermal.spool_sq.drift": 1.7654822226549627e-09,
+  "env.thermal.spool_lo.drift": 2.6940541375444077e-08,
+  "env.mech.spool.mech": -3.112395302762609e-05,
+  "env.mech.spool.correlation": 2.5118525297185713e-05,
+  "path.phase.phase": -0.001856170224809075,
+  "path.phase.group_delay": 0.0,
+  "path.beams.emission_time": -9.619231393191707e-09,
+  "qnl.radiometer_noise": -0.0014692774770276025,
+  "adc.quantization": 2.2119584738074932e-08,
+  "adc.saturation": 0.0,
+  "pid1.feedback": 0.0011827089035576638,
+  "pid1.i_term": 0.0011827089035576638,
+  "dac1.quantization": 7.904691031075661e-09,
+  "dac1.saturation": 0.0,
+  "pid2.feedback": -0.00014796380537791289,
+  "pid2.i_term": -0.00014796380537791289,
+  "dac2.quantization": -1.3809866759714826e-05,
+  "dac2.saturation": 0.0,
+  "mirror.resonance": -7.690399146849554e-06,
+  "mirror.saturation": 0.0,
+  "pid3.feedback": 0.0,
+  "pid3.i_term": 0.0,
+  "dac3.quantization": -1.3329281681479649e-06,
+  "dac3.saturation": 0.0,
+  "stretcher.saturation": 0.0,
+  "opo.frequency_dependence": 0.0,
+  "optics.enabled": 0.0,
+  "bhd_det.qe": 0.0,
+  "bhd_det.circuit_noise": 0.0,
+  "bhd_det.dip": 0.0,
+  "bhd_det.subtract_dark": 0.0,
+  "frontend.circuit_noise": 0.0,
+  "frontend.dip": 0.0,
+  "frontend.subtract_dark": 0.0,
+  "esa_30m.radiometer_noise": 0.0,
+  "esa_250m.radiometer_noise": 0.0,
+  "esa_690m.radiometer_noise": 0.0,
+  "esa_1210m.radiometer_noise": 0.0,
+  "esa_spec.radiometer_noise": 0.0,
+  "esa_spec.subtract_circuit_noise": 0.0,
+  "chk.lockC_stability.enabled": 0.0
+ },
+ "errors": {},
+ "mattered": [
+  "path.phase.phase",
+  "qnl.radiometer_noise",
+  "pid1.feedback",
+  "pid1.i_term",
+  "pid2.feedback",
+  "pid2.i_term"
+ ],
+ "stats": {
+  "baseline": {
+   "mean": 0.0020990976935151666,
+   "std": 7.271579078556217e-05,
+   "min": 0.002028285045806349,
+   "max": 0.002194662412829281,
+   "n": 4
+  },
+  "combined": {
+   "mean": 0.002021548078845351,
+   "std": 6.452513489700762e-05,
+   "min": 0.0019473516623131333,
+   "max": 0.0021042656860141883,
+   "n": 4
+  },
+  "path.phase.phase": {
+   "mean": 0.00020400543103407567,
+   "std": 1.475120880622611e-11,
+   "min": 0.00020400540940414288,
+   "max": 0.0002040054411151954,
+   "n": 4
+  },
+  "qnl.radiometer_noise": {
+   "mean": 0.0005732529017542002,
+   "std": 1.198013211062817e-05,
+   "min": 0.000565061061172709,
+   "max": 0.0005908981874730067,
+   "n": 4
+  },
+  "pid1.feedback": {
+   "mean": 0.0034864030487499744,
+   "std": 0.0002919665886671205,
+   "min": 0.003242884568058273,
+   "max": 0.003879562337945977,
+   "n": 4
+  },
+  "pid1.i_term": {
+   "mean": 0.0034864030487499744,
+   "std": 0.0002919665886671205,
+   "min": 0.003242884568058273,
+   "max": 0.003879562337945977,
+   "n": 4
+  },
+  "pid2.feedback": {
+   "mean": 0.0019267138897718292,
+   "std": 5.3942734241376655e-05,
+   "min": 0.0018713687033225352,
+   "max": 0.002000475239682085,
+   "n": 4
+  },
+  "pid2.i_term": {
+   "mean": 0.0019267138897718292,
+   "std": 5.3942734241376655e-05,
+   "min": 0.0018713687033225352,
+   "max": 0.002000475239682085,
+   "n": 4
+  }
+ }
+}

@@ -137,3 +137,5 @@
 - skill: anthropic-skills:research-papers（事実調査の担当、Phase 6 手順 3 の前提）。理由: 熱光学係数の波長依存性の一次資料。結果: R ≈ +0.3 ± 0.6 ps/(km·K)（符号は決まらない）、現行のプリセットの k_T と κ_τ の組み合わせは R を約 10 倍大きく見積もる（`notes/fact-p6-thermo-optic-moku.md`）。役に立った。
 - WP6-I（D85-7）: `excitation`・`loop_identification`、抽象制御インターフェースの後方互換の追加（`engage`/`disengage(loop_id)`、`acquire(..., injections_on=)`、`measure_loop_gain`）、Moku:Delta の対応の説明つきスタブ（`hardware/moku.py`）、上書き用の設定 `ident/*`。検証は `reviews/scripts/p6_wp6i_ident.py`。
 - skill: ponytail（プラグインのフックで全ターン有効、WP6-I）。理由: 自動で有効（呼び出したのではない）。AGENTS.md に従い、ブロックの内部（`excitation` のステップ関数、`loop_identification` の推定）にだけ適用し、フレームワーク（インターフェース・`SimController`・ランナーのフック）は保護リストどおり拡張だけ（簡略化なし）。役に立ったか: ブロック内部は短くなった。フレームワークには使っていない。
+- 軸 1 の探索（2026-11-05、`notes/findings_axis1.md`）: I-7（`ident/wire_F` の rate_div と記録の間引き、テスト付き）、4 つのベンチ構成のアブレーション・掃引（10 seed）・BoTorch（refD_lab の DSC1 の PID）・ロックしたままの 915B の同定・収束の確認。スクリプト `reviews/scripts/p6_axis1_*.py`。
+- skill: ponytail（プラグインのフックで全ターン有効、軸 1 の探索）。理由: 自動で有効（呼び出したのではない）。この作業はブロックの内部の実装ではない（スクリプトと上書き用の設定の 1 行の修正）ので、保護リストに触れる簡略化はしていない。スクリプトの共通部分を 1 つの補助モジュールにまとめた程度。役に立ったか: 限定的。
